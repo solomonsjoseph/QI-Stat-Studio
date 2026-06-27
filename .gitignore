@@ -4,10 +4,19 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
+*.egg
 dist/
 build/
+.Python
+pip-wheel-metadata/
 
-# Environment
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
@@ -16,27 +25,52 @@ build/
 *.db
 *.sqlite3
 
-# Uploads / encrypted files
+# Uploads / encrypted files at rest
 uploads/
 *.enc
 
-# Keys
+# Keys & certs
 *.key
 *.pem
+*.p12
+*.pfx
 
 # Node / frontend
 web/node_modules/
 web/dist/
+web/.vite/
+node_modules/
 
 # OS
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# pytest
+# pytest / coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+
+# mypy / type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
