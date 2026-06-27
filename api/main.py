@@ -21,9 +21,11 @@ app.add_middleware(
 def check_config():
     _ = settings.fernet  # raises RuntimeError if FERNET_KEY missing
 
-from api.routers import projects, upload, analyze, ai, report
+from api.routers import projects, upload, analyze, ai, report, intake, share
 app.include_router(projects.router)
 app.include_router(upload.router)
 app.include_router(analyze.router)
 app.include_router(ai.router)
 app.include_router(report.router)
+app.include_router(intake.router)
+app.include_router(share.router)
