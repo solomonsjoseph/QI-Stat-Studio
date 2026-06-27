@@ -1,6 +1,8 @@
+import os
 import api.models_db  # ensure all models registered before create_all
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from api.database import engine, Base
 from api.config import settings
 
@@ -30,3 +32,8 @@ app.include_router(report.router)
 app.include_router(intake.router)
 app.include_router(share.router)
 app.include_router(settings_router.router)
+
+# Serve frontend static files when web/dist exists (production / Docker)
+_dist = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
+if os.path.isdir(_dist):
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
