@@ -1,5 +1,6 @@
 import os
 import api.models_db  # ensure all models registered before create_all
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,7 +9,14 @@ from api.config import settings
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="QI Stat Studio", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ = settings.fernet  # raises RuntimeError if FERNET_KEY missing
+    yield
+
+
+app = FastAPI(title="QI Stat Studio", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,11 +25,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def check_config():
-    _ = settings.fernet  # raises RuntimeError if FERNET_KEY missing
 
 from api.routers import projects, upload, analyze, ai, report, intake, share, settings_router
 app.include_router(projects.router)

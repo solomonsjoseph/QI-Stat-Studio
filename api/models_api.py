@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Any, Optional, List, Dict
 
 
@@ -15,8 +15,7 @@ class ProjectOut(BaseModel):
     status: str
     deadline: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class IntakeAnswerIn(BaseModel):
