@@ -1,7 +1,42 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Environment
 .env
+.env.*
+!.env.example
+
+# Database
 *.db
+*.sqlite3
+
+# Uploads / encrypted files
 uploads/
+*.enc
+
+# Keys
 *.key
+*.pem
+
+# Node / frontend
+web/node_modules/
+web/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
