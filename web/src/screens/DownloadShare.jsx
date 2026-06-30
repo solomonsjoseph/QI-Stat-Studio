@@ -6,8 +6,6 @@ export default function DownloadShare() {
   const { ctx } = useApp()
   const [shareToken, setShareToken] = useState('')
   const runId = ctx.runId
-  const q9 = ctx.answers?.q9 || ''
-  const showSpssNote = q9.includes('SPSS') || q9.includes('SAS') || q9.includes('All')
 
   async function createShare() {
     const q10 = ctx.answers?.q10 || {}
@@ -19,12 +17,6 @@ export default function DownloadShare() {
   return (
     <div className="max-w-xl mx-auto p-8 mt-8">
       <h2 className="text-2xl font-bold mb-6 text-blue-800">Download & Share</h2>
-
-      {showSpssNote && (
-        <div className="bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800 mb-6">
-          Your R code supplement is included in the report. SPSS/SAS export is coming in a future update.
-        </div>
-      )}
 
       <div className="flex flex-col gap-4 mb-8">
         <a

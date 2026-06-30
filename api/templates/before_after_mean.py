@@ -44,7 +44,7 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
 
     # Boxplot
     fig, ax = plt.subplots(figsize=(5, 4))
-    ax.boxplot([pre, post], labels=[pre_val.capitalize(), post_val.capitalize()])
+    ax.boxplot([pre, post], tick_labels=[pre_val.capitalize(), post_val.capitalize()])
     ax.set_ylabel(value_col)
     ax.set_title(f"{value_col} Before vs. After {label}")
     buf = io.BytesIO()
