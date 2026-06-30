@@ -48,7 +48,7 @@ const QUESTIONS = [
     key: 'q6',
     text: 'How many time points (or rows) do you have?',
     type: 'number',
-    hint: "Run and control charts work best with 12 or more time points. Under 10, we'll recommend a simpler summary instead.",
+    hint: "Run and control charts work best with 12 or more time points. Under 12, we'll recommend a simpler summary instead.",
   },
   {
     key: 'q7',
