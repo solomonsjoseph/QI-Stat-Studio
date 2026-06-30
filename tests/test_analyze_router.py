@@ -105,6 +105,48 @@ def test_run_bad_upload_id_returns_404():
     assert resp.status_code == 404
 
 
+def test_run_blocks_when_outcome_column_over_30pct_missing():
+    """POST /analyze/run must return 400 when chosen outcome col is >30% missing."""
+    n = 20
+    dates = pd.date_range("2023-01-01", periods=n, freq="ME")
+    rng = np.random.default_rng(1)
+    # outcome column is 80% missing
+    outcome = rng.integers(0, 2, n).astype(float)
+    outcome[:16] = float("nan")
+    df = pd.DataFrame({
+        "encounter_date": dates.strftime("%Y-%m-%d"),
+        "hba1c": rng.uniform(6.5, 10.0, n),
+        "outcome": outcome,
+        "period": ["pre"] * (n // 2) + ["post"] * (n - n // 2),
+    })
+    csv_bytes = df.to_csv(index=False).encode()
+    enc_bytes = settings.fernet.encrypt(csv_bytes)
+
+    db = SessionLocal()
+    p = Project(title="Missing Test", description="test")
+    db.add(p); db.flush()
+    import tempfile, pathlib
+    enc_path = pathlib.Path(tempfile.mktemp(suffix=".enc"))
+    enc_path.write_bytes(enc_bytes)
+    u = Upload(
+        project_id=p.id, filename="missing.csv",
+        encrypted_path=str(enc_path),
+        col_types=json.dumps({c: "Number" for c in df.columns}),
+        quality_flags="[]",
+    )
+    db.add(u); db.commit()
+    pid, uid = p.id, u.id
+    db.close()
+
+    resp = client.post("/analyze/run", json={
+        "project_id": pid, "upload_id": uid,
+        "template": "before_after_pct",
+        "parameters": {"group_col": "period", "outcome_col": "outcome", "pre_val": "pre", "post_val": "post"},
+    })
+    assert resp.status_code == 400
+    assert "missing" in resp.json()["detail"].lower()
+
+
 def test_recommend_returns_ordered_list():
     """GET /analyze/{project_id}/recommend returns ordered template list."""
     # Seed project + intake answers

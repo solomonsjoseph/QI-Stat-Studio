@@ -79,9 +79,31 @@ def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db)):
         raise HTTPException(404, "Upload not found")
     if body.template not in TEMPLATE_REGISTRY:
         raise HTTPException(400, f"Unknown template: {body.template}")
+    _OUTCOME_COL_KEY = {
+        "before_after_mean": "value_col", "before_after_pct": "outcome_col",
+        "run_chart": "value_col", "p_chart": "numerator_col", "u_c_chart": "count_col",
+    }
     try:
         raw = settings.fernet.decrypt(open(upload.encrypted_path, "rb").read())
         df = pd.read_csv(io.BytesIO(raw))
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    # Pre-flight: block analysis when chosen outcome column is >30% missing
+    outcome_key = _OUTCOME_COL_KEY.get(body.template)
+    if outcome_key:
+        col = body.parameters.get(outcome_key)
+        if col and col in df.columns:
+            pct_missing = df[col].isna().mean() * 100
+            if pct_missing > 30:
+                raise HTTPException(
+                    400,
+                    f"Column '{col}' is {pct_missing:.1f}% missing. "
+                    "Analysis requires <30% missing in the outcome column. "
+                    "Return to Data Review to acknowledge this issue or choose a different column."
+                )
+
+    try:
         result = TEMPLATE_REGISTRY[body.template](df, body.parameters)
         from api.templates.codegen import generate_r_code
         code_r = generate_r_code(body.template, body.parameters)
