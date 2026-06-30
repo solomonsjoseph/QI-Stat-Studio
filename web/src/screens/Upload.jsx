@@ -96,7 +96,7 @@ export default function Upload() {
       <form onSubmit={handleUpload} className="flex flex-col gap-4">
         <input
           type="file"
-          accept=".csv"
+          accept=".csv,.xlsx,.xls"
           onChange={e => setFile(e.target.files[0])}
           required
           className="border rounded px-3 py-2"
