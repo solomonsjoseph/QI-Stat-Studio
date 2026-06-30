@@ -72,3 +72,13 @@ def test_full_text_p_chart():
         "q6": "15",
     }
     assert select_template(answers)[0] == "p_chart"
+
+
+def test_count_time_high_n_gives_u_c_chart():
+    """Guide §7: u/c-chart covers counts on a stable denominator (c-chart: falls per month)."""
+    assert select_template({"q3": "yes", "q4": "time", "q2": "A count (number of falls per month)", "q6": "14"})[0] == "u_c_chart"
+
+
+def test_count_time_low_n_gives_run_chart():
+    """Counts with <12 time points fall back to run chart."""
+    assert select_template({"q3": "yes", "q4": "time", "q2": "A count (number of falls per month)", "q6": "8"})[0] == "run_chart"

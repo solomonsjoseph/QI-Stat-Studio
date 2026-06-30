@@ -34,13 +34,14 @@ def select_template(answers: dict) -> List[str]:
     is_yes_comparison = q3.startswith("yes") or "before and after" in q3
     is_pct = "percent" in q2 or "proportion" in q2
     is_rate = "rate" in q2
+    is_count = "count" in q2
     is_avg = "average" in q2 or "median" in q2
 
     if is_no_comparison and is_groups:
         top = "descriptive_summary"
     elif is_time and is_pct and q6 >= 12:
         top = "p_chart"
-    elif is_time and is_rate and q6 >= 12:
+    elif is_time and (is_rate or is_count) and q6 >= 12:
         top = "u_c_chart"
     elif is_time and q6 < 12:
         top = "run_chart"
