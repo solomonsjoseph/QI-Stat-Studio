@@ -7,6 +7,17 @@ from api.models_api import AnalysisRequest
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
+_Q5_FREQ = {
+    "daily": "D",
+    "weekly": "W-MON",
+    "monthly": "ME",
+    "one row per patient": "D",
+}
+
+def q5_to_freq(q5: str) -> str:
+    """Map Q5 time-unit answer to a pandas resample frequency string."""
+    return _Q5_FREQ.get(q5.strip().lower(), "ME")
+
 _ALL = ["descriptive_summary", "before_after_mean", "before_after_pct",
         "run_chart", "p_chart", "u_c_chart"]
 
@@ -104,9 +115,18 @@ def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db)):
                 )
 
     try:
-        result = TEMPLATE_REGISTRY[body.template](df, body.parameters)
+        params = dict(body.parameters)
+        # Inject Q5 time-unit as resample freq for time-series templates (unless caller set it)
+        if body.template in ("run_chart", "p_chart", "u_c_chart") and "freq" not in params:
+            q5_row = db.query(IntakeAnswer).filter(
+                IntakeAnswer.project_id == body.project_id,
+                IntakeAnswer.question_key == "q5"
+            ).first()
+            if q5_row:
+                params["freq"] = q5_to_freq(q5_row.answer or "")
+        result = TEMPLATE_REGISTRY[body.template](df, params)
         from api.templates.codegen import generate_r_code
-        code_r = generate_r_code(body.template, body.parameters)
+        code_r = generate_r_code(body.template, params)
 
         # Read Q9 to determine code language preference
         q9_row = db.query(IntakeAnswer).filter(

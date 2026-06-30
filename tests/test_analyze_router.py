@@ -147,6 +147,18 @@ def test_run_blocks_when_outcome_column_over_30pct_missing():
     assert "missing" in resp.json()["detail"].lower()
 
 
+def test_q5_freq_mapping():
+    """Q5 answer must map to correct pandas resample freq string."""
+    from api.routers.analyze import q5_to_freq
+    assert q5_to_freq("Daily") == "D"
+    assert q5_to_freq("Weekly") == "W-MON"
+    assert q5_to_freq("Monthly") == "ME"
+    assert q5_to_freq("One row per patient") == "D"
+    assert q5_to_freq("Other") == "ME"
+    assert q5_to_freq("I'm not sure") == "ME"
+    assert q5_to_freq("") == "ME"
+
+
 def test_recommend_returns_ordered_list():
     """GET /analyze/{project_id}/recommend returns ordered template list."""
     # Seed project + intake answers
