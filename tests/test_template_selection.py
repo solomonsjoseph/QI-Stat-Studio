@@ -82,3 +82,27 @@ def test_count_time_high_n_gives_u_c_chart():
 def test_count_time_low_n_gives_run_chart():
     """Counts with <12 time points fall back to run chart."""
     assert select_template({"q3": "yes", "q4": "time", "q2": "A count (number of falls per month)", "q6": "8"})[0] == "run_chart"
+
+
+def test_yes_no_outcome_with_comparison_routes_to_before_after_pct():
+    """Q2='yes/no outcome' must route to before_after_pct, not run_chart."""
+    assert select_template({"q3": "yes", "q4": "groups", "q2": "a yes/no outcome", "q6": "50"})[0] == "before_after_pct"
+
+
+def test_full_text_yes_no_outcome_routes_to_before_after_pct():
+    answers = {
+        "q3": "Yes — before and after an intervention",
+        "q4": "Comparing groups at one point in time",
+        "q2": "A yes/no outcome (e.g. did the patient receive the flu shot)",
+        "q6": "100",
+    }
+    assert select_template(answers)[0] == "before_after_pct"
+
+
+def test_q4_both_routes_to_time_series():
+    """Q4='both' must set is_time=True and route to time-series analysis."""
+    assert select_template({"q3": "yes", "q4": "both", "q2": "percentage", "q6": "15"})[0] == "p_chart"
+
+
+def test_q4_both_low_n_routes_to_run_chart():
+    assert select_template({"q3": "yes", "q4": "both", "q2": "percentage", "q6": "8"})[0] == "run_chart"

@@ -28,11 +28,11 @@ def select_template(answers: dict) -> List[str]:
     q4 = str(answers.get("q4", "")).lower()
     q6 = int(answers.get("q6", 0) or 0)
 
-    is_time = "time" in q4 or "over time" in q4
+    is_time = ("time" in q4 and "one point in time" not in q4) or "both" in q4
     is_groups = "group" in q4 or "comparing" in q4
     is_no_comparison = q3.startswith("no") or "one time period" in q3 or "describing" in q3
     is_yes_comparison = q3.startswith("yes") or "before and after" in q3
-    is_pct = "percent" in q2 or "proportion" in q2
+    is_pct = "percent" in q2 or "proportion" in q2 or "yes/no" in q2
     is_rate = "rate" in q2
     is_count = "count" in q2
     is_avg = "average" in q2 or "median" in q2
