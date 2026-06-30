@@ -74,7 +74,7 @@ def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db)):
     import io
     import pandas as pd
 
-    upload = db.query(Upload).get(body.upload_id)
+    upload = db.get(Upload, body.upload_id)
     if not upload:
         raise HTTPException(404, "Upload not found")
     if body.template not in TEMPLATE_REGISTRY:
