@@ -30,6 +30,7 @@ export const api = {
     req('PUT', `/upload/${uploadId}/column-types`, { col_types: colTypes }),
 
   // Analysis
+  recommend: (projectId) => req('GET', `/analyze/${projectId}/recommend`),
   runAnalysis: (projectId, uploadId, template, params) =>
     req('POST', '/analyze/run', { project_id: projectId, upload_id: uploadId, template, params }),
 

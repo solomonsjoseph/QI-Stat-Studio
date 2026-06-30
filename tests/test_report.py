@@ -161,6 +161,59 @@ def test_docx_audit_trail_no_edits_section_omitted():
     assert "Resident Edits" not in text
 
 
+def _seed_run_with_table(template="before_after_mean"):
+    db = SessionLocal()
+    p = Project(title="Table Test Project", description="test")
+    db.add(p); db.flush()
+    u = Upload(project_id=p.id, filename="data.csv",
+               encrypted_path="/tmp/fake.enc", quality_flags="[]")
+    db.add(u); db.flush()
+    result = {
+        "methods": "Before/after mean comparison.",
+        "result_summary": "Mean changed from 8.1 to 7.2.",
+        "figure_base64": None,
+        "table": [
+            {"group": "Pre", "n": 50, "mean": 8.1, "sd": 1.2},
+            {"group": "Post", "n": 50, "mean": 7.2, "sd": 1.1},
+        ],
+    }
+    run = AnalysisRun(project_id=p.id, template=template,
+                      parameters=json.dumps({}),
+                      result_json=json.dumps(result), code_r="# R")
+    db.add(run); db.commit()
+    run_id = run.id
+    db.close()
+    return run_id
+
+
+def test_docx_results_table_rendered():
+    rid = _seed_run_with_table()
+    resp = client.get(f"/report/{rid}/docx")
+    text = _docx_text(resp.content)
+    assert "Pre" in text
+    assert "Post" in text
+    assert "Mean" in text or "mean" in text
+
+
+def test_pdf_results_table_rendered():
+    import pypdf
+    rid = _seed_run_with_table()
+    resp = client.get(f"/report/{rid}/pdf")
+    reader = pypdf.PdfReader(io.BytesIO(resp.content))
+    all_text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert "Pre" in all_text
+    assert "Post" in all_text
+
+
+def test_report_empty_table_no_crash():
+    """Time-series templates return table=[]; report must not crash."""
+    rid = _seed_run(template="run_chart")
+    resp = client.get(f"/report/{rid}/docx")
+    assert resp.status_code == 200
+    resp2 = client.get(f"/report/{rid}/pdf")
+    assert resp2.status_code == 200
+
+
 def test_pdf_audit_trail_includes_resident_edits():
     import pypdf
     rid = _seed_run_with_edits()

@@ -13,8 +13,7 @@ const QUESTIONS = [
       'An average or median value',
       'A yes/no outcome',
       'A count of events',
-      'Something else',
-      "I'm not sure",
+      'Something else / not sure',
     ],
   },
   {
@@ -33,8 +32,8 @@ const QUESTIONS = [
     text: 'Are you tracking over time, or comparing two groups?',
     type: 'radio',
     options: [
-      'Tracking a measure over time',
-      'Comparing groups at one time point',
+      'Tracking over time (months, weeks, days)',
+      'Comparing groups at one point in time',
       'Both',
       "I'm not sure",
     ],

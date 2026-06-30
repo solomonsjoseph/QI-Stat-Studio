@@ -49,6 +49,17 @@ def _build_docx(run: AnalysisRun, db: Session) -> bytes:
     doc.add_heading("Results", 1)
     doc.add_paragraph(result.get("result_summary", ""))
 
+    tbl_data = result.get("table", [])
+    if tbl_data:
+        headers = list(tbl_data[0].keys())
+        rt = doc.add_table(rows=1 + len(tbl_data), cols=len(headers))
+        rt.style = "Table Grid"
+        for j, h in enumerate(headers):
+            rt.rows[0].cells[j].text = h.capitalize()
+        for i, row in enumerate(tbl_data, 1):
+            for j, h in enumerate(headers):
+                rt.rows[i].cells[j].text = str(row.get(h, ""))
+
     # Figure
     fig_b64 = result.get("figure_base64")
     if fig_b64:
@@ -129,6 +140,21 @@ def _build_pdf(run: AnalysisRun, db: Session) -> bytes:
     story.append(Paragraph("Results", styles["Heading2"]))
     story.append(Paragraph(result.get("result_summary", ""), styles["Normal"]))
     story.append(Spacer(1, 8))
+
+    tbl_data = result.get("table", [])
+    if tbl_data:
+        headers = list(tbl_data[0].keys())
+        rows = [[h.capitalize() for h in headers]] + [
+            [str(r.get(h, "")) for h in headers] for r in tbl_data
+        ]
+        col_w = 470 / len(headers)
+        pt = Table(rows, colWidths=[col_w] * len(headers))
+        pt.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ]))
+        story.append(pt)
+        story.append(Spacer(1, 8))
 
     fig_b64 = result.get("figure_base64")
     if fig_b64:

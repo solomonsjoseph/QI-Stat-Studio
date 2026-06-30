@@ -49,6 +49,29 @@ export default function Results() {
         <p>{result.result_summary}</p>
       </div>
 
+      {result.table && result.table.length > 0 && (
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-gray-100">
+                {Object.keys(result.table[0]).map(k => (
+                  <th key={k} className="border px-3 py-2 text-left capitalize">{k}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.table.map((row, i) => (
+                <tr key={i}>
+                  {Object.values(row).map((v, j) => (
+                    <td key={j} className="border px-3 py-2">{String(v)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {result.figure_base64 && (
         <img
           src={`data:image/png;base64,${result.figure_base64}`}
