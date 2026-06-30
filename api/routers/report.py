@@ -14,7 +14,7 @@ from reportlab.lib import colors
 from sqlalchemy.orm import Session
 
 from api.database import get_db
-from api.models_db import AnalysisRun, Project, Upload
+from api.models_db import AnalysisRun, EditHistory, Project, Upload
 
 router = APIRouter(prefix="/report", tags=["report"])
 
@@ -71,6 +71,12 @@ def _build_docx(run: AnalysisRun, db: Session) -> bytes:
     if run.code_r:
         doc.add_heading("Statistical Code Supplement (R)", 1)
         doc.add_paragraph(run.code_r, style="No Spacing")
+    if run.code_spss:
+        doc.add_heading("Statistical Code Supplement (SPSS)", 1)
+        doc.add_paragraph(run.code_spss, style="No Spacing")
+    if run.code_sas:
+        doc.add_heading("Statistical Code Supplement (SAS)", 1)
+        doc.add_paragraph(run.code_sas, style="No Spacing")
 
     # Audit trail
     doc.add_heading("Audit Trail", 1)
@@ -85,6 +91,18 @@ def _build_docx(run: AnalysisRun, db: Session) -> bytes:
     for i, (k, v) in enumerate(audit_rows):
         tbl.rows[i].cells[0].text = k
         tbl.rows[i].cells[1].text = str(v)
+
+    edits = db.query(EditHistory).filter(EditHistory.project_id == run.project_id).all()
+    if edits:
+        doc.add_heading("Resident Edits", 2)
+        edit_tbl = doc.add_table(rows=1 + len(edits), cols=3)
+        edit_tbl.style = "Table Grid"
+        for j, header in enumerate(["Field", "Original Text", "Edited Text"]):
+            edit_tbl.rows[0].cells[j].text = header
+        for i, e in enumerate(edits, 1):
+            edit_tbl.rows[i].cells[0].text = e.field or ""
+            edit_tbl.rows[i].cells[1].text = e.original_text or ""
+            edit_tbl.rows[i].cells[2].text = e.edited_text or ""
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -131,6 +149,19 @@ def _build_pdf(run: AnalysisRun, db: Session) -> bytes:
         story.append(Paragraph("No data quality issues flagged.", styles["Normal"]))
     story.append(Spacer(1, 8))
 
+    if run.code_r:
+        story.append(Paragraph("Statistical Code Supplement (R)", styles["Heading2"]))
+        story.append(Paragraph(run.code_r, styles["Code"]))
+        story.append(Spacer(1, 8))
+    if run.code_spss:
+        story.append(Paragraph("Statistical Code Supplement (SPSS)", styles["Heading2"]))
+        story.append(Paragraph(run.code_spss, styles["Code"]))
+        story.append(Spacer(1, 8))
+    if run.code_sas:
+        story.append(Paragraph("Statistical Code Supplement (SAS)", styles["Heading2"]))
+        story.append(Paragraph(run.code_sas, styles["Code"]))
+        story.append(Spacer(1, 8))
+
     story.append(Paragraph("Audit Trail", styles["Heading2"]))
     audit_data = [
         ["Template", run.template],
@@ -143,6 +174,18 @@ def _build_pdf(run: AnalysisRun, db: Session) -> bytes:
         ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
     ]))
     story.append(t)
+
+    edits = db.query(EditHistory).filter(EditHistory.project_id == run.project_id).all()
+    if edits:
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("Resident Edits", styles["Heading2"]))
+        edit_data = [["Field", "Original Text", "Edited Text"]] + [
+            [e.field or "", e.original_text or "", e.edited_text or ""] for e in edits
+        ]
+        et = Table(edit_data, colWidths=[80, 220, 170])
+        et.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey)]))
+        story.append(et)
 
     doc.build(story)
     return buf.getvalue()

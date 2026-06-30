@@ -6,7 +6,7 @@ from docx import Document
 from fastapi.testclient import TestClient
 from api.main import app
 from api.database import engine, Base, SessionLocal
-from api.models_db import Project, AnalysisRun, Upload
+from api.models_db import Project, AnalysisRun, Upload, EditHistory
 
 Base.metadata.create_all(bind=engine)
 client = TestClient(app)
@@ -122,3 +122,50 @@ def test_pdf_contains_audit_trail_text():
     all_text = "".join(page.extract_text() or "" for page in reader.pages)
     assert "run_chart" in all_text
     assert "Audit Trail" in all_text
+
+
+def _seed_run_with_edits():
+    db = SessionLocal()
+    p = Project(title="Edit Test Project", description="test")
+    db.add(p); db.flush()
+    u = Upload(project_id=p.id, filename="data.csv",
+               encrypted_path="/tmp/fake.enc", quality_flags="[]")
+    db.add(u); db.flush()
+    result = {"methods": "A run chart.", "result_summary": "Median=5.0", "figure_base64": None}
+    run = AnalysisRun(project_id=p.id, template="run_chart",
+                      parameters=json.dumps({}),
+                      result_json=json.dumps(result), code_r="# R")
+    db.add(run); db.flush()
+    db.add(EditHistory(project_id=p.id, field="interpretation",
+                       original_text="AI text", edited_text="Resident revised text"))
+    db.commit()
+    run_id = run.id
+    db.close()
+    return run_id
+
+
+def test_docx_audit_trail_includes_resident_edits():
+    rid = _seed_run_with_edits()
+    resp = client.get(f"/report/{rid}/docx")
+    text = _docx_text(resp.content)
+    assert "Resident Edits" in text
+    assert "interpretation" in text
+    assert "AI text" in text
+    assert "Resident revised text" in text
+
+
+def test_docx_audit_trail_no_edits_section_omitted():
+    rid = _seed_run()
+    resp = client.get(f"/report/{rid}/docx")
+    text = _docx_text(resp.content)
+    assert "Resident Edits" not in text
+
+
+def test_pdf_audit_trail_includes_resident_edits():
+    import pypdf
+    rid = _seed_run_with_edits()
+    resp = client.get(f"/report/{rid}/pdf")
+    reader = pypdf.PdfReader(io.BytesIO(resp.content))
+    all_text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert "Resident Edits" in all_text
+    assert "interpretation" in all_text
