@@ -32,7 +32,12 @@ export default function Upload() {
   async function confirmTypes(e) {
     e.preventDefault()
     await api.confirmColTypes(ctx.uploadId, colTypes)
-    update({ colTypes, qualityFlags: uploadResult?.quality_flags })
+    update({
+      colTypes,
+      qualityFlags: uploadResult?.quality_flags,
+      rowCount: uploadResult?.row_count,
+      missingPct: uploadResult?.missing_pct,
+    })
     next()
   }
 

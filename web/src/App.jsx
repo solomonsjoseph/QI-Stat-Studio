@@ -50,12 +50,16 @@ export default function App() {
     const idx = SCREENS.indexOf(screen)
     if (idx < SCREENS.length - 1) setScreen(SCREENS[idx + 1])
   }
+  const prev = () => {
+    const idx = SCREENS.indexOf(screen)
+    if (idx > 0) setScreen(SCREENS[idx - 1])
+  }
   const goTo = (s) => setScreen(s)
 
   const Screen = COMPONENTS[screen] || Landing
 
   return (
-    <AppCtx.Provider value={{ ctx, update, next, goTo, screen }}>
+    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen }}>
       <div className="min-h-screen bg-gray-50">
         {/* Gear icon — visible on all screens except landing */}
         {screen !== 'landing' && (
