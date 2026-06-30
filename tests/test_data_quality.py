@@ -74,3 +74,20 @@ def test_no_duplicate_id_in_sample_csv():
     df = load()
     flags = run_data_quality(df)
     assert not any(f["rule"] == "duplicate_id" for f in flags)
+
+
+def test_fib4_score_dq_message_includes_expected_behavior_context():
+    df = load()
+    flags = run_data_quality(df)
+    fib4_flags = [f for f in flags if f["col"] == "fib4_score" and f["rule"] == "missing_pct"]
+    assert len(fib4_flags) == 1
+    assert "often blank when MASLD screening was not done" in fib4_flags[0]["msg"]
+    assert "expected behavior" in fib4_flags[0]["msg"]
+
+
+def test_fib4_score_dq_message_does_not_use_generic_wording():
+    df = load()
+    flags = run_data_quality(df)
+    fib4_flags = [f for f in flags if f["col"] == "fib4_score" and f["rule"] == "missing_pct"]
+    assert len(fib4_flags) == 1
+    assert "if this is your outcome column" not in fib4_flags[0]["msg"]

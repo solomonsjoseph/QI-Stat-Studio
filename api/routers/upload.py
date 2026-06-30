@@ -46,6 +46,10 @@ def run_data_quality(df: pd.DataFrame) -> List[Dict[str, Any]]:
     for col in df.columns:
         pct = df[col].isna().mean() * 100
         if pct > 30:
+            if col == "fib4_score":
+                flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING",
+                              "msg": f"fib4_score: {pct:.1f}% missing — often blank when MASLD screening was not done (expected behavior)."})
+                continue
             flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING",
                           "msg": f"{col}: {pct:.1f}% missing — if this is your outcome column, results may be unreliable"})
         elif pct > 5:
