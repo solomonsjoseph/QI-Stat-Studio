@@ -26,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from api.routers import projects, upload, analyze, ai, report, intake, share, settings_router
+from api.routers import projects, upload, analyze, ai, report, intake, share, settings_router, notifications  # noqa: F401
 app.include_router(projects.router)
 app.include_router(upload.router)
 app.include_router(analyze.router)
