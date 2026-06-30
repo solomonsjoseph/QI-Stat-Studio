@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { useApp } from '../App'
 
-// Fields per template — col names populated from uploaded colTypes
 const PARAM_FIELDS = {
   descriptive_summary: ['group_col', 'value_cols'],
   before_after_mean: ['group_col', 'value_col', 'pre_val', 'post_val'],
@@ -25,11 +24,18 @@ const FIELD_LABELS = {
   intervention_date: 'Intervention date',
 }
 
+// Fields that map to column names — rendered as dropdowns from uploaded colTypes
+const COL_NAME_FIELDS = new Set([
+  'group_col', 'value_col', 'date_col', 'numerator_col',
+  'denominator_col', 'count_col', 'outcome_col',
+])
+
 export default function ParameterSelection() {
   const { ctx, update, next } = useApp()
   const template = ctx.template || 'run_chart'
   const fields = PARAM_FIELDS[template] || []
   const q7 = ctx.answers?.q7 || {}
+  const colNames = Object.keys(ctx.colTypes || {})
 
   const [params, setParams] = useState(() => {
     const init = {}
@@ -58,13 +64,43 @@ export default function ParameterSelection() {
         {fields.map(f => (
           <label key={f} className="flex flex-col gap-1">
             <span className="font-medium text-sm">{FIELD_LABELS[f] || f}</span>
-            <input
-              type={f === 'intervention_date' ? 'date' : 'text'}
-              className="border rounded px-3 py-2 text-sm"
-              value={params[f] || ''}
-              onChange={e => setField(f, e.target.value)}
-              required={!f.includes('optional') && f !== 'denominator_col' && f !== 'intervention_date'}
-            />
+            {f === 'intervention_date' ? (
+              <input
+                type="date"
+                className="border rounded px-3 py-2 text-sm"
+                value={params[f] || ''}
+                onChange={e => setField(f, e.target.value)}
+              />
+            ) : f === 'value_cols' ? (
+              /* Multi-select for value_cols — maps to comma-joined string */
+              <select
+                multiple
+                className="border rounded px-3 py-2 text-sm"
+                value={params[f] ? params[f].split(',').map(s => s.trim()) : []}
+                onChange={e => setField(f, Array.from(e.target.selectedOptions, o => o.value).join(','))}
+                required
+              >
+                {colNames.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : COL_NAME_FIELDS.has(f) ? (
+              <select
+                className="border rounded px-3 py-2 text-sm"
+                value={params[f] || ''}
+                onChange={e => setField(f, e.target.value)}
+                required={f !== 'denominator_col'}
+              >
+                <option value="">— select column —</option>
+                {colNames.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="border rounded px-3 py-2 text-sm"
+                value={params[f] || ''}
+                onChange={e => setField(f, e.target.value)}
+                required
+              />
+            )}
           </label>
         ))}
         <button
