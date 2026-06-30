@@ -21,6 +21,7 @@ class Upload(Base):
     column_map = Column(Text, default="{}")
     col_types = Column(Text, default="{}")
     quality_flags = Column(Text, default="[]")
+    acknowledged_flags = Column(Text, nullable=True)
     encrypted_path = Column(String(512))
 
 

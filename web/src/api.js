@@ -28,6 +28,8 @@ export const api = {
   },
   confirmColTypes: (uploadId, colTypes) =>
     req('PUT', `/upload/${uploadId}/column-types`, { col_types: colTypes }),
+  saveAcknowledgedFlags: (uploadId, flags) =>
+    req('PATCH', `/upload/${uploadId}/acknowledged-flags`, { flags }),
 
   // Analysis
   recommend: (projectId) => req('GET', `/analyze/${projectId}/recommend`),

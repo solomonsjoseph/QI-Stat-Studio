@@ -31,7 +31,11 @@ def _build_context(run: AnalysisRun, db: Session):
     upload = db.query(Upload).filter(Upload.project_id == run.project_id).first()
     result = json.loads(run.result_json or "{}")
     params = json.loads(run.parameters or "{}")
-    flags = json.loads(upload.quality_flags if upload else "[]")
+    # Use acknowledged_flags if resident confirmed them; fall back to all quality_flags
+    if upload and upload.acknowledged_flags is not None:
+        flags = json.loads(upload.acknowledged_flags)
+    else:
+        flags = json.loads(upload.quality_flags if upload else "[]")
     return project, upload, result, params, flags
 
 

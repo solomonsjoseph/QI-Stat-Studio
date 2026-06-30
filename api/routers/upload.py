@@ -113,8 +113,20 @@ async def upload_file(project_id: int, file: UploadFile = File(...),
     db.add(upload)
     db.commit()
     db.refresh(upload)
+    missing_pct = {col: col_summary[col]["missing_pct"] for col in col_summary}
     return {"upload_id": upload.id, "row_count": len(df),
-            "col_summary": col_summary, "col_types": col_types, "quality_flags": flags}
+            "col_summary": col_summary, "col_types": col_types,
+            "quality_flags": flags, "missing_pct": missing_pct}
+
+
+@router.patch("/{upload_id}/acknowledged-flags")
+def save_acknowledged_flags(upload_id: int, body: dict, db: Session = Depends(get_db)):
+    u = db.query(Upload).get(upload_id)
+    if not u:
+        raise HTTPException(404)
+    u.acknowledged_flags = json.dumps(body.get("flags", []))
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/{upload_id}/column-types")

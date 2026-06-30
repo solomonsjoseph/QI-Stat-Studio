@@ -214,6 +214,32 @@ def test_report_empty_table_no_crash():
     assert resp2.status_code == 200
 
 
+def test_docx_limitations_uses_acknowledged_flags_not_all():
+    """If acknowledged_flags is set, only those appear in Limitations (not all quality_flags)."""
+    db = SessionLocal()
+    p = Project(title="Ack Test", description="test")
+    db.add(p); db.flush()
+    all_flags = [
+        {"col": "hba1c", "rule": "check_missing", "severity": "WARNING", "msg": "hba1c is 15% missing"},
+        {"col": "egfr", "rule": "outlier_count", "severity": "WARNING", "msg": "egfr has outliers"},
+    ]
+    acked_flags = [all_flags[0]]  # only the first one was acknowledged
+    u = Upload(project_id=p.id, filename="data.csv", encrypted_path="/tmp/fake.enc",
+               quality_flags=json.dumps(all_flags),
+               acknowledged_flags=json.dumps(acked_flags))
+    db.add(u); db.flush()
+    result = {"methods": "A run chart.", "result_summary": "Median=5.0", "figure_base64": None}
+    run = AnalysisRun(project_id=p.id, template="run_chart",
+                      parameters=json.dumps({}), result_json=json.dumps(result), code_r="# R")
+    db.add(run); db.commit()
+    run_id = run.id; db.close()
+
+    resp = client.get(f"/report/{run_id}/docx")
+    text = _docx_text(resp.content)
+    assert "hba1c is 15% missing" in text       # acknowledged flag present
+    assert "egfr has outliers" not in text       # unacknowledged flag absent
+
+
 def test_pdf_audit_trail_includes_resident_edits():
     import pypdf
     rid = _seed_run_with_edits()

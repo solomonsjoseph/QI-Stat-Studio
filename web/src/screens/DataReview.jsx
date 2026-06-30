@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useApp } from '../App'
+import { api } from '../api'
 
 export default function DataReview() {
   const { ctx, update, next, prev } = useApp()
@@ -20,8 +21,12 @@ export default function DataReview() {
   const allWarningsAcked = warnings.every((_, i) => acknowledged[i])
   const canContinue = errors.length === 0 && (warnings.length === 0 || allWarningsAcked)
 
-  function proceed() {
-    update({ acknowledgedFlags: warnings.filter((_, i) => acknowledged[i]) })
+  async function proceed() {
+    const ackedFlags = warnings.filter((_, i) => acknowledged[i])
+    if (ctx.uploadId) {
+      await api.saveAcknowledgedFlags(ctx.uploadId, ackedFlags)
+    }
+    update({ acknowledgedFlags: ackedFlags })
     next()
   }
 
