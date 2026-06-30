@@ -46,10 +46,9 @@ const QUESTIONS = [
   },
   {
     key: 'q6',
-    text: 'Approximately how many data points (months/time periods) do you have?',
-    type: 'radio',
-    options: ['Less than 12', '12 or more'],
-    hint: 'Run and control charts work best with 12 or more time points. Under 10, we\'ll recommend a simpler summary instead.',
+    text: 'How many time points (or rows) do you have?',
+    type: 'number',
+    hint: "Run and control charts work best with 12 or more time points. Under 10, we'll recommend a simpler summary instead.",
   },
   {
     key: 'q7',
@@ -112,8 +111,6 @@ export default function IntakeQuestions() {
     e.preventDefault()
     if (!isLast) { setIdx(i => i + 1); return }
     const final = { ...answers }
-    if (final.q6 === 'Less than 12') final.q6 = 6
-    else if (final.q6 === '12 or more') final.q6 = 12
     await api.saveAnswers(ctx.projectId, final)
     update({ answers: final })
     next()
@@ -149,6 +146,21 @@ export default function IntakeQuestions() {
               ))}
               {q.hint && (
                 <p className="text-xs text-gray-500 mt-1 ml-1">{q.hint}</p>
+              )}
+            </div>
+          )}
+
+          {q.type === 'number' && (
+            <div className="flex flex-col gap-1">
+              <input
+                type="number"
+                min="1"
+                value={answers[q.key] || ''}
+                onChange={e => setField(q.key, parseInt(e.target.value) || 0)}
+                className="border rounded px-3 py-2 w-32"
+              />
+              {q.hint && (
+                <p className="text-xs text-gray-500 mt-1">{q.hint}</p>
               )}
             </div>
           )}
