@@ -32,3 +32,22 @@ def test_norm_group_handles_mixed_case():
     df["period"] = df["period"].str.capitalize()  # "Pre", "Post"
     result = run_before_after_pct(df, PARAMS)
     assert "p_value" in result
+
+
+def test_non_binary_outcome_does_not_crash():
+    """Fisher exact must not be called on non-2x2 tables (3+ outcome values).
+
+    Use synthetic small-n data to force expected counts < 5, which is
+    the branch that previously called fisher_exact on a 2x3 table and raised ValueError.
+    """
+    # 3-level outcome, tiny counts → min expected < 5 → would trigger fisher_exact bug
+    df = pd.DataFrame({
+        "period": ["pre"] * 6 + ["post"] * 6,
+        "stage": [1, 1, 2, 2, 3, 3, 1, 1, 2, 3, 3, 3],
+    })
+    result = run_before_after_pct(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post",
+        "outcome_col": "stage",
+    })
+    assert "p_value" in result
+    assert result["test_used"] == "Chi-square test"

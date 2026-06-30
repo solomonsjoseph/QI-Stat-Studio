@@ -33,7 +33,8 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     ct = pd.crosstab(df[mask][group_col], df[mask][outcome_col])
     expected = stats.chi2_contingency(ct)[3]
     oddsratio = None
-    if (expected < 5).any():
+    # ponytail: fisher_exact only accepts 2x2 — fall back to chi-square for larger tables
+    if ct.shape == (2, 2) and (expected < 5).any():
         result = stats.fisher_exact(ct)
         oddsratio, p_value = float(result[0]), float(result[1])
         test_used = "Fisher's exact test"
