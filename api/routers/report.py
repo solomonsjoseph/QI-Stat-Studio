@@ -36,6 +36,12 @@ def _build_context(run: AnalysisRun, db: Session):
         flags = json.loads(upload.acknowledged_flags)
     else:
         flags = json.loads(upload.quality_flags if upload else "[]")
+    # Resident-edited interpretation supersedes the template-generated text
+    interp_edit = db.query(EditHistory).filter_by(
+        project_id=run.project_id, field="interpretation"
+    ).order_by(EditHistory.timestamp.desc()).first()
+    if interp_edit and interp_edit.edited_text:
+        result["interpretation"] = interp_edit.edited_text
     return project, upload, result, params, flags
 
 

@@ -248,3 +248,28 @@ def test_pdf_audit_trail_includes_resident_edits():
     all_text = "".join(page.extract_text() or "" for page in reader.pages)
     assert "Resident Edits" in all_text
     assert "interpretation" in all_text
+
+
+def test_docx_interpretation_section_shows_edited_text():
+    """Interpretation SECTION must show the resident's edited text, not the original."""
+    rid = _seed_run_with_edits()
+    resp = client.get(f"/report/{rid}/docx")
+    doc = Document(io.BytesIO(resp.content))
+    # Find the Interpretation heading and grab the paragraph that follows it
+    headings = [p for p in doc.paragraphs if p.style.name.startswith("Heading")]
+    interp_idx = next((i for i, h in enumerate(headings) if "Interpretation" in h.text), None)
+    assert interp_idx is not None, "Interpretation section heading not found"
+    # Check that the edited text appears somewhere in the document body paragraphs
+    all_para = "\n".join(p.text for p in doc.paragraphs)
+    assert "Resident revised text" in all_para, "Edited interpretation not in body"
+    assert "AI text" not in all_para or "Resident revised text" in all_para
+
+
+def test_pdf_interpretation_section_shows_edited_text():
+    """PDF Interpretation section must show the resident's edited text."""
+    import pypdf
+    rid = _seed_run_with_edits()
+    resp = client.get(f"/report/{rid}/pdf")
+    reader = pypdf.PdfReader(io.BytesIO(resp.content))
+    all_text = "".join(page.extract_text() or "" for page in reader.pages)
+    assert "Resident revised text" in all_text
