@@ -140,11 +140,13 @@ def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db)):
         ).first()
         q9 = (q9_row.answer or "").lower() if q9_row else "r"
 
+        from api.templates.codegen import generate_spss_code, generate_sas_code
         code_spss = ""
         code_sas = ""
-        if "spss" in q9 or "sas" in q9 or "all" in q9:
-            code_spss = "# SPSS/SAS export coming in Phase 3"
-            code_sas = "# SPSS/SAS export coming in Phase 3"
+        if "spss" in q9 or "all" in q9:
+            code_spss = generate_spss_code(body.template, params)
+        if "sas" in q9 or "all" in q9:
+            code_sas = generate_sas_code(body.template, params)
 
         run = AnalysisRun(
             project_id=body.project_id, template=body.template,

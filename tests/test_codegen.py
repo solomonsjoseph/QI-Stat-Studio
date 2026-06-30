@@ -51,3 +51,54 @@ def test_generated_code_is_string():
         code = generate_r_code(t, {})
         assert isinstance(code, str)
         assert len(code) > 10
+
+
+# ── SPSS and SAS tests ────────────────────────────────────────────────────
+
+from api.templates.codegen import generate_spss_code, generate_sas_code
+
+
+def test_spss_not_placeholder():
+    for t in ["descriptive_summary", "before_after_mean", "before_after_pct",
+              "run_chart", "p_chart", "u_c_chart"]:
+        code = generate_spss_code(t, {})
+        assert "Phase 3" not in code, f"{t}: still placeholder"
+        assert len(code) > 30
+
+
+def test_sas_not_placeholder():
+    for t in ["descriptive_summary", "before_after_mean", "before_after_pct",
+              "run_chart", "p_chart", "u_c_chart"]:
+        code = generate_sas_code(t, {})
+        assert "Phase 3" not in code, f"{t}: still placeholder"
+        assert len(code) > 30
+
+
+def test_spss_descriptive_contains_frequencies():
+    code = generate_spss_code("descriptive_summary", {"value_cols": ["hba1c"], "group_col": "period"})
+    assert "DESCRIPTIVES" in code or "FREQUENCIES" in code or "MEANS" in code
+
+
+def test_spss_before_after_mean_contains_ttest():
+    code = generate_spss_code("before_after_mean", {"group_col": "period", "value_col": "hba1c"})
+    assert "T-TEST" in code
+
+
+def test_spss_before_after_pct_contains_crosstabs():
+    code = generate_spss_code("before_after_pct", {"group_col": "period", "outcome_col": "outcome"})
+    assert "CROSSTABS" in code
+
+
+def test_sas_descriptive_contains_proc_means():
+    code = generate_sas_code("descriptive_summary", {"value_cols": ["hba1c"], "group_col": "period"})
+    assert "PROC MEANS" in code
+
+
+def test_sas_before_after_mean_contains_proc_ttest():
+    code = generate_sas_code("before_after_mean", {"group_col": "period", "value_col": "hba1c"})
+    assert "PROC TTEST" in code
+
+
+def test_sas_before_after_pct_contains_proc_freq():
+    code = generate_sas_code("before_after_pct", {"group_col": "period", "outcome_col": "outcome"})
+    assert "PROC FREQ" in code
