@@ -88,6 +88,10 @@ export default function Upload() {
   return (
     <div className="max-w-xl mx-auto p-8 mt-8">
       <h2 className="text-2xl font-bold mb-6 text-blue-800">Upload Your Data</h2>
+      <div className="bg-yellow-50 border border-yellow-400 text-yellow-800 rounded px-4 py-3 mb-6 text-sm">
+        ⚠ Do not upload files containing patient names, MRNs, or other direct identifiers.
+        Column headers and aggregate statistics only are sent to AI features.
+      </div>
       {error && <p className="text-red-600 mb-4">{error}</p>}
       <form onSubmit={handleUpload} className="flex flex-col gap-4">
         <input
