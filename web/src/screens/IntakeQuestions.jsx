@@ -65,7 +65,7 @@ const QUESTIONS = [
   },
   {
     key: 'q9',
-    text: 'Which statistical software would you like code generated for?',
+    text: 'Which software should we put in the code export?',
     type: 'radio',
     options: ['R', 'SPSS', 'SAS', 'All three'],
     hint: "You won't need to run any code yourself — everything runs inside the tool. This choice only affects the script you can save for your supplement or send to your mentor.",
