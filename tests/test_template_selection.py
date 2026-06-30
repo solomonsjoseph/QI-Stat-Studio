@@ -106,3 +106,17 @@ def test_q4_both_routes_to_time_series():
 
 def test_q4_both_low_n_routes_to_run_chart():
     assert select_template({"q3": "yes", "q4": "both", "q2": "percentage", "q6": "8"})[0] == "run_chart"
+
+
+def test_multi_phase_with_time_routes_to_run_chart():
+    """Q3='More than two periods (phases)' + time tracking → run_chart."""
+    assert select_template({"q3": "More than two periods (phases)", "q4": "time", "q2": "percentage", "q6": "20"})[0] == "run_chart"
+
+
+def test_multi_phase_without_time_routes_to_descriptive():
+    """Q3='More than two periods (phases)' + no time tracking → descriptive_summary."""
+    assert select_template({"q3": "More than two periods (phases)", "q4": "groups", "q2": "average", "q6": "5"})[0] == "descriptive_summary"
+
+
+def test_multi_phase_short_form():
+    assert select_template({"q3": "more than two", "q4": "time", "q2": "count", "q6": "15"})[0] == "run_chart"

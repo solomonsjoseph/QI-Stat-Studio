@@ -43,12 +43,17 @@ def select_template(answers: dict) -> List[str]:
     is_groups = "group" in q4 or "comparing" in q4
     is_no_comparison = q3.startswith("no") or "one time period" in q3 or "describing" in q3
     is_yes_comparison = q3.startswith("yes") or "before and after" in q3
+    is_multi_phase = "more than two" in q3 or "phases" in q3
     is_pct = "percent" in q2 or "proportion" in q2 or "yes/no" in q2
     is_rate = "rate" in q2
     is_count = "count" in q2
     is_avg = "average" in q2 or "median" in q2
 
-    if is_no_comparison and is_groups:
+    if is_multi_phase and not is_time:
+        top = "descriptive_summary"
+    elif is_multi_phase:
+        top = "run_chart"
+    elif is_no_comparison and is_groups:
         top = "descriptive_summary"
     elif is_time and is_pct and q6 >= 12:
         top = "p_chart"
