@@ -50,8 +50,14 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
                f"The median ({median:.2f}) is shown as a reference line. "
                f"A run signal (≥8 consecutive points on the same side of the median) "
                f"{'was' if signal else 'was not'} detected.")
+    interpretation = (
+        f"The run chart shows {value_col} over time with a median of {median:.2f}. "
+        f"{'A run signal was detected (longest run = ' + str(max_run) + ' consecutive points on the same side of the median), suggesting a non-random shift in the process.' if signal else 'No run signal was detected (longest run = ' + str(max_run) + '), suggesting the process remained stable during the observation period.'} "
+        f"[Edit this paragraph to describe what this pattern means for your QI project.]"
+    )
     return {
         "table": [], "figure_base64": fig_b64, "methods": methods,
         "result_summary": f"Median={median:.2f}. Signal {'detected' if signal else 'not detected'} (longest run={max_run}).",
+        "interpretation": interpretation,
         "signal_detected": signal, "max_run": max_run,
     }

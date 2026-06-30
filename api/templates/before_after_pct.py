@@ -59,11 +59,19 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
 
     methods = (f"A {test_used} was used to compare the proportion of {outcome_col} "
                f"between pre- (n={len(pre)}) and post-intervention (n={len(post)}) periods.")
+    direction = "increased" if post_pct > pre_pct else "decreased"
+    sig = "statistically significant" if p_value < 0.05 else "not statistically significant"
+    interpretation = (
+        f"The proportion of {outcome_col} {direction} from {pre_pct:.1f}% before to {post_pct:.1f}% after the intervention. "
+        f"This difference was {sig} ({test_used}: p={p_value:.4f}). "
+        f"[Edit this paragraph to describe what this finding means for your QI project and patients.]"
+    )
     return {
         "table": [{"group": pre_val, "n": len(pre), "pct": round(pre_pct, 1)},
                   {"group": post_val, "n": len(post), "pct": round(post_pct, 1)}],
         "figure_base64": fig_b64, "methods": methods,
         "result_summary": f"{outcome_col}: {pre_pct:.1f}% pre vs {post_pct:.1f}% post. {test_used}: p={p_value:.4f}.",
+        "interpretation": interpretation,
         "p_value": round(p_value, 4), "test_used": test_used,
         "odds_ratio": round(oddsratio, 3) if oddsratio is not None else None,
     }

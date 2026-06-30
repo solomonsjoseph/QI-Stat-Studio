@@ -63,8 +63,18 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     methods = (f"A {'u' if chart_type == 'u' else 'c'}-chart was constructed for {count_col} "
                f"across {len(agg)} time points with 3-sigma control limits "
                f"(UCL={ucl:.3f}, LCL={lcl:.3f}). {out_of_control} point(s) fell outside control limits.")
+    oc_phrase = (f"{out_of_control} point(s) fell outside control limits, indicating special-cause variation."
+                 if out_of_control else "All points fell within control limits, indicating the process was in statistical control.")
+    chart_label = "u-chart (rate)" if chart_type == "u" else "c-chart (count)"
+    interpretation = (
+        f"The {chart_label} shows {count_col} over {len(agg)} time periods with a mean of {ubar:.3f} "
+        f"(UCL={ucl:.3f}, LCL={lcl:.3f}). "
+        f"{oc_phrase} "
+        f"[Edit this paragraph to describe what this pattern means for your QI project.]"
+    )
     return {
         "table": [], "figure_base64": fig_b64, "methods": methods,
         "result_summary": f"Mean={ubar:.3f}. {out_of_control} out-of-control point(s).",
+        "interpretation": interpretation,
         "ucl": round(ucl, 4), "lcl": round(lcl, 4),
     }

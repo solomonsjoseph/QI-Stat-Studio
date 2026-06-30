@@ -55,8 +55,17 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     methods = (f"A p-chart (control chart for proportions) was constructed using {len(agg)} time points. "
                f"Control limits were set at 3 standard deviations (UCL={ucl*100:.1f}%, LCL={lcl*100:.1f}%). "
                f"{out_of_control} point(s) fell outside control limits.")
+    oc_phrase = (f"{out_of_control} point(s) fell outside the 3-sigma control limits, indicating special-cause variation."
+                 if out_of_control else "All points fell within control limits, indicating the process was in statistical control.")
+    interpretation = (
+        f"The p-chart shows the proportion of {numerator_col} over {len(agg)} time periods. "
+        f"The overall mean rate was {pbar*100:.1f}% (UCL={ucl*100:.1f}%, LCL={lcl*100:.1f}%). "
+        f"{oc_phrase} "
+        f"[Edit this paragraph to describe what this pattern means for your QI project.]"
+    )
     return {
         "table": [], "figure_base64": fig_b64, "methods": methods,
         "result_summary": f"Mean={pbar*100:.1f}%. {out_of_control} out-of-control point(s).",
+        "interpretation": interpretation,
         "ucl": round(ucl, 4), "lcl": round(lcl, 4), "pbar": round(pbar, 4),
     }

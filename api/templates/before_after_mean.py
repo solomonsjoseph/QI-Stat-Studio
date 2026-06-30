@@ -65,6 +65,12 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         f"{test_used}: p={p_value:.4f}."
     )
 
+    sig = "statistically significant" if float(p_value) < 0.05 else "not statistically significant"
+    interpretation = (
+        f"{value_col} {direction} from {pre.mean():.2f} before the intervention to {post.mean():.2f} after. "
+        f"This difference was {sig} ({test_used}: p={float(p_value):.4f}). "
+        f"[Edit this paragraph to describe what this finding means for your QI project and patients.]"
+    )
     return {
         "table": [
             {"group": pre_val, "n": len(pre), "mean": round(pre.mean(), 2), "sd": round(pre.std(), 2)},
@@ -73,6 +79,7 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "figure_base64": fig_b64,
         "methods": methods,
         "result_summary": result_summary,
+        "interpretation": interpretation,
         "p_value": round(float(p_value), 4),
         "test_used": test_used,
     }
