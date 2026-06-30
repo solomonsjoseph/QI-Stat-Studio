@@ -93,9 +93,10 @@ export default function IntakeQuestions() {
   })
   const [idx, setIdx] = useState(0)
 
-  // Q8 hidden when user said they're not comparing periods
+  // Q7 and Q8 skipped when resident is not comparing periods (guide §5)
+  const NO_COMPARISON = "No — I'm just describing one time period"
   const visible = QUESTIONS.filter(
-    q => q.key !== 'q8' || answers.q3 !== "No — I'm just describing one time period"
+    q => !(( q.key === 'q7' || q.key === 'q8') && answers.q3 === NO_COMPARISON)
   )
   const current = visible[idx]
   const isLast = idx === visible.length - 1
