@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from api.database import SessionLocal
 from api.main import app
-from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, MentorShare, Project, Upload
+from api.models_db import AnalysisRun, AuditLog, EditHistory, IntakeAnswer, MentorComment, MentorShare, Project, Upload
 
 PASSWORD = "password123"
 TINY_PNG_BASE64 = (
@@ -249,6 +249,27 @@ def test_docx_report_renders_latest_edits_upload_lineage_audit_log_and_visible_m
     assert f'"upload_id": {seeded["analysis_upload_id"]}' in text
     assert "Visible mentor feedback for the report." in text
     assert "Deleted mentor feedback must not render." not in text
+
+def test_docx_report_appends_q7_intervention_to_figure_caption(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run()
+    with SessionLocal() as db:
+        db.add(
+            IntakeAnswer(
+                project_id=seeded["project_id"],
+                question_key="q7",
+                answer=json.dumps({"description": "Started standing orders", "date": "2025-01-01"}),
+                is_unsure=False,
+            )
+        )
+        db.commit()
+
+    response = client.get(f"/report/{seeded['run_id']}/docx")
+    assert response.status_code == 200, response.text
+    text = _docx_text(response.content)
+
+    assert "Intervention: Started standing orders (2025-01-01)" in text
+
 
 
 def test_pdf_report_renders_latest_edits_upload_lineage_audit_log_and_visible_mentor_comments(client):

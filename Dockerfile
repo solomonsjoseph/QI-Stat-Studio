@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt \
 COPY . ./
 COPY --from=web-build /app/web/dist ./web/dist
 EXPOSE 8000
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port 8000"]

@@ -117,10 +117,9 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             f"df${dc} <- as.Date(df${dc})\n"
             f"monthly <- df %>% group_by(month=format({dc}, '%Y-%m')) %>% {aggregate}\n"
             f"monthly$p <- monthly$num / monthly$denom\n"
-            f"pbar <- mean(monthly$p, na.rm=TRUE)\n"
-            f"nbar <- mean(monthly$denom, na.rm=TRUE)\n"
-            f"monthly$ucl <- pbar + 3*sqrt(pbar*(1-pbar)/nbar)\n"
-            f"monthly$lcl <- pmax(0, pbar - 3*sqrt(pbar*(1-pbar)/nbar))"
+            f"pbar <- sum(monthly$num, na.rm=TRUE) / sum(monthly$denom, na.rm=TRUE)\n"
+            f"monthly$ucl <- pbar + 3*sqrt(pbar*(1-pbar)/monthly$denom)\n"
+            f"monthly$lcl <- pmax(0, pbar - 3*sqrt(pbar*(1-pbar)/monthly$denom))"
         )
 
     if template == "u_c_chart":
@@ -134,10 +133,9 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
                 f"monthly <- df %>% group_by(month=format({dc}, '%Y-%m')) %>% "
                 f"summarise(cnt=sum({cc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE))\n"
                 f"monthly$rate <- monthly$cnt / monthly$denom\n"
-                f"ubar <- mean(monthly$rate, na.rm=TRUE)\n"
-                f"nbar <- mean(monthly$denom, na.rm=TRUE)\n"
-                f"monthly$ucl <- ubar + 3*sqrt(ubar/nbar)\n"
-                f"monthly$lcl <- pmax(0, ubar - 3*sqrt(ubar/nbar))"
+                f"ubar <- sum(monthly$cnt, na.rm=TRUE) / sum(monthly$denom, na.rm=TRUE)\n"
+                f"monthly$ucl <- ubar + 3*sqrt(ubar/monthly$denom)\n"
+                f"monthly$lcl <- pmax(0, ubar - 3*sqrt(ubar/monthly$denom))"
             )
         return (
             f"library(dplyr)\n"
@@ -183,14 +181,32 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
         denom = params.get("denominator_col")
         bucket = _spss_date_bucket(params)
         denom_expr = f"SUM({denom})" if denom else "N"
-        return f"{bucket}\nAGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /num=SUM({nc}) /denom={denom_expr}.\nCOMPUTE p=num/denom.\n* Compute p-chart UCL/LCL from pbar and mean denominator."
+        return (
+            f"{bucket}\n"
+            f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /num=SUM({nc}) /denom={denom_expr}.\n"
+            f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK= /num_total=SUM(num) /denom_total=SUM(denom).\n"
+            f"COMPUTE p=num/denom.\n"
+            f"COMPUTE pbar=num_total/denom_total.\n"
+            f"COMPUTE ucl=pbar + 3*SQRT(pbar*(1-pbar)/denom).\n"
+            f"COMPUTE lcl=MAX(0, pbar - 3*SQRT(pbar*(1-pbar)/denom)).\n"
+            f"EXECUTE."
+        )
 
     if template == "u_c_chart":
         cc = params.get("count_col", "count")
         denom = params.get("denominator_col")
         bucket = _spss_date_bucket(params)
         if denom:
-            return f"{bucket}\nAGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}) /denom=SUM({denom}).\nCOMPUTE rate=cnt/denom.\n* Compute u-chart UCL/LCL from rate and denominator.\nEXECUTE."
+            return (
+                f"{bucket}\n"
+                f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}) /denom=SUM({denom}).\n"
+                f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK= /cnt_total=SUM(cnt) /denom_total=SUM(denom).\n"
+                f"COMPUTE rate=cnt/denom.\n"
+                f"COMPUTE ubar=cnt_total/denom_total.\n"
+                f"COMPUTE ucl=ubar + 3*SQRT(ubar/denom).\n"
+                f"COMPUTE lcl=MAX(0, ubar - 3*SQRT(ubar/denom)).\n"
+                f"EXECUTE."
+            )
         return f"{bucket}\nAGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}).\nCOMPUTE cbar=MEAN(cnt).\n* Compute c-chart UCL/LCL from cbar.\nEXECUTE."
 
     return f'* SPSS code for template "{template}" not yet implemented.'
@@ -227,14 +243,28 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         denom = params.get("denominator_col")
         denom_expr = f"sum({denom})" if denom else "count(*)"
         bucket = _sas_date_bucket(params)
-        return f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, {denom_expr} AS denom FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; p=num/denom; /* p-chart UCL/LCL use mean denominator */ RUN;"
+        return (
+            f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, {denom_expr} AS denom "
+            f"FROM df GROUP BY date_bucket; "
+            f"SELECT sum(num)/sum(denom) INTO :pbar FROM monthly; QUIT;\n"
+            f"DATA monthly; SET monthly; p=num/denom; pbar=&pbar.; "
+            f"ucl=pbar + 3*sqrt(pbar*(1-pbar)/denom); "
+            f"lcl=max(0, pbar - 3*sqrt(pbar*(1-pbar)/denom)); RUN;"
+        )
 
     if template == "u_c_chart":
         cc = params.get("count_col", "count")
         denom = params.get("denominator_col")
         bucket = _sas_date_bucket(params)
         if denom:
-            return f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt, sum({denom}) AS denom FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; rate=cnt/denom; /* u-chart */ RUN;"
+            return (
+                f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt, sum({denom}) AS denom "
+                f"FROM df GROUP BY date_bucket; "
+                f"SELECT sum(cnt)/sum(denom) INTO :ubar FROM monthly; QUIT;\n"
+                f"DATA monthly; SET monthly; rate=cnt/denom; ubar=&ubar.; "
+                f"ucl=ubar + 3*sqrt(ubar/denom); "
+                f"lcl=max(0, ubar - 3*sqrt(ubar/denom)); RUN;"
+            )
         return f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; cbar=mean(cnt); /* c-chart */ RUN;"
 
     return f'/* SAS code for template "{template}" not yet implemented. */'

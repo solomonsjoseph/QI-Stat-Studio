@@ -103,7 +103,6 @@ class MentorShare(Base):
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
     token = Column(String(128), unique=True)
     mentor_email = Column(String(255), nullable=True)
-    comments_json = Column(Text, default="[]")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)

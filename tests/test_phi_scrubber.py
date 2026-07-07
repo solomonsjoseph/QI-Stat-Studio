@@ -2,6 +2,14 @@ from api.middleware import phi_scrubber
 from api.middleware.phi_scrubber import scrub_text
 
 
+def _create_project(client) -> int:
+    response = client.post("/auth/register", json={"email": "owner@example.com", "password": "password123"})
+    assert response.status_code == 200, response.text
+    response = client.post("/projects", json={"title": "AI project", "description": "desc"})
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
+
+
 def test_redacts_person_name_when_ner_available():
     result, count = scrub_text("Patient John Smith was admitted")
     if phi_scrubber._nlp is None:
@@ -57,3 +65,41 @@ def test_regex_fallback_redacts_street_addresses(monkeypatch):
     assert "123 Main Street" not in result
     assert "[REDACTED]" in result
     assert count == 1
+
+
+def test_ai_chat_scrubs_phi_from_system_messages_before_outbound_call(client, monkeypatch):
+    project_id = _create_project(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    captured = {}
+
+    class FakeMessage:
+        content = "ok"
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+
+    def fake_llm_completion(provider, api_key, api_base, model, messages):
+        captured["messages"] = messages
+        return FakeResponse()
+
+    monkeypatch.setattr("api.routers.ai._llm_completion", fake_llm_completion)
+
+    response = client.post(
+        "/ai/chat",
+        json={
+            "project_id": project_id,
+            "messages": [
+                {"role": "system", "content": "Patient John Smith, SSN 123-45-6789"},
+                {"role": "user", "content": "hi"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    system_message = captured["messages"][0]
+    assert system_message["role"] == "system"
+    assert "123-45-6789" not in system_message["content"]
+    assert response.json()["redaction_count"] >= 1

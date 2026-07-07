@@ -93,11 +93,6 @@ class ProjectResumeOut(BaseModel):
     current_screen: str
 
 
-class IntakeAnswerIn(BaseModel):
-    question_key: str
-    answer: str
-    is_unsure: bool = False
-
 
 class AnswerPayload(BaseModel):
     answers: dict[str, Any]
@@ -111,10 +106,6 @@ class AnalysisRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-
-class AIRequest(BaseModel):
-    project_id: int
-    messages: list[dict[str, str]]
 
 
 class ChatRequest(BaseModel):
@@ -198,8 +189,6 @@ class SettingPayload(SettingUpdate):
     pass
 
 
-class AppSettingIn(SettingUpdate):
-    pass
 
 
 class UserOut(BaseModel):

@@ -21,6 +21,7 @@ from api.audit import log_action, sanitize_audit_metadata
 from api.auth import get_current_user
 from api.database import get_db
 from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, Project, Upload, User
+from api.routers.intake import _load_answers
 
 router = APIRouter(prefix="/report", tags=["report"])
 _REPORT_EDIT_FIELDS = {"title", "caption", "interpretation"}
@@ -91,6 +92,11 @@ def _build_context(run: AnalysisRun, db: Session) -> dict[str, Any]:
         else (project.title if project and project.title else f"Project {run.project_id}")
     )
     caption = caption_edit.edited_text if caption_edit and caption_edit.edited_text else ""
+    answers = _load_answers(db, run.project_id)
+    q7 = answers.get("q7")
+    if isinstance(q7, dict) and q7.get("date"):
+        intervention_note = f"Intervention: {q7.get('description', 'Intervention')} ({q7['date']})"
+        caption = f"{caption} {intervention_note}".strip()
     interpretation = (
         interpretation_edit.edited_text
         if interpretation_edit and interpretation_edit.edited_text

@@ -105,9 +105,11 @@ def _canonical_radio(key: str, value: Any) -> str | None:
     return None
 
 
-def _validate_q6(value: Any) -> int | None:
+def _validate_q6(value: Any) -> int | str | None:
     if value is None or value == "":
         return None
+    if isinstance(value, str) and value.strip().lower() == "i'm not sure":
+        return "I'm not sure"
     try:
         number = int(value)
     except (TypeError, ValueError):

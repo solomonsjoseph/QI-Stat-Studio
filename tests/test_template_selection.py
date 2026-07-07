@@ -108,6 +108,20 @@ def test_q4_both_low_n_routes_to_run_chart():
     assert select_template({"q3": "yes", "q4": "both", "q2": "percentage", "q6": "8"})[0] == "run_chart"
 
 
+def test_unsure_q6_time_percentage_routes_to_run_chart_not_p_chart():
+    ranked = select_template(
+        {
+            "q2": "A percentage or proportion (percent of patients screened)",
+            "q3": "Yes — before and after an intervention",
+            "q4": "Tracking over time (months, weeks, days)",
+            "q5": "Monthly",
+            "q6": "I'm not sure",
+        }
+    )
+    assert ranked[0] == "run_chart"
+    assert ranked[0] != "p_chart"
+
+
 def test_multi_phase_with_time_routes_to_run_chart():
     """Q3='More than two periods (phases)' + time tracking → run_chart."""
     assert select_template({"q3": "More than two periods (phases)", "q4": "time", "q2": "percentage", "q6": "20"})[0] == "run_chart"

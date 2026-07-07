@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
@@ -49,13 +50,29 @@ def detect_col_type(col_name: str, series: pd.Series) -> str:
     return "Category"
 
 
-def run_data_quality(df: pd.DataFrame) -> List[Dict[str, Any]]:
+def run_data_quality(df: pd.DataFrame, col_types: dict[str, str]) -> List[Dict[str, Any]]:
     flags = []
-    if "period" in df.columns:
-        raw = df["period"].dropna().astype(str)
-        normalized = raw.str.strip().str.lower()
-        if not raw.equals(normalized):
-            flags.append({"col": "period", "rule": "case_inconsistent", "severity": "WARNING", "msg": "Mixed case in 'period' column (e.g. 'Pre' vs 'pre'). Normalized automatically."})
+
+    def _object_like(series: pd.Series) -> bool:
+        return pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)
+
+    def _parse_ratio(parsed: pd.Series, total: int) -> float:
+        if total == 0:
+            return 0.0
+        return float(parsed.notna().sum() / total)
+
+    def _coerce_datetime(series: pd.Series) -> pd.Series:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            return pd.to_datetime(series, errors="coerce")
+
+    for col in df.columns:
+        if col_types.get(col) == "Category":
+            raw = df[col].dropna().astype(str)
+            normalized = raw.str.strip().str.lower()
+            if not raw.equals(normalized):
+                flags.append({"col": col, "rule": "case_inconsistent", "severity": "WARNING", "msg": f"Mixed case in '{col}' column. Normalized automatically."})
+
     for col in df.columns:
         pct = df[col].isna().mean() * 100
         if pct > 30:
@@ -65,12 +82,43 @@ def run_data_quality(df: pd.DataFrame) -> List[Dict[str, Any]]:
             flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING", "msg": f"{col}: {pct:.1f}% missing — if this is your outcome column, results may be unreliable"})
         elif pct > 5:
             flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING", "msg": f"{col}: {pct:.1f}% missing"})
+
     for col in df.select_dtypes("number").columns:
+        if col_types.get(col) in ("Yes/No", "ID") or df[col].dropna().nunique() <= 2:
+            continue
         q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
         iqr = q3 - q1
         n_out = int(((df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)).sum())
         if n_out > 0:
             flags.append({"col": col, "rule": "outlier_count", "severity": "WARNING", "msg": f"{col}: {n_out} outlier(s) outside [{q1 - 1.5 * iqr:.1f}, {q3 + 1.5 * iqr:.1f}]"})
+
+    for col in df.columns:
+        series = df[col]
+        if col_types.get(col) == "Date" or _object_like(series):
+            non_null = series.dropna()
+            parsed_dates = _coerce_datetime(non_null)
+            if col_types.get(col) == "Date" or _parse_ratio(parsed_dates, len(non_null)) >= 0.9:
+                dates = parsed_dates.dropna()
+                if len(dates) > 0:
+                    monthly = dates.dt.to_period("M").value_counts()
+                    date_range = pd.period_range(dates.min().to_period("M"), dates.max().to_period("M"), freq="M")
+                    gaps = len(date_range) - len(monthly)
+                    if gaps > 0:
+                        flags.append({"col": col, "rule": "check_time_gaps", "severity": "WARNING", "msg": f"{gaps} month(s) with no records detected"})
+
+    for col in df.columns:
+        series = df[col]
+        if col_types.get(col) == "Date" or not _object_like(series):
+            continue
+        non_null = series.dropna()
+        numeric_ratio = _parse_ratio(pd.to_numeric(non_null, errors="coerce"), len(non_null))
+        if numeric_ratio >= 0.9:
+            flags.append({"col": col, "rule": "numeric_stored_as_text", "severity": "WARNING", "msg": f"{col}: looks numeric but is stored as text — check for stray characters or a mislabeled column"})
+            continue
+        date_ratio = _parse_ratio(_coerce_datetime(non_null), len(non_null))
+        if date_ratio >= 0.9:
+            flags.append({"col": col, "rule": "date_stored_as_text", "severity": "WARNING", "msg": f"{col}: looks like dates but is stored as text — check for stray characters or a mislabeled column"})
+
     if "encounter_id" in df.columns and df["encounter_id"].duplicated().any():
         flags.append({"col": "encounter_id", "rule": "duplicate_id", "severity": "ERROR", "msg": "Duplicate encounter_id values found"})
     if "period" in df.columns:
@@ -78,14 +126,6 @@ def run_data_quality(df: pd.DataFrame) -> List[Dict[str, Any]]:
         unexpected = vals - {"pre", "post"}
         if unexpected:
             flags.append({"col": "period", "rule": "unexpected_period_values", "severity": "WARNING", "msg": f"Unexpected period values: {unexpected}"})
-    if "encounter_date" in df.columns:
-        dates = pd.to_datetime(df["encounter_date"], errors="coerce").dropna()
-        if len(dates) > 0:
-            monthly = dates.dt.to_period("M").value_counts()
-            date_range = pd.period_range(dates.min().to_period("M"), dates.max().to_period("M"), freq="M")
-            gaps = len(date_range) - len(monthly)
-            if gaps > 0:
-                flags.append({"col": "encounter_date", "rule": "check_time_gaps", "severity": "WARNING", "msg": f"{gaps} month(s) with no records detected"})
     return flags
 
 
@@ -122,7 +162,7 @@ def _store_upload(db: Session, project_id: int, original_filename: str, raw: byt
     enc_path = UPLOAD_DIR / storage_key
     col_summary = {col: {"dtype": str(df[col].dtype), "missing_pct": round(df[col].isna().mean() * 100, 1)} for col in df.columns}
     col_types = {col: detect_col_type(col, df[col]) for col in df.columns}
-    flags = run_data_quality(df)
+    flags = run_data_quality(df, col_types)
     enc_path.write_bytes(settings.fernet.encrypt(raw))
     upload = Upload(
         project_id=project_id,

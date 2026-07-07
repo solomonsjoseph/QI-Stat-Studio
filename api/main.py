@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.config import settings
 from api.database import SessionLocal
@@ -56,6 +57,33 @@ async def lifespan(app: FastAPI):
     yield
 
 
+
+class ApiPrefixMiddleware:
+    """Strip the /api prefix the built frontend uses so routers match in production."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith("/api/"):
+            scope["path"] = scope["path"][4:]
+            scope["raw_path"] = scope["path"].encode()
+            scope["qi_api_request"] = True
+        await self.app(scope, receive, send)
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404 or scope.get("qi_api_request"):
+                raise
+            return await super().get_response("index.html", scope)
+        if response.status_code == 404 and not scope.get("qi_api_request"):
+            response = await super().get_response("index.html", scope)
+        return response
+
 app = FastAPI(title="QI Stat Studio", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
@@ -65,6 +93,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ApiPrefixMiddleware)
+
 
 
 @app.middleware("http")
@@ -190,6 +220,7 @@ def _error_response(status_code: int, code: str, message: str, request_id: str, 
     )
 
 
+@app.exception_handler(StarletteHTTPException)
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     request_id = getattr(request.state, "request_id", uuid.uuid4().hex)
@@ -245,4 +276,4 @@ app.include_router(notifications.router)
 # Serve frontend static files when web/dist exists (production / Docker)
 _dist = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
 if os.path.isdir(_dist):
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
+    app.mount("/", SPAStaticFiles(directory=_dist, html=True), name="frontend")

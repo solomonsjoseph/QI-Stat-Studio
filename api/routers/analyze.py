@@ -48,7 +48,10 @@ def select_template(answers: dict) -> List[str]:
     q2 = str(answers.get("q2", "")).lower()
     q3 = str(answers.get("q3", "")).lower()
     q4 = str(answers.get("q4", "")).lower()
-    q6 = int(answers.get("q6", 0) or 0)
+    try:
+        q6 = int(answers.get("q6") or 0)
+    except (TypeError, ValueError):
+        q6 = 0
 
     is_time = ("time" in q4 and "one point in time" not in q4) or "both" in q4
     is_groups = "group" in q4 or "comparing" in q4

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import io
 import secrets
 from datetime import datetime, timedelta
@@ -40,13 +39,6 @@ def _active_share_or_404(token: str, db: Session) -> MentorShare:
     return share
 
 
-def _safe_json(raw: str | None, fallback: Any):
-    if raw in (None, ""):
-        return fallback
-    try:
-        return json.loads(raw)
-    except (TypeError, json.JSONDecodeError):
-        return fallback
 
 
 def _latest_run(project_id: int, db: Session) -> AnalysisRun | None:
@@ -250,7 +242,6 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
         .order_by(MentorComment.created_at.asc(), MentorComment.id.asc())
         .all()
     )
-    legacy_comments = _safe_json(share.comments_json, [])
     normalized_comments = [MentorCommentOut.model_validate(comment).model_dump(mode="json") for comment in comments]
     return {
         "project": {
@@ -275,7 +266,7 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
             "docx": f"/share/view/{token}/report/docx",
             "pdf": f"/share/view/{token}/report/pdf",
         },
-        "comments": legacy_comments + normalized_comments,
+        "comments": normalized_comments,
     }
 
 

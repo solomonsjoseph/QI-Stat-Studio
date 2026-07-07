@@ -8,6 +8,7 @@ const QUESTIONS = [
     key: 'q2',
     text: 'What are you measuring?',
     type: 'radio',
+    hint: "Pick the one that best matches your main outcome. If none fit, 'Something else / not sure' is a valid answer.",
     options: [
       'A rate of events over time (infections per 1,000 catheter-days)',
       'A percentage or proportion (percent of patients screened)',
@@ -21,20 +22,22 @@ const QUESTIONS = [
     key: 'q3',
     text: 'Are you comparing before and after something?',
     type: 'radio',
+    hint: 'An intervention is any change you made — a new protocol, order set, checklist, or workflow.',
     options: ["Yes — before and after an intervention", "No — I'm just describing one time period", 'More than two periods (phases)', "I'm not sure"],
   },
   {
     key: 'q4',
     text: 'Are you tracking over time, or comparing two groups?',
     type: 'radio',
+    hint: 'Tracking over time = months, weeks, or days. Comparing groups = two units, clinics, or cohorts at one point in time.',
     options: ['Tracking over time (months, weeks, days)', 'Comparing groups at one point in time', 'Both', "I'm not sure"],
   },
-  { key: 'q5', text: "What's the time unit?", type: 'radio', options: ['Daily', 'Weekly', 'Monthly', 'One row per patient', 'Other', "I'm not sure"] },
+  { key: 'q5', text: "What's the time unit?", type: 'radio', options: ['Daily', 'Weekly', 'Monthly', 'One row per patient', 'Other', "I'm not sure"], hint: 'How your rows are grouped: one per day, week, month, or one row per patient.' },
   { key: 'q6', text: 'How many time points (or rows) do you have?', type: 'number', hint: "Run and control charts work best with 12 or more time points. Under 12, we'll recommend a simpler summary instead." },
-  { key: 'q7', text: 'What was the intervention and when did it start?', type: 'composite', fields: { description: 'textarea', date: 'date' }, labels: { description: 'Intervention description (optional)', date: 'Intervention date (if known)' } },
-  { key: 'q8', text: 'Who are you comparing?', type: 'radio', options: ['Same unit pre vs. post', 'Intervention vs. control', 'Subgroups', "I'm not sure"] },
+  { key: 'q7', text: 'What was the intervention and when did it start?', type: 'composite', fields: { description: 'textarea', date: 'date' }, labels: { description: 'Intervention description (optional)', date: 'Intervention date (if known)' }, hint: 'We pre-fill this from your project description — just confirm or correct it.' },
+  { key: 'q8', text: 'Who are you comparing?', type: 'radio', options: ['Same unit pre vs. post', 'Intervention vs. control', 'Subgroups', "I'm not sure"], hint: "Skipped automatically if you're not comparing anything." },
   { key: 'q9', text: 'Which software should we put in the code export?', type: 'radio', options: ['R', 'SPSS', 'SAS', 'All three'], hint: "You won't need to run any code yourself — everything runs inside the tool. This choice only affects the script you can save for your supplement or send to your mentor." },
-  { key: 'q10', text: 'Would you like to share with a mentor? (Optional)', type: 'composite', fields: { email: 'email', deadline: 'date' }, labels: { email: "Mentor's email", deadline: 'Submission deadline' } },
+  { key: 'q10', text: 'Would you like to share with a mentor? (Optional)', type: 'composite', fields: { email: 'email', deadline: 'date' }, labels: { email: "Mentor's email", deadline: 'Submission deadline' }, hint: 'Optional. Your mentor gets a share link automatically, and the deadline drives reminder emails.' },
 ]
 
 function errorMessage(err) {
@@ -143,10 +146,19 @@ export default function IntakeQuestions() {
                 id={`${q.key}-number`}
                 type="number"
                 min="0"
-                value={answers[q.key] || ''}
-                onChange={e => setField(q.key, parseInt(e.target.value) || 0)}
-                className="border rounded px-3 py-2 w-32"
+                value={answers[q.key] === "I'm not sure" ? '' : answers[q.key] || ''}
+                onChange={e => setField(q.key, e.target.value === '' ? '' : parseInt(e.target.value, 10) || 0)}
+                disabled={answers[q.key] === "I'm not sure"}
+                className="border rounded px-3 py-2 w-32 disabled:bg-gray-100 disabled:text-gray-500"
               />
+              <label className="flex items-center gap-2 mt-2">
+                <input
+                  type="checkbox"
+                  checked={answers[q.key] === "I'm not sure"}
+                  onChange={e => setField(q.key, e.target.checked ? "I'm not sure" : '')}
+                />
+                I'm not sure
+              </label>
               {q.hint && <p className="text-xs text-gray-500 mt-1">{q.hint}</p>}
             </div>
           )}
@@ -172,6 +184,7 @@ export default function IntakeQuestions() {
                   )}
                 </label>
               ))}
+              {q.hint && <p className="text-xs text-gray-500 mt-1">{q.hint}</p>}
             </div>
           )}
         </fieldset>

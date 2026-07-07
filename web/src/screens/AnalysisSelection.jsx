@@ -49,7 +49,7 @@ export default function AnalysisSelection() {
       {loading && <p aria-live="polite" className="text-gray-500 text-sm mb-4">Loading recommendations…</p>}
       {error && <p role="alert" className="text-yellow-800 bg-yellow-50 border border-yellow-200 rounded p-3 text-sm mb-4">{error}</p>}
       <div className="flex flex-col gap-3 mb-8" role="radiogroup" aria-label="Analysis template">
-        {options.map((opt) => {
+        {options.map((opt, i) => {
           const tmpl = LABEL[opt.template] || { label: opt.template, desc: opt.description }
           return (
             <button
@@ -59,7 +59,7 @@ export default function AnalysisSelection() {
               aria-pressed={selected === opt.template}
               className={`text-left px-4 py-3 border rounded-lg transition ${selected === opt.template ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-blue-300'} ${opt.recommended ? 'ring-2 ring-blue-200' : ''}`}
             >
-              <div className="font-medium">{tmpl.label}{opt.recommended && <span className="text-xs text-blue-600 ml-1">Recommended</span>}</div>
+              <div className="font-medium">{i + 1}. {tmpl.label}{opt.recommended && <span className="text-xs text-blue-600 ml-1">Recommended</span>}</div>
               <div className="text-sm text-gray-500">{opt.description || tmpl.desc}</div>
             </button>
           )

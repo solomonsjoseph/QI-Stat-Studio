@@ -79,12 +79,12 @@ class TestPChart:
     def test_ucl_above_pbar(self):
         df = _monthly_df()
         result = run_p_chart(df, {"date_col": "encounter_date", "numerator_col": "outcome"})
-        assert result["ucl"] > result["pbar"]
+        assert all(ucl > result["pbar"] for ucl in result["ucl"])
 
     def test_lcl_non_negative(self):
         df = _monthly_df()
         result = run_p_chart(df, {"date_col": "encounter_date", "numerator_col": "outcome"})
-        assert result["lcl"] >= 0.0
+        assert min(result["lcl"]) >= 0.0
 
     def test_methods_mentions_p_chart(self):
         df = _monthly_df()
@@ -99,6 +99,58 @@ class TestPChart:
             "denominator_col": "denom_col",
         })
         assert result["pbar"] > 0
+
+    def test_varying_denominators_produce_per_point_control_limits(self):
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "events": [1, 4, 9],
+            "eligible": [10, 40, 200],
+        })
+        result = run_p_chart(df, {
+            "date_col": "encounter_date",
+            "numerator_col": "events",
+            "denominator_col": "eligible",
+        })
+
+        assert len(result["ucl"]) == 3
+        assert max(result["ucl"]) != min(result["ucl"])
+
+    def test_pbar_is_weighted_by_total_numerator_and_denominator(self):
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-01", "2024-02-01"],
+            "events": [1, 90],
+            "eligible": [10, 100],
+        })
+        result = run_p_chart(df, {
+            "date_col": "encounter_date",
+            "numerator_col": "events",
+            "denominator_col": "eligible",
+        })
+
+        assert result["pbar"] == pytest.approx((1 + 90) / (10 + 100), abs=1e-4)
+        assert result["pbar"] != pytest.approx(((1 / 10) + (90 / 100)) / 2, abs=1e-4)
+
+    def test_out_of_control_detection_uses_each_period_denominator(self):
+        dates = pd.date_range("2020-01-01", periods=101, freq="MS")
+        df = pd.DataFrame({
+            "encounter_date": dates,
+            "events": [2] * 100 + [350],
+            "eligible": [10] * 100 + [1000],
+        })
+        result = run_p_chart(df, {
+            "date_col": "encounter_date",
+            "numerator_col": "events",
+            "denominator_col": "eligible",
+        })
+
+        pbar = (100 * 2 + 350) / (100 * 10 + 1000)
+        old_nbar = (100 * 10 + 1000) / 101
+        old_ucl = pbar + 3 * np.sqrt(pbar * (1 - pbar) / old_nbar)
+        target_rate = 350 / 1000
+
+        assert target_rate < old_ucl
+        assert target_rate > result["ucl"][-1]
+        assert "1 out-of-control point(s)" in result["result_summary"]
 
     def test_intervention_date_does_not_crash(self):
         df = _monthly_df()
@@ -120,7 +172,7 @@ class TestUCChart:
     def test_c_chart_ucl_above_mean(self):
         df = _monthly_df()
         result = run_u_c_chart(df, {"date_col": "encounter_date", "count_col": "count_col"})
-        assert result["ucl"] > result["lcl"]
+        assert min(result["ucl"]) > max(result["lcl"])
 
     def test_u_chart_with_denominator(self):
         df = _monthly_df()
@@ -130,12 +182,12 @@ class TestUCChart:
             "denominator_col": "denom_col",
         })
         assert result["figure_base64"] is not None
-        assert result["ucl"] > 0
+        assert max(result["ucl"]) > 0
 
     def test_lcl_non_negative(self):
         df = _monthly_df()
         result = run_u_c_chart(df, {"date_col": "encounter_date", "count_col": "count_col"})
-        assert result["lcl"] >= 0.0
+        assert min(result["lcl"]) >= 0.0
 
     def test_methods_mentions_chart_type(self):
         df = _monthly_df()

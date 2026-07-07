@@ -24,19 +24,18 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         agg = df.set_index(date_col).resample(freq).agg(
             cnt=(count_col, "sum"), denom=(denominator_col, "sum")
         ).dropna().reset_index()
-        rate = agg["cnt"] / agg["denom"]
-        ubar = float(rate.mean())
-        n_bar = float(agg["denom"].mean())
-        ucl = float(ubar + 3 * np.sqrt(ubar / n_bar))
-        lcl = float(max(0.0, ubar - 3 * np.sqrt(ubar / n_bar)))
-        y = rate
+        y = agg["cnt"] / agg["denom"]
+        ubar = float(agg["cnt"].sum() / agg["denom"].sum())
+        sigma = np.sqrt(ubar / agg["denom"])
+        ucl = ubar + 3 * sigma
+        lcl = (ubar - 3 * sigma).clip(lower=0.0)
         plot_dates = agg[date_col]
         ylabel = "Rate"
     else:
         agg = df.set_index(date_col).resample(freq)[count_col].sum().dropna().reset_index()
         cbar = float(agg[count_col].mean())
-        ucl = float(cbar + 3 * np.sqrt(cbar))
-        lcl = float(max(0.0, cbar - 3 * np.sqrt(cbar)))
+        ucl = pd.Series(cbar + 3 * np.sqrt(cbar), index=agg.index)
+        lcl = pd.Series(max(0.0, cbar - 3 * np.sqrt(cbar)), index=agg.index)
         ubar = cbar
         y = agg[count_col]
         plot_dates = agg[date_col]
@@ -47,8 +46,8 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     fig, ax = plt.subplots(figsize=(9, 4))
     ax.plot(plot_dates.values, y.values, marker="o", linewidth=1.5)
     ax.axhline(ubar, color="blue", linestyle="-", label=f"Mean={ubar:.3f}")
-    ax.axhline(ucl, color="red", linestyle="--", label=f"UCL={ucl:.3f}")
-    ax.axhline(lcl, color="red", linestyle="--", label=f"LCL={lcl:.3f}")
+    ax.step(plot_dates.values, ucl.values, where="mid", color="red", linestyle="--", label="UCL")
+    ax.step(plot_dates.values, lcl.values, where="mid", color="red", linestyle="--", label="LCL")
     if intervention_date:
         ax.axvline(pd.to_datetime(intervention_date).to_datetime64(), color="green", linestyle=":", linewidth=2, label="Intervention")
     ax.set_title(f"{'u' if chart_type == 'u' else 'c'}-Chart — {count_col}")
@@ -60,15 +59,19 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     plt.close(fig)
     fig_b64 = base64.b64encode(buf.getvalue()).decode()
 
+    limit_note = (
+        "Control limits were set at 3 standard deviations using each period's denominator."
+        if chart_type == "u"
+        else "Control limits were set at 3 standard deviations."
+    )
     methods = (f"A {'u' if chart_type == 'u' else 'c'}-chart was constructed for {count_col} "
-               f"across {len(agg)} time points with 3-sigma control limits "
-               f"(UCL={ucl:.3f}, LCL={lcl:.3f}). {out_of_control} point(s) fell outside control limits.")
+               f"across {len(agg)} time points. {limit_note} "
+               f"{out_of_control} point(s) fell outside control limits.")
     oc_phrase = (f"{out_of_control} point(s) fell outside control limits, indicating special-cause variation."
                  if out_of_control else "All points fell within control limits, indicating the process was in statistical control.")
     chart_label = "u-chart (rate)" if chart_type == "u" else "c-chart (count)"
     interpretation = (
-        f"The {chart_label} shows {count_col} over {len(agg)} time periods with a mean of {ubar:.3f} "
-        f"(UCL={ucl:.3f}, LCL={lcl:.3f}). "
+        f"The {chart_label} shows {count_col} over {len(agg)} time periods with a mean of {ubar:.3f}. "
         f"{oc_phrase} "
         f"[Edit this paragraph to describe what this pattern means for your QI project.]"
     )
@@ -76,5 +79,5 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "table": [], "figure_base64": fig_b64, "methods": methods,
         "result_summary": f"Mean={ubar:.3f}. {out_of_control} out-of-control point(s).",
         "interpretation": interpretation,
-        "ucl": round(ucl, 4), "lcl": round(lcl, 4),
+        "ucl": [round(float(value), 4) for value in ucl], "lcl": [round(float(value), 4) for value in lcl],
     }

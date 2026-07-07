@@ -1,4 +1,5 @@
 from api.database import SessionLocal
+from api.intake_schema import validate_answers
 from api.models_db import IntakeAnswer
 
 
@@ -53,6 +54,25 @@ def test_intake_validates_q6_q7_q10_and_sets_unsure(client):
         assert q6.is_unsure is False
 
 
+
+def test_intake_accepts_q6_unsure_and_round_trips(client):
+    _register(client)
+    project = _project(client)
+
+    normalized, keys_to_delete = validate_answers({"q6": "I'm not sure"})
+    assert normalized["q6"] == "I'm not sure"
+    assert keys_to_delete == set()
+
+    saved = client.post(f"/intake/{project['id']}", json={"answers": {"q6": "I'm not sure"}})
+    assert saved.status_code == 200, saved.text
+
+    answers = client.get(f"/intake/{project['id']}").json()["answers"]
+    assert answers["q6"] == "I'm not sure"
+
+    with SessionLocal() as db:
+        q6 = db.query(IntakeAnswer).filter_by(project_id=project["id"], question_key="q6").one()
+        assert q6.is_unsure is True
+
 def test_intake_normalizes_short_labels_and_enforces_skip_rule(client):
     _register(client)
     project = _project(client)
@@ -86,22 +106,16 @@ def test_ai_intake_prefill_redacts_phi_and_normalizes_short_labels(client, monke
 
     monkeypatch.setattr(settings, "openrouter_api_key", "test-key")
 
+    class FakeMessage:
+        content = '{"q2":"rate","q3":"before-after","q4":"Tracking over time (months, weeks, days)","q5":"Monthly","q6":"12","q7":{"description":"Started checklist","date":"2026-01-15"},"q8":"ignored"}'
+
+    class FakeChoice:
+        message = FakeMessage()
+
     class FakeResponse:
-        status_code = 200
-        text = "ok"
+        choices = [FakeChoice()]
 
-        def json(self):
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": '{"q2":"rate","q3":"before-after","q4":"Tracking over time (months, weeks, days)","q5":"Monthly","q6":"12","q7":{"description":"Started checklist","date":"2026-01-15"},"q8":"ignored"}'
-                        }
-                    }
-                ]
-            }
-
-    monkeypatch.setattr(ai_router.httpx, "post", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(ai_router.litellm, "completion", lambda *args, **kwargs: FakeResponse())
 
     response = client.post(
         "/ai/intake-prefill",
