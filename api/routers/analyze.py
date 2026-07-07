@@ -1,9 +1,21 @@
+from __future__ import annotations
+
 import json
-from typing import List, Dict, Any
+import math
+from datetime import datetime
+from typing import Any, Dict, List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from api.audit import log_action
+from api.analysis_schemas import validate_template_parameters
+from api.analysis_validation import validate_analysis_inputs
+from api.auth import get_current_user, require_project_owner
 from api.database import get_db
 from api.models_api import AnalysisRequest
+from api.models_db import Project, User
+from api.upload_utils import load_upload_dataframe
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
@@ -14,12 +26,13 @@ _Q5_FREQ = {
     "one row per patient": "D",
 }
 
+
 def q5_to_freq(q5: str) -> str:
     """Map Q5 time-unit answer to a pandas resample frequency string."""
     return _Q5_FREQ.get(q5.strip().lower(), "ME")
 
-_ALL = ["descriptive_summary", "before_after_mean", "before_after_pct",
-        "run_chart", "p_chart", "u_c_chart"]
+
+_ALL = ["descriptive_summary", "before_after_mean", "before_after_pct", "run_chart", "p_chart", "u_c_chart"]
 
 _DESCRIPTIONS = {
     "descriptive_summary": "Summarizes counts, averages, and percentages — best when describing one time period or group.",
@@ -32,8 +45,6 @@ _DESCRIPTIONS = {
 
 
 def select_template(answers: dict) -> List[str]:
-    # Substring matching — intake stores full option text like
-    # "An average or median value", "No — I'm just describing one time period"
     q2 = str(answers.get("q2", "")).lower()
     q3 = str(answers.get("q3", "")).lower()
     q4 = str(answers.get("q4", "")).lower()
@@ -66,100 +77,124 @@ def select_template(answers: dict) -> List[str]:
     elif is_yes_comparison and is_pct:
         top = "before_after_pct"
     else:
-        top = "run_chart"  # ponytail: conservative default; covers "unsure" and "something else"
+        top = "run_chart"
 
     rest = [t for t in _ALL if t != top]
     return [top] + rest[:2]
 
 
 @router.get("/{project_id}/recommend")
-def recommend(project_id: int, db: Session = Depends(get_db)):
+def recommend(project_id: int, db: Session = Depends(get_db), project: Project = Depends(require_project_owner)):
     from api.models_db import IntakeAnswer
+
     rows = db.query(IntakeAnswer).filter(IntakeAnswer.project_id == project_id).all()
     answers = {r.question_key: r.answer for r in rows}
     ranked = select_template(answers)
-    return [{"template": t, "description": _DESCRIPTIONS[t],
-             "recommended": i == 0} for i, t in enumerate(ranked)]
+    return [{"template": t, "description": _DESCRIPTIONS[t], "recommended": i == 0} for i, t in enumerate(ranked)]
+
+
+def _bad_analysis_request(message: str, field_errors: dict[str, list[str]] | None = None) -> HTTPException:
+    return HTTPException(status_code=400, detail={"message": message, "field_errors": field_errors or {}})
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "item"):
+        try:
+            return _json_safe(value.item())
+        except (TypeError, ValueError):
+            pass
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value
 
 
 @router.post("/run")
-def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db)):
-    from api.models_db import Upload, AnalysisRun, FailureLog, IntakeAnswer
+def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from api.models_db import AnalysisRun, IntakeAnswer, Upload
     from api.templates.registry import TEMPLATE_REGISTRY
-    from api.config import settings
-    import io
-    import pandas as pd
 
     upload = db.get(Upload, body.upload_id)
     if not upload:
         raise HTTPException(404, "Upload not found")
+    if upload.project_id != body.project_id:
+        raise HTTPException(403, "Upload does not belong to project")
+    project = db.get(Project, body.project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if user.role != "admin" and project.owner_user_id != user.id:
+        raise HTTPException(403, "Project access denied")
+    if upload.status != "active":
+        raise HTTPException(400, "Upload is not active")
     if body.template not in TEMPLATE_REGISTRY:
-        raise HTTPException(400, f"Unknown template: {body.template}")
+        raise HTTPException(400, "Unknown analysis template")
     _OUTCOME_COL_KEY = {
-        "before_after_mean": "value_col", "before_after_pct": "outcome_col",
-        "run_chart": "value_col", "p_chart": "numerator_col", "u_c_chart": "count_col",
+        "before_after_mean": "value_col",
+        "before_after_pct": "outcome_col",
+        "run_chart": "value_col",
+        "p_chart": "numerator_col",
+        "u_c_chart": "count_col",
     }
-    try:
-        raw = settings.fernet.decrypt(open(upload.encrypted_path, "rb").read())
-        df = pd.read_csv(io.BytesIO(raw))
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    df = load_upload_dataframe(upload)
 
-    # Pre-flight: block analysis when chosen outcome column is >30% missing
+
+    params, field_errors = validate_template_parameters(body.template, body.parameters, df.columns)
+    if field_errors:
+        raise _bad_analysis_request("Invalid analysis parameters", field_errors)
+    assert params is not None
+    if body.template in ("run_chart", "p_chart", "u_c_chart") and "freq" not in params:
+        q5_row = db.query(IntakeAnswer).filter(IntakeAnswer.project_id == body.project_id, IntakeAnswer.question_key == "q5").first()
+        if q5_row:
+            params["freq"] = q5_to_freq(q5_row.answer or "")
+
     outcome_key = _OUTCOME_COL_KEY.get(body.template)
     if outcome_key:
-        col = body.parameters.get(outcome_key)
+        col = params.get(outcome_key)
         if col and col in df.columns:
             pct_missing = df[col].isna().mean() * 100
             if pct_missing > 30:
                 raise HTTPException(
                     400,
-                    f"Column '{col}' is {pct_missing:.1f}% missing. "
-                    "Analysis requires <30% missing in the outcome column. "
-                    "Return to Data Review to acknowledge this issue or choose a different column."
+                    f"Column '{col}' is {pct_missing:.1f}% missing. Analysis requires <=30% missing in the selected outcome column. Choose a different outcome column or upload corrected data; warning acknowledgement does not override this safety check.",
                 )
 
+    precondition_errors = validate_analysis_inputs(body.template, df, params)
+    if precondition_errors:
+        raise _bad_analysis_request(precondition_errors[0], {"parameters": precondition_errors})
+
     try:
-        params = dict(body.parameters)
-        # Inject Q5 time-unit as resample freq for time-series templates (unless caller set it)
-        if body.template in ("run_chart", "p_chart", "u_c_chart") and "freq" not in params:
-            q5_row = db.query(IntakeAnswer).filter(
-                IntakeAnswer.project_id == body.project_id,
-                IntakeAnswer.question_key == "q5"
-            ).first()
-            if q5_row:
-                params["freq"] = q5_to_freq(q5_row.answer or "")
         result = TEMPLATE_REGISTRY[body.template](df, params)
-        from api.templates.codegen import generate_r_code
-        code_r = generate_r_code(body.template, params)
+        result = _json_safe(result)
+        from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
 
-        # Read Q9 to determine code language preference
-        q9_row = db.query(IntakeAnswer).filter(
-            IntakeAnswer.project_id == body.project_id,
-            IntakeAnswer.question_key == "q9"
-        ).first()
+        code_r = generate_r_code(body.template, params, result)
+        q9_row = db.query(IntakeAnswer).filter(IntakeAnswer.project_id == body.project_id, IntakeAnswer.question_key == "q9").first()
         q9 = (q9_row.answer or "").lower() if q9_row else "r"
-
-        from api.templates.codegen import generate_spss_code, generate_sas_code
-        code_spss = ""
-        code_sas = ""
-        if "spss" in q9 or "all" in q9:
-            code_spss = generate_spss_code(body.template, params)
-        if "sas" in q9 or "all" in q9:
-            code_sas = generate_sas_code(body.template, params)
-
+        code_spss = generate_spss_code(body.template, params, result) if "spss" in q9 or "all" in q9 else ""
+        code_sas = generate_sas_code(body.template, params, result) if "sas" in q9 or "all" in q9 else ""
         run = AnalysisRun(
-            project_id=body.project_id, template=body.template,
-            parameters=json.dumps(body.parameters),
-            result_json=json.dumps({k: v for k, v in result.items() if k != "figure_base64"}),
-            code_r=code_r, code_spss=code_spss, code_sas=code_sas
+            project_id=body.project_id,
+            upload_id=body.upload_id,
+            template=body.template,
+            parameters=json.dumps(params),
+            result_json=json.dumps(result),
+            created_at=datetime.utcnow(),
+            code_r=code_r,
+            code_spss=code_spss,
+            code_sas=code_sas,
         )
         db.add(run)
         db.commit()
         db.refresh(run)
+        log_action(db, body.project_id, "analysis_run_created", {"run_id": run.id, "upload_id": body.upload_id, "template": body.template})
         return {**result, "run_id": run.id}
-    except Exception as e:
-        db.add(FailureLog(project_id=body.project_id, error_type=str(type(e).__name__),
-                          template=body.template))
-        db.commit()
-        raise HTTPException(500, str(e))
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise

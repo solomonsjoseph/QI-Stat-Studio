@@ -18,16 +18,38 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     df = df.sort_values(date_col)
     median = float(df[value_col].median())
 
-    sides = (df[value_col] > median).astype(int)
+    median_tie_count = int((df[value_col] == median).sum())
+    non_tie_values = df.loc[df[value_col] != median, value_col]
+    sides = (non_tie_values > median).astype(int)
     max_run = 0
-    cur_run = 1
-    for i in range(1, len(sides)):
-        if sides.iloc[i] == sides.iloc[i - 1]:
-            cur_run += 1
-            max_run = max(max_run, cur_run)
-        else:
+    cur_run = 0
+    prev_side = None
+    for side in sides:
+        if prev_side is None or side != prev_side:
             cur_run = 1
+        else:
+            cur_run += 1
+        max_run = max(max_run, cur_run)
+        prev_side = side
     signal = max_run >= 8
+
+    max_trend = 1 if len(df) else 0
+    cur_trend = 1
+    trend_direction = 0
+    values = df[value_col].tolist()
+    for i in range(1, len(values)):
+        diff = values[i] - values[i - 1]
+        direction = 1 if diff > 0 else -1 if diff < 0 else 0
+        if direction == 0:
+            cur_trend = 1
+            trend_direction = 0
+        elif direction == trend_direction:
+            cur_trend += 1
+        else:
+            cur_trend = 2
+            trend_direction = direction
+        max_trend = max(max_trend, cur_trend)
+    trend_signal = max_trend >= 6
 
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(df[date_col].values, df[value_col].values, marker="o", linewidth=1.5)
@@ -48,8 +70,11 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
 
     methods = (f"A run chart was constructed for {value_col} over time. "
                f"The median ({median:.2f}) is shown as a reference line. "
-               f"A run signal (≥8 consecutive points on the same side of the median) "
-               f"{'was' if signal else 'was not'} detected.")
+               f"Median ties (n={median_tie_count}) were excluded from run calculations. "
+               f"A run signal (≥8 consecutive non-tie points on the same side of the median) "
+               f"{'was' if signal else 'was not'} detected. "
+               f"A trend signal (≥6 consecutive increases or decreases) "
+               f"{'was' if trend_signal else 'was not'} detected.")
     interpretation = (
         f"The run chart shows {value_col} over time with a median of {median:.2f}. "
         f"{'A run signal was detected (longest run = ' + str(max_run) + ' consecutive points on the same side of the median), suggesting a non-random shift in the process.' if signal else 'No run signal was detected (longest run = ' + str(max_run) + '), suggesting the process remained stable during the observation period.'} "
@@ -60,4 +85,6 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "result_summary": f"Median={median:.2f}. Signal {'detected' if signal else 'not detected'} (longest run={max_run}).",
         "interpretation": interpretation,
         "signal_detected": signal, "max_run": max_run,
+        "trend_signal_detected": trend_signal, "max_trend": max_trend,
+        "median_tie_count": median_tie_count,
     }

@@ -12,4 +12,9 @@ export default defineConfig({
       },
     },
   },
+  test: {
+    setupFiles: './src/test/setup.js',
+    environment: 'jsdom',
+    exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
+  },
 })

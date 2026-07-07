@@ -1,5 +1,6 @@
 import base64, io
 from typing import Dict, Any, Tuple
+import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
@@ -15,6 +16,48 @@ def _norm_group(df: pd.DataFrame, col: str, val: str) -> Tuple[pd.DataFrame, str
     return df, val
 
 
+_BINARY_TRUE = {"1", "true", "t", "yes", "y", "positive", "pos"}
+_BINARY_FALSE = {"0", "false", "f", "no", "n", "negative", "neg"}
+
+
+def _coerce_binary_outcome(series: pd.Series, col_name: str) -> pd.Series:
+    """Return a 0/1 outcome series or raise a clear error for unsupported levels."""
+    coerced: list[float] = []
+    unsupported: set[str] = set()
+    for value in series:
+        if pd.isna(value):
+            coerced.append(np.nan)
+            continue
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text == "":
+                coerced.append(np.nan)
+            elif text in _BINARY_TRUE:
+                coerced.append(1.0)
+            elif text in _BINARY_FALSE:
+                coerced.append(0.0)
+            else:
+                numeric = pd.to_numeric(text, errors="coerce")
+                if pd.notna(numeric) and float(numeric) in (0.0, 1.0):
+                    coerced.append(float(numeric))
+                else:
+                    unsupported.add(str(value))
+                    coerced.append(np.nan)
+            continue
+        numeric = pd.to_numeric(value, errors="coerce")
+        if pd.notna(numeric) and float(numeric) in (0.0, 1.0):
+            coerced.append(float(numeric))
+        else:
+            unsupported.add(str(value))
+            coerced.append(np.nan)
+    if unsupported:
+        examples = ", ".join(sorted(unsupported)[:5])
+        raise ValueError(
+            f"Outcome column '{col_name}' must be binary (yes/no, true/false, or 0/1); unsupported values: {examples}"
+        )
+    return pd.Series(coerced, index=series.index, dtype="float")
+
+
 def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     group_col = params["group_col"]
     pre_val = params["pre_val"]
@@ -24,25 +67,38 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     df = df.copy()
     df, pre_val = _norm_group(df, group_col, pre_val)
     _, post_val = _norm_group(df, group_col, post_val)
-    df[outcome_col] = pd.to_numeric(df[outcome_col], errors="coerce")
+    df[outcome_col] = _coerce_binary_outcome(df[outcome_col], outcome_col)
 
     mask = df[group_col].isin([pre_val, post_val])
     pre = df[df[group_col] == pre_val][outcome_col].dropna()
     post = df[df[group_col] == post_val][outcome_col].dropna()
+    if pre.empty or post.empty:
+        raise ValueError(
+            f"Before/after proportion analysis requires at least one non-null binary outcome in both groups; found {len(pre)} pre and {len(post)} post"
+        )
 
     ct = pd.crosstab(df[mask][group_col], df[mask][outcome_col])
-    expected = stats.chi2_contingency(ct)[3]
+    ct = ct.reindex(index=[pre_val, post_val], columns=[0.0, 1.0], fill_value=0)
     oddsratio = None
-    # ponytail: fisher_exact only accepts 2x2 — fall back to chi-square for larger tables
-    if ct.shape == (2, 2) and (expected < 5).any():
-        result = stats.fisher_exact(ct)
-        oddsratio, p_value = float(result[0]), float(result[1])
-        test_used = "Fisher's exact test"
+    expected = None
+    if ct.shape == (2, 2):
+        try:
+            expected = stats.chi2_contingency(ct)[3]
+        except ValueError:
+            expected = None
+        if expected is None or (expected < 5).any():
+            result = stats.fisher_exact(ct)
+            oddsratio, p_value = float(result[0]), float(result[1])
+            test_used = "Fisher's exact test"
+        else:
+            chi2, p_value, _, _ = stats.chi2_contingency(ct)
+            p_value = float(p_value)
+            denom = ct.iloc[0, 0] * ct.iloc[1, 1]
+            oddsratio = float((ct.iloc[0, 1] * ct.iloc[1, 0]) / denom) if denom else None
+            test_used = "Chi-square test"
     else:
         chi2, p_value, _, _ = stats.chi2_contingency(ct)
         p_value = float(p_value)
-        if ct.shape == (2, 2):
-            oddsratio = float((ct.iloc[0, 1] / ct.iloc[0, 0]) / (ct.iloc[1, 1] / ct.iloc[1, 0]))
         test_used = "Chi-square test"
 
     pre_pct = float(pre.mean() * 100)

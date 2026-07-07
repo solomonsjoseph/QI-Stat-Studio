@@ -1,57 +1,67 @@
 import json
 import re
-import secrets
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import Optional
+
+from api.auth import require_project_owner
 from api.database import get_db
-from api.models_db import IntakeAnswer, MentorShare, Project
+from api.intake_schema import is_unsure_answer, validate_answers
+from api.models_api import AnswerPayload
+from api.models_db import IntakeAnswer, Project
 
 router = APIRouter(prefix="/intake", tags=["intake"])
-
-_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-class AnswerPayload(BaseModel):
-    answers: dict  # {q1: ..., q2: ..., q7: {description, date} | str, q10: str, ...}
+def _parse_answer(raw: str) -> Any:
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return raw
 
 
-def _upsert(db, project_id, key, value):
+def _load_answers(db: Session, project_id: int) -> dict[str, Any]:
+    rows = db.query(IntakeAnswer).filter_by(project_id=project_id).all()
+    return {row.question_key: _parse_answer(row.answer) for row in rows}
+
+
+def _upsert(db: Session, project_id: int, key: str, value: Any):
     row = db.query(IntakeAnswer).filter_by(project_id=project_id, question_key=key).first()
+    stored = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+    unsure = is_unsure_answer(value)
     if row:
-        row.answer = value
+        row.answer = stored
+        row.is_unsure = unsure
     else:
-        db.add(IntakeAnswer(project_id=project_id, question_key=key, answer=value))
+        db.add(IntakeAnswer(project_id=project_id, question_key=key, answer=stored, is_unsure=unsure))
 
 
 @router.post("/{project_id}")
-def save_answers(project_id: int, payload: AnswerPayload, db: Session = Depends(get_db)):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+def save_answers(
+    project_id: int,
+    payload: AnswerPayload,
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+):
+    existing_answers = _load_answers(db, project_id)
+    answers, keys_to_delete = validate_answers(payload.answers, existing_answers)
 
-    for key, value in payload.answers.items():
-        # Serialize composite answers (dicts) to JSON string for storage
-        stored = json.dumps(value) if isinstance(value, dict) else str(value)
-        _upsert(db, project_id, key, stored)
+    if keys_to_delete:
+        db.query(IntakeAnswer).filter(
+            IntakeAnswer.project_id == project_id,
+            IntakeAnswer.question_key.in_(keys_to_delete),
+        ).delete(synchronize_session=False)
 
-    # Q10: extract email → auto-create share; extract date → store deadline
-    q10_raw = payload.answers.get("q10", "")
+    for key, value in answers.items():
+        _upsert(db, project_id, key, value)
+
+    # Q10 may carry a mentor email for later DownloadShare use, but share lifecycle
+    # belongs exclusively to /share/{project_id}/create. Intake only extracts the deadline.
+    q10_raw = answers.get("q10", payload.answers.get("q10", ""))
     q10_str = json.dumps(q10_raw) if isinstance(q10_raw, dict) else str(q10_raw)
-    email_match = _EMAIL_RE.search(q10_str)
     date_match = _DATE_RE.search(q10_str)
-
-    if email_match:
-        email = email_match.group()
-        existing = db.query(MentorShare).filter_by(project_id=project_id).first()
-        if not existing:
-            db.add(MentorShare(
-                project_id=project_id,
-                token=secrets.token_urlsafe(32),
-                mentor_email=email,
-            ))
 
     if date_match:
         project.deadline = date_match.group()
@@ -61,26 +71,20 @@ def save_answers(project_id: int, payload: AnswerPayload, db: Session = Depends(
 
 
 @router.get("/{project_id}")
-def get_answers(project_id: int, db: Session = Depends(get_db)):
-    rows = db.query(IntakeAnswer).filter_by(project_id=project_id).all()
-    answers = {}
+def get_answers(
+    project_id: int,
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+):
+    answers = _load_answers(db, project_id)
     intervention_date: Optional[str] = None
 
-    for row in rows:
-        # Try to parse JSON-stored composite answers back
-        try:
-            answers[row.question_key] = json.loads(row.answer)
-        except (json.JSONDecodeError, TypeError):
-            answers[row.question_key] = row.answer
-
-        # Q7 may be {"description": ..., "date": ...}
-        if row.question_key == "q7":
-            val = answers["q7"]
-            if isinstance(val, dict) and "date" in val:
-                intervention_date = val["date"]
-            elif isinstance(val, str):
-                d = _DATE_RE.search(val)
-                if d:
-                    intervention_date = d.group()
+    val = answers.get("q7")
+    if isinstance(val, dict) and "date" in val:
+        intervention_date = val["date"]
+    elif isinstance(val, str):
+        d = _DATE_RE.search(val)
+        if d:
+            intervention_date = d.group()
 
     return {"project_id": project_id, "answers": answers, "intervention_date": intervention_date}

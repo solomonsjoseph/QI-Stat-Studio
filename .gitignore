@@ -74,3 +74,8 @@ dmypy.json
 # Logs
 *.log
 logs/
+
+# Playwright test output
+web/test-results/
+web/playwright-report/
+Untitled

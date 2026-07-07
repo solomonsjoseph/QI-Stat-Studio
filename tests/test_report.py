@@ -1,275 +1,387 @@
-"""Tests for /report/{id}/docx and /report/{id}/pdf endpoints — bytes and content."""
-import io, json, os
+"""Focused report route tests for protected downloads and rendered report content."""
+import io
+import json
+import os
+from datetime import datetime, timedelta
+
 os.environ.setdefault("FERNET_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 
 from docx import Document
 from fastapi.testclient import TestClient
+
+from api.database import SessionLocal
 from api.main import app
-from api.database import engine, Base, SessionLocal
-from api.models_db import Project, AnalysisRun, Upload, EditHistory
+from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, MentorShare, Project, Upload
 
-Base.metadata.create_all(bind=engine)
-client = TestClient(app)
-
-
-def _seed_run(template="run_chart", dq_flags=None):
-    db = SessionLocal()
-    p = Project(title="Test Project", description="test")
-    db.add(p); db.flush()
-
-    u = Upload(
-        project_id=p.id, filename="data.csv",
-        encrypted_path="/tmp/fake.enc",
-        quality_flags=json.dumps(dq_flags or []),
-    )
-    db.add(u); db.flush()
-
-    result = {"methods": "A run chart was used.", "result_summary": "Median=5.0", "figure_base64": None}
-    run = AnalysisRun(
-        project_id=p.id, template=template,
-        parameters=json.dumps({"date_col": "encounter_date", "value_col": "hba1c"}),
-        result_json=json.dumps(result), code_r="# R code here",
-    )
-    db.add(run); db.commit()
-    run_id = run.id
-    db.close()
-    return run_id
+PASSWORD = "password123"
+TINY_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC"
+    "AAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+)
 
 
-def test_docx_returns_bytes():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/docx")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
-    assert len(resp.content) > 1000  # non-empty Word doc
+def _register(test_client, email):
+    response = test_client.post("/auth/register", json={"email": email, "password": PASSWORD})
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
-def test_pdf_returns_bytes():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/pdf")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/pdf"
-    assert resp.content[:4] == b"%PDF"
+def _create_project_via_api(test_client, title="QI Report Project"):
+    response = test_client.post("/projects", json={"title": title, "description": "Reduce variation"})
+    assert response.status_code == 200, response.text
+    return response.json()
 
-
-def test_report_404():
-    resp = client.get("/report/99999/docx")
-    assert resp.status_code == 404
-
-
-# ── content tests ──────────────────────────────────────────────────────────
 
 def _docx_text(content: bytes) -> str:
     doc = Document(io.BytesIO(content))
-    parts = [p.text for p in doc.paragraphs]
-    for tbl in doc.tables:
-        for row in tbl.rows:
-            parts.extend(c.text for c in row.cells)
+    parts = [paragraph.text for paragraph in doc.paragraphs]
+    for table in doc.tables:
+        for row in table.rows:
+            parts.extend(cell.text for cell in row.cells)
     return "\n".join(parts)
 
 
-def test_docx_contains_methods_section():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "Methods" in text
-
-
-def test_docx_contains_audit_trail():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "Audit Trail" in text
-    assert "run_chart" in text   # template name present
-
-
-def test_docx_contains_limitations_section():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "Limitations" in text
-
-
-def test_docx_limitations_lists_dq_flags():
-    rid = _seed_run(dq_flags=[
-        {"col": "hba1c", "rule": "check_missing", "severity": "WARNING", "msg": "hba1c is 15% missing"}
-    ])
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "hba1c is 15% missing" in text
-
-
-def test_docx_no_flags_says_no_issues():
-    rid = _seed_run(dq_flags=[])
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "No data quality issues" in text
-
-
-def test_docx_contains_r_code_supplement():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "R code here" in text
-
-
-def test_pdf_contains_audit_trail_text():
-    """PDF should contain the template name in its text content."""
+def _pdf_text(content: bytes) -> str:
     import pypdf
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/pdf")
-    reader = pypdf.PdfReader(io.BytesIO(resp.content))
-    all_text = "".join(page.extract_text() or "" for page in reader.pages)
-    assert "run_chart" in all_text
-    assert "Audit Trail" in all_text
+
+    reader = pypdf.PdfReader(io.BytesIO(content))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
-def _seed_run_with_edits():
+def _seed_report_run(
+    *,
+    owner_user_id=None,
+    use_run_upload=True,
+    with_edits=False,
+    with_audit_and_comments=False,
+    dq_flags=None,
+    acknowledged_flags=None,
+    result=None,
+):
     db = SessionLocal()
-    p = Project(title="Edit Test Project", description="test")
-    db.add(p); db.flush()
-    u = Upload(project_id=p.id, filename="data.csv",
-               encrypted_path="/tmp/fake.enc", quality_flags="[]")
-    db.add(u); db.flush()
-    result = {"methods": "A run chart.", "result_summary": "Median=5.0", "figure_base64": None}
-    run = AnalysisRun(project_id=p.id, template="run_chart",
-                      parameters=json.dumps({}),
-                      result_json=json.dumps(result), code_r="# R")
-    db.add(run); db.flush()
-    db.add(EditHistory(project_id=p.id, field="interpretation",
-                       original_text="AI text", edited_text="Resident revised text"))
-    db.commit()
-    run_id = run.id
-    db.close()
-    return run_id
+    now = datetime.utcnow()
+    project = Project(
+        owner_user_id=owner_user_id,
+        title="Original Project Title",
+        description="Improve timely follow-up",
+        deadline="2030-01-31",
+    )
+    db.add(project)
+    db.flush()
 
+    legacy_upload = Upload(
+        project_id=project.id,
+        filename="legacy.csv",
+        original_filename="legacy-source.csv",
+        encrypted_path="/tmp/legacy.enc",
+        quality_flags=json.dumps(dq_flags or []),
+        acknowledged_flags=json.dumps(acknowledged_flags) if acknowledged_flags is not None else None,
+    )
+    db.add(legacy_upload)
+    db.flush()
 
-def test_docx_audit_trail_includes_resident_edits():
-    rid = _seed_run_with_edits()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "Resident Edits" in text
-    assert "interpretation" in text
-    assert "AI text" in text
-    assert "Resident revised text" in text
+    analysis_upload = Upload(
+        project_id=project.id,
+        filename="analysis.csv",
+        original_filename="analysis-source.csv",
+        encrypted_path="/tmp/analysis.enc",
+        quality_flags=json.dumps(dq_flags or []),
+        acknowledged_flags=json.dumps(acknowledged_flags) if acknowledged_flags is not None else None,
+    )
+    db.add(analysis_upload)
+    db.flush()
 
-
-def test_docx_audit_trail_no_edits_section_omitted():
-    rid = _seed_run()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "Resident Edits" not in text
-
-
-def _seed_run_with_table(template="before_after_mean"):
-    db = SessionLocal()
-    p = Project(title="Table Test Project", description="test")
-    db.add(p); db.flush()
-    u = Upload(project_id=p.id, filename="data.csv",
-               encrypted_path="/tmp/fake.enc", quality_flags="[]")
-    db.add(u); db.flush()
-    result = {
-        "methods": "Before/after mean comparison.",
-        "result_summary": "Mean changed from 8.1 to 7.2.",
-        "figure_base64": None,
-        "table": [
-            {"group": "Pre", "n": 50, "mean": 8.1, "sd": 1.2},
-            {"group": "Post", "n": 50, "mean": 7.2, "sd": 1.1},
-        ],
+    run_result = result or {
+        "methods": "A run chart was used to evaluate monthly performance.",
+        "result_summary": "Median wait time improved from 10 to 7 days.",
+        "interpretation": "AI-generated interpretation should be replaced.",
+        "figure_base64": TINY_PNG_BASE64,
+        "table": [{"period": "Baseline", "median": 10}, {"period": "Follow-up", "median": 7}],
     }
-    run = AnalysisRun(project_id=p.id, template=template,
-                      parameters=json.dumps({}),
-                      result_json=json.dumps(result), code_r="# R")
-    db.add(run); db.commit()
-    run_id = run.id
+    run = AnalysisRun(
+        project_id=project.id,
+        upload_id=analysis_upload.id if use_run_upload else None,
+        template="run_chart",
+        parameters=json.dumps({"date_col": "month", "value_col": "wait_days"}),
+        result_json=json.dumps(run_result),
+        code_r="# reproducible R code",
+        created_at=now,
+    )
+    db.add(run)
+    db.flush()
+
+    if with_edits:
+        db.add_all(
+            [
+                EditHistory(
+                    project_id=project.id,
+                    field="title",
+                    original_text="Original Project Title",
+                    edited_text="Older title edit",
+                    timestamp=now - timedelta(minutes=30),
+                ),
+                EditHistory(
+                    project_id=project.id,
+                    field="title",
+                    original_text="Older title edit",
+                    edited_text="Final resident report title",
+                    timestamp=now - timedelta(minutes=3),
+                ),
+                EditHistory(
+                    project_id=project.id,
+                    field="caption",
+                    original_text="",
+                    edited_text="Resident-approved figure caption",
+                    timestamp=now - timedelta(minutes=2),
+                ),
+                EditHistory(
+                    project_id=project.id,
+                    field="interpretation",
+                    original_text="AI-generated interpretation should be replaced.",
+                    edited_text="Resident interpretation with clinical context.",
+                    timestamp=now - timedelta(minutes=1),
+                ),
+            ]
+        )
+
+    if with_audit_and_comments:
+        db.add(
+            AuditLog(
+                project_id=project.id,
+                action="analysis_completed",
+                metadata_json=json.dumps({"template": "run_chart", "upload_id": analysis_upload.id}),
+                timestamp=now,
+            )
+        )
+        share = MentorShare(
+            project_id=project.id,
+            token="report-content-token",
+            mentor_email="mentor@example.com",
+            created_at=now,
+            expires_at=now + timedelta(days=30),
+        )
+        db.add(share)
+        db.flush()
+        db.add_all(
+            [
+                MentorComment(
+                    share_id=share.id,
+                    project_id=project.id,
+                    author_name="Dr Mentor",
+                    author_email="mentor@example.com",
+                    text="Visible mentor feedback for the report.",
+                    created_at=now,
+                ),
+                MentorComment(
+                    share_id=share.id,
+                    project_id=project.id,
+                    author_name="Dr Mentor",
+                    author_email="mentor@example.com",
+                    text="Deleted mentor feedback must not render.",
+                    created_at=now,
+                    deleted_at=now,
+                ),
+            ]
+        )
+
+    db.commit()
+    ids = {"project_id": project.id, "run_id": run.id, "analysis_upload_id": analysis_upload.id}
     db.close()
-    return run_id
+    return ids
 
 
-def test_docx_results_table_rendered():
-    rid = _seed_run_with_table()
-    resp = client.get(f"/report/{rid}/docx")
-    text = _docx_text(resp.content)
-    assert "Pre" in text
-    assert "Post" in text
-    assert "Mean" in text or "mean" in text
+def test_report_docx_and_pdf_downloads_require_owner_or_admin_authentication():
+    admin_client = TestClient(app)
+    owner_client = TestClient(app)
+    other_client = TestClient(app)
+    anonymous_client = TestClient(app)
+    try:
+        _register(admin_client, "admin@example.com")
+        owner = _register(owner_client, "owner@example.com")
+        _register(other_client, "other@example.com")
+        seeded = _seed_report_run(owner_user_id=owner["id"])
+
+        assert anonymous_client.get(f"/report/{seeded['run_id']}/docx").status_code == 401
+        assert anonymous_client.get(f"/report/{seeded['run_id']}/pdf").status_code == 401
+
+        owner_docx = owner_client.get(f"/report/{seeded['run_id']}/docx")
+        assert owner_docx.status_code == 200, owner_docx.text
+        assert owner_docx.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+        admin_pdf = admin_client.get(f"/report/{seeded['run_id']}/pdf")
+        assert admin_pdf.status_code == 200, admin_pdf.text
+        assert admin_pdf.headers["content-type"] == "application/pdf"
+        assert admin_pdf.content[:4] == b"%PDF"
+
+        with SessionLocal() as db:
+            actions = [row.action for row in db.query(AuditLog).filter_by(project_id=seeded["project_id"]).all()]
+            assert "report_downloaded" in actions
+
+        assert other_client.get(f"/report/{seeded['run_id']}/docx").status_code == 403
+        assert other_client.get(f"/report/{seeded['run_id']}/pdf").status_code == 403
+    finally:
+        admin_client.close()
+        owner_client.close()
+        other_client.close()
+        anonymous_client.close()
 
 
-def test_pdf_results_table_rendered():
-    import pypdf
-    rid = _seed_run_with_table()
-    resp = client.get(f"/report/{rid}/pdf")
-    reader = pypdf.PdfReader(io.BytesIO(resp.content))
-    all_text = "".join(page.extract_text() or "" for page in reader.pages)
-    assert "Pre" in all_text
-    assert "Post" in all_text
+def test_docx_report_renders_latest_edits_upload_lineage_audit_log_and_visible_mentor_comments(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(with_edits=True, with_audit_and_comments=True)
+
+    response = client.get(f"/report/{seeded['run_id']}/docx")
+    assert response.status_code == 200, response.text
+    text = _docx_text(response.content)
+
+    assert "Final resident report title" in text
+    assert "Older title edit" not in text.split("Methods", 1)[0]
+    assert "Resident-approved figure caption" in text
+    assert "Resident interpretation with clinical context." in text
+    assert "AI-generated interpretation should be replaced." in text  # retained in Resident Edits audit table
+    assert "analysis-source.csv" in text
+    assert "legacy-source.csv" not in text
+    assert "legacy upload lineage missing" not in text
+    assert "Project Audit Log" in text
+    assert "analysis_completed" in text
+    assert f'"upload_id": {seeded["analysis_upload_id"]}' in text
+    assert "Visible mentor feedback for the report." in text
+    assert "Deleted mentor feedback must not render." not in text
 
 
-def test_report_empty_table_no_crash():
-    """Time-series templates return table=[]; report must not crash."""
-    rid = _seed_run(template="run_chart")
-    resp = client.get(f"/report/{rid}/docx")
-    assert resp.status_code == 200
-    resp2 = client.get(f"/report/{rid}/pdf")
-    assert resp2.status_code == 200
+def test_pdf_report_renders_latest_edits_upload_lineage_audit_log_and_visible_mentor_comments(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(with_edits=True, with_audit_and_comments=True)
+
+    response = client.get(f"/report/{seeded['run_id']}/pdf")
+    assert response.status_code == 200, response.text
+    text = _pdf_text(response.content)
+
+    assert "Final resident report title" in text
+    assert "Resident-approved figure caption" in text
+    assert "Resident interpretation with clinical context." in text
+    assert "analysis-source.csv" in text
+    assert "legacy upload lineage missing" not in text
+    assert "analysis_completed" in text
+    assert "Visible mentor feedback for the report." in text
+    assert "Deleted mentor feedback must not render." not in text
 
 
-def test_docx_limitations_uses_acknowledged_flags_not_all():
-    """If acknowledged_flags is set, only those appear in Limitations (not all quality_flags)."""
-    db = SessionLocal()
-    p = Project(title="Ack Test", description="test")
-    db.add(p); db.flush()
+def test_report_without_analysis_upload_id_uses_legacy_upload_and_marks_missing_lineage(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(use_run_upload=False, result={
+        "methods": "Legacy methods.",
+        "result_summary": "Legacy summary.",
+        "interpretation": "Legacy interpretation.",
+        "figure_base64": None,
+    })
+
+    response = client.get(f"/report/{seeded['run_id']}/docx")
+    assert response.status_code == 200, response.text
+    text = _docx_text(response.content)
+
+    assert "legacy-source.csv" in text
+    assert "analysis-source.csv" not in text
+    assert "legacy upload lineage missing" in text
+
+def test_report_context_does_not_substitute_legacy_upload_when_run_upload_id_is_unresolved(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(use_run_upload=False)
+
+    with SessionLocal() as db:
+        run = db.get(AnalysisRun, seeded["run_id"])
+        run.upload_id = 987654321
+        with db.no_autoflush:
+            context = __import__("api.routers.report", fromlist=["_build_context"])._build_context(run, db)
+
+    assert context["upload"] is None
+
+
+
+def test_report_limitations_use_acknowledged_flags_instead_of_all_quality_flags(client):
+    _register(client, "admin@example.com")
     all_flags = [
         {"col": "hba1c", "rule": "check_missing", "severity": "WARNING", "msg": "hba1c is 15% missing"},
         {"col": "egfr", "rule": "outlier_count", "severity": "WARNING", "msg": "egfr has outliers"},
     ]
-    acked_flags = [all_flags[0]]  # only the first one was acknowledged
-    u = Upload(project_id=p.id, filename="data.csv", encrypted_path="/tmp/fake.enc",
-               quality_flags=json.dumps(all_flags),
-               acknowledged_flags=json.dumps(acked_flags))
-    db.add(u); db.flush()
-    result = {"methods": "A run chart.", "result_summary": "Median=5.0", "figure_base64": None}
-    run = AnalysisRun(project_id=p.id, template="run_chart",
-                      parameters=json.dumps({}), result_json=json.dumps(result), code_r="# R")
-    db.add(run); db.commit()
-    run_id = run.id; db.close()
+    seeded = _seed_report_run(dq_flags=all_flags, acknowledged_flags=[all_flags[0]])
 
-    resp = client.get(f"/report/{run_id}/docx")
-    text = _docx_text(resp.content)
-    assert "hba1c is 15% missing" in text       # acknowledged flag present
-    assert "egfr has outliers" not in text       # unacknowledged flag absent
+    response = client.get(f"/report/{seeded['run_id']}/docx")
+    assert response.status_code == 200, response.text
+    text = _docx_text(response.content)
+
+    assert "hba1c is 15% missing" in text
+    assert "egfr has outliers" not in text
 
 
-def test_pdf_audit_trail_includes_resident_edits():
-    import pypdf
-    rid = _seed_run_with_edits()
-    resp = client.get(f"/report/{rid}/pdf")
-    reader = pypdf.PdfReader(io.BytesIO(resp.content))
-    all_text = "".join(page.extract_text() or "" for page in reader.pages)
-    assert "Resident Edits" in all_text
-    assert "interpretation" in all_text
+def test_project_edit_endpoint_persists_original_text_for_report_audit(client):
+    _register(client, "admin@example.com")
+    project = _create_project_via_api(client)
+
+    response = client.post(
+        f"/projects/{project['id']}/edits",
+        json={
+            "field": "interpretation",
+            "original_text": "AI draft before resident edits",
+            "edited_text": "Resident-approved interpretation",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    with SessionLocal() as db:
+        edit = db.query(EditHistory).filter_by(project_id=project["id"]).one()
+        assert edit.field == "interpretation"
+        assert edit.original_text == "AI draft before resident edits"
+        assert edit.edited_text == "Resident-approved interpretation"
 
 
-def test_docx_interpretation_section_shows_edited_text():
-    """Interpretation SECTION must show the resident's edited text, not the original."""
-    rid = _seed_run_with_edits()
-    resp = client.get(f"/report/{rid}/docx")
-    doc = Document(io.BytesIO(resp.content))
-    # Find the Interpretation heading and grab the paragraph that follows it
-    headings = [p for p in doc.paragraphs if p.style.name.startswith("Heading")]
-    interp_idx = next((i for i, h in enumerate(headings) if "Interpretation" in h.text), None)
-    assert interp_idx is not None, "Interpretation section heading not found"
-    # Check that the edited text appears somewhere in the document body paragraphs
-    all_para = "\n".join(p.text for p in doc.paragraphs)
-    assert "Resident revised text" in all_para, "Edited interpretation not in body"
-    assert "AI text" not in all_para or "Resident revised text" in all_para
+def test_project_title_edit_updates_project_metadata_with_edit_history(client):
+    _register(client, "admin@example.com")
+    project = _create_project_via_api(client, title="Original title")
+
+    response = client.post(
+        f"/projects/{project['id']}/edits",
+        json={
+            "field": "title",
+            "original_text": "Original title",
+            "edited_text": "Resident-approved title",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    with SessionLocal() as db:
+        saved = db.get(Project, project["id"])
+        edit = db.query(EditHistory).filter_by(project_id=project["id"], field="title").one()
+        assert saved.title == "Resident-approved title"
+        assert edit.original_text == "Original title"
+        assert edit.edited_text == "Resident-approved title"
 
 
-def test_pdf_interpretation_section_shows_edited_text():
-    """PDF Interpretation section must show the resident's edited text."""
-    import pypdf
-    rid = _seed_run_with_edits()
-    resp = client.get(f"/report/{rid}/pdf")
-    reader = pypdf.PdfReader(io.BytesIO(resp.content))
-    all_text = "".join(page.extract_text() or "" for page in reader.pages)
-    assert "Resident revised text" in all_text
+def test_report_audit_trail_sanitizes_phi_like_project_update_metadata(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(with_edits=True)
+    sensitive_title = "Patient Jane Doe MRN 12345 readmission project"
+    sensitive_description = "Follow-up for jane.doe@example.com with DOB 01/02/1970"
+    sensitive_deadline = "2031-02-03"
+
+    response = client.patch(
+        f"/projects/{seeded['project_id']}",
+        json={
+            "title": sensitive_title,
+            "description": sensitive_description,
+            "deadline": sensitive_deadline,
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    report = client.get(f"/report/{seeded['run_id']}/docx")
+    assert report.status_code == 200, report.text
+    text = _docx_text(report.content)
+
+    assert "project_updated" in text
+    assert '"fields": ["deadline", "description", "title"]' in text
+    assert sensitive_title not in text
+    assert sensitive_description not in text
+    assert sensitive_deadline not in text

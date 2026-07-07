@@ -40,6 +40,40 @@ def test_u_c_chart_contains_cbar():
     assert "ucl" in code
 
 
+def test_r_before_after_mean_uses_runtime_test_decision():
+    code = generate_r_code(
+        "before_after_mean",
+        {"group_col": "period", "value_col": "hba1c", "pre_val": "pre", "post_val": "post"},
+        {"test_used": "Two-sample t-test"},
+    )
+    assert "Runtime decision: Two-sample t-test" in code
+    assert "t.test(pre, post)" in code
+
+
+def test_r_before_after_pct_uses_runtime_test_decision():
+    code = generate_r_code(
+        "before_after_pct",
+        {"group_col": "period", "outcome_col": "outcome", "pre_val": "pre", "post_val": "post"},
+        {"test_used": "Fisher's exact test"},
+    )
+    assert "Runtime decision: Fisher's exact test" in code
+    assert "fisher.test(ct)" in code
+
+
+def test_p_chart_denominator_code_paths():
+    with_denom = generate_r_code("p_chart", {"date_col": "date", "numerator_col": "num", "denominator_col": "denom"})
+    without_denom = generate_r_code("p_chart", {"date_col": "date", "numerator_col": "num"})
+    assert "denom=sum(denom" in with_denom
+    assert "denom=n()" in without_denom
+
+
+def test_u_c_chart_denominator_selects_u_chart_otherwise_c_chart():
+    with_denom = generate_r_code("u_c_chart", {"date_col": "date", "count_col": "cnt", "denominator_col": "denom"})
+    without_denom = generate_r_code("u_c_chart", {"date_col": "date", "count_col": "cnt"})
+    assert "rate <- monthly$cnt / monthly$denom" in with_denom
+    assert "cbar <- mean(monthly$cnt" in without_denom
+
+
 def test_unknown_template_returns_fallback():
     code = generate_r_code("nonexistent_template", {})
     assert "not yet implemented" in code
@@ -84,6 +118,17 @@ def test_spss_before_after_mean_contains_ttest():
     assert "T-TEST" in code
 
 
+
+def test_spss_before_after_mean_uses_wilcoxon_runtime_decision():
+    code = generate_spss_code(
+        "before_after_mean",
+        {"group_col": "period", "value_col": "hba1c"},
+        {"test_used": "Wilcoxon rank-sum test"},
+    )
+    assert "Wilcoxon rank-sum test" in code
+    assert "NPAR TESTS" in code
+    assert "T-TEST" not in code
+
 def test_spss_before_after_pct_contains_crosstabs():
     code = generate_spss_code("before_after_pct", {"group_col": "period", "outcome_col": "outcome"})
     assert "CROSSTABS" in code
@@ -102,3 +147,34 @@ def test_sas_before_after_mean_contains_proc_ttest():
 def test_sas_before_after_pct_contains_proc_freq():
     code = generate_sas_code("before_after_pct", {"group_col": "period", "outcome_col": "outcome"})
     assert "PROC FREQ" in code
+
+
+
+def test_spss_p_and_u_charts_derive_date_bucket_from_params_date_col():
+    p_code = generate_spss_code(
+        "p_chart",
+        {"date_col": "encounter_date", "numerator_col": "outcome", "freq": "MS"},
+    )
+    u_code = generate_spss_code(
+        "u_c_chart",
+        {"date_col": "event_date", "count_col": "falls", "denominator_col": "patient_days", "freq": "W"},
+    )
+    assert "COMPUTE date_bucket=XDATE.MONTH(encounter_date)" in p_code
+    assert "COMPUTE date_bucket=XDATE.WEEK(event_date)" in u_code
+    assert "/BREAK=date_bucket" in p_code
+    assert "/BREAK=date_bucket" in u_code
+
+
+def test_sas_p_and_u_charts_derive_date_bucket_from_params_date_col():
+    p_code = generate_sas_code(
+        "p_chart",
+        {"date_col": "encounter_date", "numerator_col": "outcome", "freq": "MS"},
+    )
+    u_code = generate_sas_code(
+        "u_c_chart",
+        {"date_col": "event_date", "count_col": "falls", "denominator_col": "patient_days", "freq": "W"},
+    )
+    assert "intnx('month', encounter_date" in p_code
+    assert "intnx('week', event_date" in u_code
+    assert "GROUP BY date_bucket" in p_code
+    assert "GROUP BY date_bucket" in u_code

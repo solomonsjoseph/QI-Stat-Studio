@@ -34,20 +34,55 @@ def test_norm_group_handles_mixed_case():
     assert "p_value" in result
 
 
-def test_non_binary_outcome_does_not_crash():
-    """Fisher exact must not be called on non-2x2 tables (3+ outcome values).
-
-    Use synthetic small-n data to force expected counts < 5, which is
-    the branch that previously called fisher_exact on a 2x3 table and raised ValueError.
-    """
-    # 3-level outcome, tiny counts → min expected < 5 → would trigger fisher_exact bug
+def test_yes_no_outcome_is_treated_as_binary_percentage():
     df = pd.DataFrame({
-        "period": ["pre"] * 6 + ["post"] * 6,
-        "stage": [1, 1, 2, 2, 3, 3, 1, 1, 2, 3, 3, 3],
+        "period": ["pre", "pre", "post", "post"],
+        "screened": ["No", "Yes", "Yes", "YES"],
     })
     result = run_before_after_pct(df, {
         "group_col": "period", "pre_val": "pre", "post_val": "post",
-        "outcome_col": "stage",
+        "outcome_col": "screened",
     })
-    assert "p_value" in result
-    assert result["test_used"] == "Chi-square test"
+    assert result["table"] == [
+        {"group": "pre", "n": 2, "pct": 50.0},
+        {"group": "post", "n": 2, "pct": 100.0},
+    ]
+    assert 0.0 <= result["p_value"] <= 1.0
+
+
+def test_boolean_and_numeric_string_outcomes_are_binary():
+    df = pd.DataFrame({
+        "period": ["pre", "pre", "post", "post"],
+        "done": [False, "0", True, "1"],
+    })
+    result = run_before_after_pct(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post",
+        "outcome_col": "done",
+    })
+    assert [row["pct"] for row in result["table"]] == [0.0, 100.0]
+
+
+def test_one_sided_binary_levels_add_zero_count_cells():
+    df = pd.DataFrame({
+        "period": ["pre", "pre", "post", "post"],
+        "screened": ["No", "No", "Yes", "Yes"],
+    })
+    result = run_before_after_pct(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post",
+        "outcome_col": "screened",
+    })
+    assert result["test_used"] == "Fisher's exact test"
+    assert result["table"][0]["pct"] == 0.0
+    assert result["table"][1]["pct"] == 100.0
+
+
+def test_non_binary_outcome_is_rejected_clearly():
+    df = pd.DataFrame({
+        "period": ["pre"] * 3 + ["post"] * 3,
+        "stage": [1, 2, 3, 1, 2, 3],
+    })
+    with pytest.raises(ValueError, match="must be binary"):
+        run_before_after_pct(df, {
+            "group_col": "period", "pre_val": "pre", "post_val": "post",
+            "outcome_col": "stage",
+        })

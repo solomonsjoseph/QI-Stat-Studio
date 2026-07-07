@@ -1,13 +1,22 @@
-import json, io
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
-from sqlalchemy.orm import Session
+from typing import Any, Dict, List
+
 import pandas as pd
-from api.database import get_db
-from api.models_db import Upload
-from api.models_api import ColumnTypeUpdate
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy.orm import Session
+
+from api.audit import log_action
+from api.auth import get_current_user, require_project_owner
 from api.config import settings
+from api.database import get_db
+from api.models_api import ColumnTypeUpdate, UploadOut
+from api.models_db import Project, Upload, User
+from api.upload_utils import _allowed_suffix, _read_dataframe, _safe_storage_key, _validate_dataset_shape
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 UPLOAD_DIR = Path("uploads_enc")
@@ -15,10 +24,19 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 MAX_BYTES = 50 * 1024 * 1024
 
 
+def _require_upload_access(upload_id: int, db: Session, user: User) -> Upload:
+    upload = db.get(Upload, upload_id)
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    project = db.get(Project, upload.project_id)
+    if user.role != "admin" and (not project or project.owner_user_id != user.id):
+        raise HTTPException(status_code=403, detail="Project access denied")
+    return upload
+
+
 def detect_col_type(col_name: str, series: pd.Series) -> str:
     if pd.api.types.is_datetime64_any_dtype(series):
         return "Date"
-    # ID check before numeric — column names like encounter_id are identifiers, not measures
     if any(k in col_name.lower() for k in ["id", "mrn", "patient", "encounter"]):
         return "ID"
     if pd.api.types.is_numeric_dtype(series):
@@ -33,108 +51,193 @@ def detect_col_type(col_name: str, series: pd.Series) -> str:
 
 def run_data_quality(df: pd.DataFrame) -> List[Dict[str, Any]]:
     flags = []
-    # normalize period
     if "period" in df.columns:
         raw = df["period"].dropna().astype(str)
         normalized = raw.str.strip().str.lower()
         if not raw.equals(normalized):
-            flags.append({"col": "period", "rule": "case_inconsistent",
-                          "severity": "WARNING",
-                          "msg": "Mixed case in 'period' column (e.g. 'Pre' vs 'pre'). Normalized automatically."})
-    # missing % — all missingness is WARNING at upload time.
-    # ERROR only raised at analysis time if chosen outcome column >30% missing.
+            flags.append({"col": "period", "rule": "case_inconsistent", "severity": "WARNING", "msg": "Mixed case in 'period' column (e.g. 'Pre' vs 'pre'). Normalized automatically."})
     for col in df.columns:
         pct = df[col].isna().mean() * 100
         if pct > 30:
             if col == "fib4_score":
-                flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING",
-                              "msg": f"fib4_score: {pct:.1f}% missing — often blank when MASLD screening was not done (expected behavior)."})
+                flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING", "msg": f"fib4_score: {pct:.1f}% missing — often blank when MASLD screening was not done (expected behavior)."})
                 continue
-            flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING",
-                          "msg": f"{col}: {pct:.1f}% missing — if this is your outcome column, results may be unreliable"})
+            flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING", "msg": f"{col}: {pct:.1f}% missing — if this is your outcome column, results may be unreliable"})
         elif pct > 5:
-            flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING",
-                          "msg": f"{col}: {pct:.1f}% missing"})
-    # outliers (IQR x1.5)
+            flags.append({"col": col, "rule": "missing_pct", "severity": "WARNING", "msg": f"{col}: {pct:.1f}% missing"})
     for col in df.select_dtypes("number").columns:
         q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
         iqr = q3 - q1
         n_out = int(((df[col] < q1 - 1.5 * iqr) | (df[col] > q3 + 1.5 * iqr)).sum())
         if n_out > 0:
-            flags.append({"col": col, "rule": "outlier_count", "severity": "WARNING",
-                          "msg": f"{col}: {n_out} outlier(s) outside [{q1 - 1.5 * iqr:.1f}, {q3 + 1.5 * iqr:.1f}]"})
-    # duplicate encounter_id
+            flags.append({"col": col, "rule": "outlier_count", "severity": "WARNING", "msg": f"{col}: {n_out} outlier(s) outside [{q1 - 1.5 * iqr:.1f}, {q3 + 1.5 * iqr:.1f}]"})
     if "encounter_id" in df.columns and df["encounter_id"].duplicated().any():
-        flags.append({"col": "encounter_id", "rule": "duplicate_id",
-                      "severity": "ERROR", "msg": "Duplicate encounter_id values found"})
-    # period values after normalization
+        flags.append({"col": "encounter_id", "rule": "duplicate_id", "severity": "ERROR", "msg": "Duplicate encounter_id values found"})
     if "period" in df.columns:
-        vals = set(df["period"].dropna().str.strip().str.lower().unique())
+        vals = set(df["period"].dropna().astype(str).str.strip().str.lower().unique())
         unexpected = vals - {"pre", "post"}
         if unexpected:
-            flags.append({"col": "period", "rule": "unexpected_period_values",
-                          "severity": "WARNING", "msg": f"Unexpected period values: {unexpected}"})
-    # check_time_gaps — any month with zero records after resampling
+            flags.append({"col": "period", "rule": "unexpected_period_values", "severity": "WARNING", "msg": f"Unexpected period values: {unexpected}"})
     if "encounter_date" in df.columns:
         dates = pd.to_datetime(df["encounter_date"], errors="coerce").dropna()
         if len(dates) > 0:
             monthly = dates.dt.to_period("M").value_counts()
-            date_range = pd.period_range(dates.min().to_period("M"),
-                                         dates.max().to_period("M"), freq="M")
+            date_range = pd.period_range(dates.min().to_period("M"), dates.max().to_period("M"), freq="M")
             gaps = len(date_range) - len(monthly)
             if gaps > 0:
-                flags.append({"col": "encounter_date", "rule": "check_time_gaps",
-                              "severity": "WARNING",
-                              "msg": f"{gaps} month(s) with no records detected"})
+                flags.append({"col": "encounter_date", "rule": "check_time_gaps", "severity": "WARNING", "msg": f"{gaps} month(s) with no records detected"})
     return flags
 
 
-@router.post("/{project_id}")
-async def upload_file(project_id: int, file: UploadFile = File(...),
-                      db: Session = Depends(get_db)):
+def _parse_json(raw: str | None, fallback: Any):
+    if raw in (None, ""):
+        return fallback
+    try:
+        return json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return fallback
+
+
+def _upload_out(upload: Upload) -> UploadOut:
+    return UploadOut(
+        id=upload.id,
+        project_id=upload.project_id,
+        filename=upload.filename,
+        original_filename=upload.original_filename or upload.filename,
+        file_type=upload.file_type,
+        size_bytes=upload.size_bytes,
+        checksum_sha256=upload.checksum_sha256,
+        created_at=upload.created_at,
+        col_types=_parse_json(upload.col_types, {}),
+        column_map=_parse_json(upload.column_map, {}),
+        quality_flags=_parse_json(upload.quality_flags, []),
+        acknowledged_flags=_parse_json(upload.acknowledged_flags, None),
+        status=upload.status,
+    )
+
+
+def _store_upload(db: Session, project_id: int, original_filename: str, raw: bytes, df: pd.DataFrame) -> tuple[Upload, dict, dict, list, dict]:
+    file_type = _allowed_suffix(original_filename)
+    storage_key = _safe_storage_key(project_id, original_filename, raw)
+    enc_path = UPLOAD_DIR / storage_key
+    col_summary = {col: {"dtype": str(df[col].dtype), "missing_pct": round(df[col].isna().mean() * 100, 1)} for col in df.columns}
+    col_types = {col: detect_col_type(col, df[col]) for col in df.columns}
+    flags = run_data_quality(df)
+    enc_path.write_bytes(settings.fernet.encrypt(raw))
+    upload = Upload(
+        project_id=project_id,
+        filename=original_filename,
+        original_filename=original_filename,
+        file_type=file_type,
+        size_bytes=len(raw),
+        checksum_sha256=hashlib.sha256(raw).hexdigest(),
+        storage_key=storage_key,
+        status="active",
+        created_at=datetime.utcnow(),
+        col_types=json.dumps(col_types),
+        column_map=json.dumps({}),
+        quality_flags=json.dumps(flags),
+        encrypted_path=str(enc_path),
+    )
+    db.add(upload)
+    return upload, col_summary, col_types, flags, {col: col_summary[col]["missing_pct"] for col in col_summary}
+
+
+async def _read_validated_upload_file(file: UploadFile) -> tuple[str, str, bytes, pd.DataFrame]:
+    original_filename = file.filename or "upload"
+    file_type = _allowed_suffix(original_filename)
     if file.size and file.size > MAX_BYTES:
         raise HTTPException(400, "File exceeds 50 MB limit")
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".csv", ".xlsx", ".xls"}:
-        raise HTTPException(400, f"Unsupported file type: {suffix}")
     raw = await file.read()
-    df = pd.read_csv(io.BytesIO(raw)) if suffix == ".csv" else pd.read_excel(io.BytesIO(raw))
-    flags = run_data_quality(df)
-    enc_path = UPLOAD_DIR / f"{project_id}_{file.filename}.enc"
-    enc_path.write_bytes(settings.fernet.encrypt(raw))
-    col_summary = {col: {"dtype": str(df[col].dtype),
-                         "missing_pct": round(df[col].isna().mean() * 100, 1)}
-                   for col in df.columns}
-    col_types = {col: detect_col_type(col, df[col]) for col in df.columns}
-    upload = Upload(project_id=project_id, filename=file.filename,
-                    col_types=json.dumps(col_types),
-                    quality_flags=json.dumps(flags),
-                    encrypted_path=str(enc_path))
-    db.add(upload)
+    if len(raw) > MAX_BYTES:
+        raise HTTPException(400, "File exceeds 50 MB limit")
+    df = _read_dataframe(raw, file_type)
+    _validate_dataset_shape(df)
+    return original_filename, file_type, raw, df
+
+
+@router.get("/project/{project_id}", response_model=list[UploadOut])
+def list_project_uploads(
+    project_id: int,
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+):
+    uploads = (
+        db.query(Upload)
+        .filter(Upload.project_id == project_id, Upload.status == "active")
+        .order_by(Upload.created_at.desc(), Upload.id.desc())
+        .all()
+    )
+    return [_upload_out(upload) for upload in uploads]
+
+
+@router.get("/{upload_id}", response_model=UploadOut)
+def get_upload(upload_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return _upload_out(_require_upload_access(upload_id, db, user))
+
+
+@router.post("/{project_id}")
+async def upload_file(
+    project_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+):
+    original_filename, _file_type, raw, df = await _read_validated_upload_file(file)
+    upload, col_summary, col_types, flags, missing_pct = _store_upload(db, project_id, original_filename, raw, df)
     db.commit()
     db.refresh(upload)
-    missing_pct = {col: col_summary[col]["missing_pct"] for col in col_summary}
-    return {"upload_id": upload.id, "row_count": len(df),
-            "col_summary": col_summary, "col_types": col_types,
-            "quality_flags": flags, "missing_pct": missing_pct}
+    log_action(db, project_id, "upload_created", {"upload_id": upload.id, "file_type": upload.file_type, "size_bytes": upload.size_bytes})
+    return {"upload_id": upload.id, "row_count": len(df), "col_summary": col_summary, "col_types": col_types, "quality_flags": flags, "missing_pct": missing_pct}
 
 
 @router.patch("/{upload_id}/acknowledged-flags")
-def save_acknowledged_flags(upload_id: int, body: dict, db: Session = Depends(get_db)):
-    u = db.query(Upload).get(upload_id)
-    if not u:
-        raise HTTPException(404)
+def save_acknowledged_flags(upload_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    u = _require_upload_access(upload_id, db, user)
     u.acknowledged_flags = json.dumps(body.get("flags", []))
     db.commit()
     return {"ok": True}
 
 
 @router.put("/{upload_id}/column-types")
-def update_column_types(upload_id: int, body: dict,
-                        db: Session = Depends(get_db)):
-    u = db.query(Upload).get(upload_id)
-    if not u:
-        raise HTTPException(404)
-    u.col_types = json.dumps(body)
+def update_column_types(upload_id: int, body: ColumnTypeUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    u = _require_upload_access(upload_id, db, user)
+    u.col_types = json.dumps(body.col_types)
+    u.column_map = json.dumps(body.column_map)
     db.commit()
+    return {"ok": True}
+
+
+@router.post("/{project_id}/replace/{upload_id}", response_model=UploadOut)
+async def replace_upload(
+    project_id: int,
+    upload_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+    user: User = Depends(get_current_user),
+):
+    old_upload = _require_upload_access(upload_id, db, user)
+    if old_upload.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    if old_upload.status != "active":
+        raise HTTPException(status_code=400, detail="Only active uploads can be replaced")
+    original_filename, _file_type, raw, df = await _read_validated_upload_file(file)
+    old_upload.status = "replaced"
+    new_upload, _col_summary, _col_types, _flags, _missing_pct = _store_upload(db, project_id, original_filename, raw, df)
+    db.commit()
+    db.refresh(new_upload)
+    log_action(db, project_id, "upload_replaced", {"old_upload_id": old_upload.id, "upload_id": new_upload.id, "file_type": new_upload.file_type, "size_bytes": new_upload.size_bytes})
+    return _upload_out(new_upload)
+
+
+@router.delete("/{upload_id}")
+def delete_upload(upload_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    upload = _require_upload_access(upload_id, db, user)
+    upload.status = "deleted"
+    if upload.encrypted_path:
+        path = Path(upload.encrypted_path)
+        if path.exists() and path.is_file():
+            path.unlink()
+    log_action(db, upload.project_id, "upload_deleted", {"upload_id": upload.id})
     return {"ok": True}

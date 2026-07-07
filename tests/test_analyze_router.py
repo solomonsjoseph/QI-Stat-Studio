@@ -1,22 +1,27 @@
 """Integration tests for /analyze/run and /analyze/{id}/recommend."""
-import io, json, os
-import pandas as pd
+import json
+import os
+import pathlib
+import tempfile
+
 import numpy as np
+import pandas as pd
 
 os.environ.setdefault("FERNET_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 
-from fastapi.testclient import TestClient
-from api.main import app
-from api.database import engine, Base, SessionLocal
-from api.models_db import Project, Upload
 from api.config import settings
+from api.database import SessionLocal
+from api.models_db import IntakeAnswer, Project, Upload
 
-Base.metadata.create_all(bind=engine)
-client = TestClient(app)
+
+def _project(client, title="Analyze Test"):
+    response = client.post("/projects", json={"title": title, "description": "test"})
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
 
 
-def _make_encrypted_csv(n=18):
-    """Create an encrypted CSV and return (project_id, upload_id)."""
+def _make_encrypted_csv(client, n=18):
+    """Create an encrypted CSV for an owned project and return (project_id, upload_id)."""
     dates = pd.date_range("2023-01-01", periods=n, freq="ME")
     rng = np.random.default_rng(0)
     df = pd.DataFrame({
@@ -28,67 +33,71 @@ def _make_encrypted_csv(n=18):
     csv_bytes = df.to_csv(index=False).encode()
     enc_bytes = settings.fernet.encrypt(csv_bytes)
 
-    db = SessionLocal()
-    p = Project(title="Analyze Test", description="test")
-    db.add(p); db.flush()
-
-    import tempfile, pathlib
+    pid = _project(client)
     enc_path = pathlib.Path(tempfile.mktemp(suffix=".enc"))
     enc_path.write_bytes(enc_bytes)
 
-    u = Upload(
-        project_id=p.id, filename="test.csv",
-        encrypted_path=str(enc_path),
-        col_types=json.dumps({c: "Number" for c in df.columns}),
-        quality_flags="[]",
-    )
-    db.add(u); db.commit()
-    pid, uid = p.id, u.id
-    db.close()
+    with SessionLocal() as db:
+        u = Upload(
+            project_id=pid,
+            filename="test.csv",
+            original_filename="test.csv",
+            file_type="csv",
+            size_bytes=len(csv_bytes),
+            checksum_sha256="test",
+            storage_key=enc_path.name,
+            status="active",
+            encrypted_path=str(enc_path),
+            col_types=json.dumps({c: "Number" for c in df.columns}),
+            column_map=json.dumps({}),
+            quality_flags="[]",
+        )
+        db.add(u)
+        db.commit()
+        uid = u.id
     return pid, uid
 
 
-def test_run_descriptive_returns_run_id():
-    pid, uid = _make_encrypted_csv()
-    resp = client.post("/analyze/run", json={
+def test_run_descriptive_returns_run_id(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    resp = auth_client.post("/analyze/run", json={
         "project_id": pid, "upload_id": uid,
         "template": "descriptive_summary",
         "parameters": {"value_cols": ["hba1c"], "group_col": "period"},
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     data = resp.json()
     assert "run_id" in data
     assert data["run_id"] > 0
 
 
-def test_run_run_chart_returns_figure():
-    pid, uid = _make_encrypted_csv()
-    resp = client.post("/analyze/run", json={
+def test_run_run_chart_returns_figure(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    resp = auth_client.post("/analyze/run", json={
         "project_id": pid, "upload_id": uid,
         "template": "run_chart",
         "parameters": {"date_col": "encounter_date", "value_col": "hba1c"},
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["figure_base64"] is not None
     assert "result_summary" in data
 
 
-def test_run_before_after_mean():
-    pid, uid = _make_encrypted_csv()
-    resp = client.post("/analyze/run", json={
+def test_run_before_after_mean(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    resp = auth_client.post("/analyze/run", json={
         "project_id": pid, "upload_id": uid,
         "template": "before_after_mean",
-        "parameters": {"group_col": "period", "value_col": "hba1c",
-                       "pre_val": "pre", "post_val": "post"},
+        "parameters": {"group_col": "period", "value_col": "hba1c", "pre_val": "pre", "post_val": "post"},
     })
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     assert "p_value" in resp.json()
 
 
-def test_run_unknown_template_returns_400():
-    pid, uid = _make_encrypted_csv()
-    resp = client.post("/analyze/run", json={
+def test_run_unknown_template_returns_400(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    resp = auth_client.post("/analyze/run", json={
         "project_id": pid, "upload_id": uid,
         "template": "no_such_template",
         "parameters": {},
@@ -96,21 +105,21 @@ def test_run_unknown_template_returns_400():
     assert resp.status_code == 400
 
 
-def test_run_bad_upload_id_returns_404():
-    resp = client.post("/analyze/run", json={
-        "project_id": 1, "upload_id": 99999,
+def test_run_bad_upload_id_returns_404(auth_client):
+    pid = _project(auth_client, "Bad Upload")
+    resp = auth_client.post("/analyze/run", json={
+        "project_id": pid, "upload_id": 99999,
         "template": "run_chart",
         "parameters": {"date_col": "encounter_date", "value_col": "hba1c"},
     })
     assert resp.status_code == 404
 
 
-def test_run_blocks_when_outcome_column_over_30pct_missing():
-    """POST /analyze/run must return 400 when chosen outcome col is >30% missing."""
+def test_run_blocks_when_outcome_column_over_30pct_missing(auth_client):
+    """POST /analyze/run returns 400 when chosen outcome col is >30% missing."""
     n = 20
     dates = pd.date_range("2023-01-01", periods=n, freq="ME")
     rng = np.random.default_rng(1)
-    # outcome column is 80% missing
     outcome = rng.integers(0, 2, n).astype(float)
     outcome[:16] = float("nan")
     df = pd.DataFrame({
@@ -120,35 +129,41 @@ def test_run_blocks_when_outcome_column_over_30pct_missing():
         "period": ["pre"] * (n // 2) + ["post"] * (n - n // 2),
     })
     csv_bytes = df.to_csv(index=False).encode()
-    enc_bytes = settings.fernet.encrypt(csv_bytes)
-
-    db = SessionLocal()
-    p = Project(title="Missing Test", description="test")
-    db.add(p); db.flush()
-    import tempfile, pathlib
     enc_path = pathlib.Path(tempfile.mktemp(suffix=".enc"))
-    enc_path.write_bytes(enc_bytes)
-    u = Upload(
-        project_id=p.id, filename="missing.csv",
-        encrypted_path=str(enc_path),
-        col_types=json.dumps({c: "Number" for c in df.columns}),
-        quality_flags="[]",
-    )
-    db.add(u); db.commit()
-    pid, uid = p.id, u.id
-    db.close()
+    enc_path.write_bytes(settings.fernet.encrypt(csv_bytes))
+    pid = _project(auth_client, "Missing Test")
 
-    resp = client.post("/analyze/run", json={
-        "project_id": pid, "upload_id": uid,
+    with SessionLocal() as db:
+        u = Upload(
+            project_id=pid,
+            filename="missing.csv",
+            original_filename="missing.csv",
+            file_type="csv",
+            size_bytes=len(csv_bytes),
+            checksum_sha256="test",
+            storage_key=enc_path.name,
+            status="active",
+            encrypted_path=str(enc_path),
+            col_types=json.dumps({c: "Number" for c in df.columns}),
+            column_map=json.dumps({}),
+            quality_flags="[]",
+        )
+        db.add(u)
+        db.commit()
+        uid = u.id
+
+    resp = auth_client.post("/analyze/run", json={
+        "project_id": pid,
+        "upload_id": uid,
         "template": "before_after_pct",
         "parameters": {"group_col": "period", "outcome_col": "outcome", "pre_val": "pre", "post_val": "post"},
     })
     assert resp.status_code == 400
-    assert "missing" in resp.json()["detail"].lower()
+    assert "missing" in resp.json()["error"]["message"].lower()
 
 
 def test_q5_freq_mapping():
-    """Q5 answer must map to correct pandas resample freq string."""
+    """Q5 answer maps to the expected pandas resample freq string."""
     from api.routers.analyze import q5_to_freq
     assert q5_to_freq("Daily") == "D"
     assert q5_to_freq("Weekly") == "W-MON"
@@ -159,24 +174,19 @@ def test_q5_freq_mapping():
     assert q5_to_freq("") == "ME"
 
 
-def test_recommend_returns_ordered_list():
+def test_recommend_returns_ordered_list(auth_client):
     """GET /analyze/{project_id}/recommend returns ordered template list."""
-    # Seed project + intake answers
-    db = SessionLocal()
-    p = Project(title="Rec Test", description="x")
-    db.add(p); db.flush()
-    from api.models_db import IntakeAnswer
-    db.add(IntakeAnswer(project_id=p.id, question_key="q2", answer="A percentage or proportion"))
-    db.add(IntakeAnswer(project_id=p.id, question_key="q3", answer="No — I'm just describing one time period"))
-    db.add(IntakeAnswer(project_id=p.id, question_key="q4", answer="Comparing groups at one time point"))
-    db.add(IntakeAnswer(project_id=p.id, question_key="q6", answer="12"))
-    db.commit(); pid = p.id; db.close()
+    pid = _project(auth_client, "Rec Test")
+    with SessionLocal() as db:
+        db.add(IntakeAnswer(project_id=pid, question_key="q2", answer="A percentage or proportion (percent of patients screened)"))
+        db.add(IntakeAnswer(project_id=pid, question_key="q3", answer="No — I'm just describing one time period"))
+        db.add(IntakeAnswer(project_id=pid, question_key="q4", answer="Comparing groups at one point in time"))
+        db.add(IntakeAnswer(project_id=pid, question_key="q6", answer="12"))
+        db.commit()
 
-    resp = client.get(f"/analyze/{pid}/recommend")
-    assert resp.status_code == 200
+    resp = auth_client.get(f"/analyze/{pid}/recommend")
+    assert resp.status_code == 200, resp.text
     items = resp.json()
     assert len(items) == 3
-    # First item must be marked recommended
     assert items[0]["recommended"] is True
-    # First template should be descriptive_summary (no comparison + groups)
     assert items[0]["template"] == "descriptive_summary"

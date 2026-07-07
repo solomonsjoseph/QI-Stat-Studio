@@ -17,7 +17,7 @@ A guided statistical analysis tool for medical residents conducting quality impr
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | FastAPI + SQLAlchemy 1.4 + SQLite |
+| Backend | FastAPI + SQLAlchemy 2.0 + SQLite |
 | Statistics | pandas, scipy, pingouin, matplotlib |
 | AI proxy | OpenRouter (configurable model) |
 | PHI scrubbing | spaCy `en_core_web_sm` + regex |
@@ -76,8 +76,8 @@ The Vite dev server proxies `/api/*` → `http://localhost:8000/*` (stripping th
 
 ```bash
 cd qi_stat_studio   # project root
-python -m pytest -q
-# 57 tests; ~4 seconds
+PYTHONPATH=. python -m pytest -q
+# 133 tests; ~15 seconds
 ```
 
 ## Docker (Production)
