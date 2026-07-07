@@ -4,8 +4,14 @@ from cryptography.fernet import Fernet as _Fernet
 
 
 class Settings(BaseSettings):
+    ai_provider: str = "openrouter"
     openrouter_api_key: str = ""
     openrouter_model: str = "anthropic/claude-sonnet-4-6"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    local_api_base: str = "http://localhost:11434"
+    local_api_key: str = ""
+    local_model: str = "llama3.1"
     secret_key: str = "dev-secret-change-in-prod"
     db_url: str = Field(
         default="sqlite:///./qi_stat_studio.db",

@@ -1,4 +1,4 @@
-"""Focused AI router guardrail tests; OpenRouter is always mocked."""
+"""Focused AI router guardrail tests; the outbound LLM call (litellm.completion) is always mocked."""
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -6,12 +6,14 @@ from api.database import SessionLocal
 from api.models_db import AIUsageEvent, AppSetting
 
 
-def _mock_openrouter(content="Test response", status_code=200, text=""):
-    mock = MagicMock()
-    mock.status_code = status_code
-    mock.text = text or ("ok" if status_code == 200 else "upstream failed")
-    mock.json.return_value = {"choices": [{"message": {"content": content}}]}
-    return mock
+def _mock_completion(content="Test response"):
+    message = MagicMock()
+    message.content = content
+    choice = MagicMock()
+    choice.message = message
+    response = MagicMock()
+    response.choices = [choice]
+    return response
 
 
 def _project_id(client):
@@ -37,7 +39,7 @@ def test_chat_scrubs_phi_and_records_usage(client, monkeypatch):
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    with patch("api.routers.ai.httpx.post", return_value=_mock_openrouter()) as mocked_post:
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion()) as mocked_completion:
         response = client.post(
             "/ai/chat",
             json={
@@ -50,10 +52,10 @@ def test_chat_scrubs_phi_and_records_usage(client, monkeypatch):
     data = response.json()
     assert data["phi_redacted"] is True
     assert data["redaction_count"] > 0
-    payload = mocked_post.call_args.kwargs["json"]
-    assert payload["max_tokens"] == 800
-    assert "123-45-6789" not in payload["messages"][0]["content"]
-    assert "[REDACTED]" in payload["messages"][0]["content"]
+    kwargs = mocked_completion.call_args.kwargs
+    assert kwargs["max_tokens"] == 800
+    assert "123-45-6789" not in kwargs["messages"][0]["content"]
+    assert "[REDACTED]" in kwargs["messages"][0]["content"]
     rows = _ai_usage_rows()
     assert len(rows) == 1
     assert rows[0].status == "ok"
@@ -65,7 +67,7 @@ def test_chat_uses_runtime_model_when_request_model_omitted(client, monkeypatch)
     _set_runtime_setting("openrouter_model", "runtime/model")
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    with patch("api.routers.ai.httpx.post", return_value=_mock_openrouter("Clean answer")) as mocked_post:
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("Clean answer")) as mocked_completion:
         response = client.post(
             "/ai/chat",
             json={"project_id": project_id, "messages": [{"role": "user", "content": "Explain a run chart"}]},
@@ -73,7 +75,7 @@ def test_chat_uses_runtime_model_when_request_model_omitted(client, monkeypatch)
 
     assert response.status_code == 200, response.text
     assert response.json()["content"] == "Clean answer"
-    assert mocked_post.call_args.kwargs["json"]["model"] == "runtime/model"
+    assert mocked_completion.call_args.kwargs["model"] == "openrouter/runtime/model"
 
 
 def test_chat_request_model_overrides_runtime_model(client, monkeypatch):
@@ -81,7 +83,7 @@ def test_chat_request_model_overrides_runtime_model(client, monkeypatch):
     _set_runtime_setting("openrouter_model", "runtime/model")
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    with patch("api.routers.ai.httpx.post", return_value=_mock_openrouter()) as mocked_post:
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion()) as mocked_completion:
         response = client.post(
             "/ai/chat",
             json={
@@ -92,7 +94,47 @@ def test_chat_request_model_overrides_runtime_model(client, monkeypatch):
         )
 
     assert response.status_code == 200, response.text
-    assert mocked_post.call_args.kwargs["json"]["model"] == "request/model"
+    assert mocked_completion.call_args.kwargs["model"] == "openrouter/request/model"
+
+
+def test_chat_uses_openai_provider_when_configured(client, monkeypatch):
+    project_id = _project_id(client)
+    _set_runtime_setting("ai_provider", "openai")
+    _set_runtime_setting("openai_model", "gpt-4o-mini")
+    monkeypatch.setattr("api.routers.ai.settings.openai_api_key", "sk-fake-openai")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("From OpenAI")) as mocked_completion:
+        response = client.post(
+            "/ai/chat",
+            json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "From OpenAI"
+    kwargs = mocked_completion.call_args.kwargs
+    assert kwargs["model"] == "gpt-4o-mini"
+    assert kwargs["api_key"] == "sk-fake-openai"
+    assert "api_base" not in kwargs
+
+
+def test_chat_uses_local_provider_without_requiring_api_key(client, monkeypatch):
+    project_id = _project_id(client)
+    _set_runtime_setting("ai_provider", "local")
+    _set_runtime_setting("local_model", "llama3.1")
+    _set_runtime_setting("local_api_base", "http://localhost:11434")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("From local model")) as mocked_completion:
+        response = client.post(
+            "/ai/chat",
+            json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["content"] == "From local model"
+    kwargs = mocked_completion.call_args.kwargs
+    assert kwargs["model"] == "ollama_chat/llama3.1"
+    assert kwargs["api_base"] == "http://localhost:11434"
+    assert "api_key" not in kwargs
 
 
 def test_chat_rate_limit_uses_db_events(client, monkeypatch):
@@ -113,46 +155,45 @@ def test_chat_rate_limit_uses_db_events(client, monkeypatch):
         db.commit()
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    with patch("api.routers.ai.httpx.post") as mocked_post:
+    with patch("api.routers.ai.litellm.completion") as mocked_completion:
         response = client.post(
             "/ai/chat",
             json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
         )
 
     assert response.status_code == 429
-    assert mocked_post.call_count == 0
+    assert mocked_completion.call_count == 0
 
 
-def test_chat_retries_429_and_5xx_then_succeeds(client, monkeypatch):
+def test_chat_requests_retries_and_timeout_from_litellm(client, monkeypatch):
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    responses = [_mock_openrouter(status_code=500), _mock_openrouter(status_code=429), _mock_openrouter("Recovered")]
-    with patch("api.routers.ai.time.sleep") as mocked_sleep:
-        with patch("api.routers.ai.httpx.post", side_effect=responses) as mocked_post:
-            response = client.post(
-                "/ai/chat",
-                json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
-            )
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("Recovered")) as mocked_completion:
+        response = client.post(
+            "/ai/chat",
+            json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
+        )
 
     assert response.status_code == 200, response.text
     assert response.json()["content"] == "Recovered"
-    assert mocked_post.call_count == 3
-    assert mocked_sleep.call_count == 2
+    kwargs = mocked_completion.call_args.kwargs
+    assert kwargs["num_retries"] == 2
+    assert kwargs["timeout"] == 30
 
 
 def test_chat_rejects_user_content_over_4000_chars(client, monkeypatch):
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    with patch("api.routers.ai.httpx.post") as mocked_post:
+    with patch("api.routers.ai.litellm.completion") as mocked_completion:
         response = client.post(
             "/ai/chat",
             json={"project_id": project_id, "messages": [{"role": "user", "content": "x" * 4001}]},
         )
 
     assert response.status_code == 400
-    assert mocked_post.call_count == 0
+    assert mocked_completion.call_count == 0
 
 
 def test_chat_no_api_key_records_not_configured_usage(client, monkeypatch):
@@ -174,7 +215,7 @@ def test_chat_transport_exception_records_error_usage_and_returns_safe_502(clien
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
-    with patch("api.routers.ai.httpx.post", side_effect=RuntimeError("MRN 123456 secret@example.com upstream exploded")):
+    with patch("api.routers.ai.litellm.completion", side_effect=RuntimeError("MRN 123456 secret@example.com upstream exploded")):
         response = client.post(
             "/ai/chat",
             json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
@@ -193,9 +234,11 @@ def test_chat_transport_exception_records_error_usage_and_returns_safe_502(clien
 def test_chat_upstream_error_body_is_not_returned(client, monkeypatch):
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-    upstream = _mock_openrouter(status_code=500, text="upstream leaked MRN 123456 secret@example.com")
 
-    with patch("api.routers.ai.httpx.post", return_value=upstream):
+    with patch(
+        "api.routers.ai.litellm.completion",
+        side_effect=RuntimeError("upstream leaked MRN 123456 secret@example.com"),
+    ):
         response = client.post(
             "/ai/chat",
             json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]},
