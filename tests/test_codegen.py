@@ -1,5 +1,5 @@
 """Tests for R code generation (all 6 templates)."""
-from api.templates.codegen import generate_r_code
+from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
 
 
 def test_descriptive_contains_summarise():
@@ -100,6 +100,8 @@ def test_time_series_r_outputs_plot_and_intervention_line():
         assert "ggplot(agg" in code
         assert "geom_vline" in code
         assert "2025-01-01" in code
+        assert "bucket_start=min(" in code
+        assert "aes(x=bucket_start" in code
 
 
 def test_u_c_chart_r_uses_runtime_c_chart_decision_with_denominator():
@@ -110,6 +112,17 @@ def test_u_c_chart_r_uses_runtime_c_chart_decision_with_denominator():
     )
     assert "cbar <- mean(agg$cnt" in code
     assert "rate <- agg$cnt / agg$denom" not in code
+
+
+def test_spss_sas_u_c_chart_use_runtime_c_chart_decision_with_denominator():
+    params = {"date_col": "date", "count_col": "cnt", "denominator_col": "denom"}
+    result = {"chart_type": "c"}
+    spss = generate_spss_code("u_c_chart", params, result)
+    sas = generate_sas_code("u_c_chart", params, result)
+    assert "COMPUTE cbar=MEAN(cnt)" in spss
+    assert "COMPUTE rate=cnt/denom" not in spss
+    assert "cbar=mean(cnt)" in sas
+    assert "rate=cnt/denom" not in sas
 
 
 def test_unknown_template_returns_fallback():
@@ -127,7 +140,6 @@ def test_generated_code_is_string():
 
 # ── SPSS and SAS tests ────────────────────────────────────────────────────
 
-from api.templates.codegen import generate_spss_code, generate_sas_code
 
 
 def test_spss_not_placeholder():

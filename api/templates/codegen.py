@@ -19,6 +19,11 @@ def _r_date_bucket_fmt(freq: str | None) -> str:
     return {"day": "%Y-%m-%d", "week": "%Y-%U", "year": "%Y"}.get(bucket, "%Y-%m")
 
 
+
+
+def _runtime_chart_type(result: dict | None) -> str:
+    return str((result or {}).get("chart_type") or "")
+
 def _r_intervention_layer(params: dict) -> str:
     intervention_date = params.get("intervention_date")
     if not intervention_date:
@@ -121,12 +126,12 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             f"library(dplyr)\n"
             f"library(ggplot2)\n"
             f"df${dc} <- as.Date(df${dc})\n"
-            f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% summarise(val=mean({vc}, na.rm=TRUE), .groups='drop')\n"
+            f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% summarise(val=mean({vc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')\n"
             f"med <- median(agg$val, na.rm=TRUE)\n"
             f"v <- agg$val[agg$val != med]\n"
             f"runs <- rle(v > med)\n"
             f"max_run <- ifelse(length(runs$lengths), max(runs$lengths), 0)  # signal if >= 8 same side of median\n"
-            f"ggplot(agg, aes(x=bucket, y=val, group=1)) + geom_line() + geom_point() +\n"
+            f"ggplot(agg, aes(x=bucket_start, y=val, group=1)) + geom_line() + geom_point() +\n"
             f"  geom_hline(yintercept=med, color='red', linetype='dashed')"
             f"{_r_intervention_layer(params)}"
         )
@@ -137,9 +142,9 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
         denom = params.get("denominator_col")
         fmt = _r_date_bucket_fmt(params.get("freq"))
         if denom:
-            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), .groups='drop')"
+            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
         else:
-            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n(), .groups='drop')"
+            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n(), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
         return (
             f"library(dplyr)\n"
             f"library(ggplot2)\n"
@@ -149,7 +154,7 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             f"pbar <- sum(agg$num, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
             f"agg$ucl <- pbar + 3*sqrt(pbar*(1-pbar)/agg$denom)\n"
             f"agg$lcl <- pmax(0, pbar - 3*sqrt(pbar*(1-pbar)/agg$denom))\n"
-            f"ggplot(agg, aes(x=bucket, y=p, group=1)) + geom_line() + geom_point() +\n"
+            f"ggplot(agg, aes(x=bucket_start, y=p, group=1)) + geom_line() + geom_point() +\n"
             f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
             f"{_r_intervention_layer(params)}"
         )
@@ -159,11 +164,11 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
         cc = params.get("count_col", "count")
         denom = params.get("denominator_col")
         fmt = _r_date_bucket_fmt(params.get("freq"))
-        runtime_chart_type = (result or {}).get("chart_type")
+        runtime_chart_type = _runtime_chart_type(result)
         if denom:
-            aggregate = f"summarise(cnt=sum({cc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), .groups='drop')"
+            aggregate = f"summarise(cnt=sum({cc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
         else:
-            aggregate = f"summarise(cnt=sum({cc}, na.rm=TRUE), .groups='drop')"
+            aggregate = f"summarise(cnt=sum({cc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
         prefix = (
             f"library(dplyr)\n"
             f"library(ggplot2)\n"
@@ -177,7 +182,7 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
                 + f"ubar <- sum(agg$cnt, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
                 + f"agg$ucl <- ubar + 3*sqrt(ubar/agg$denom)\n"
                 + f"agg$lcl <- pmax(0, ubar - 3*sqrt(ubar/agg$denom))\n"
-                + f"ggplot(agg, aes(x=bucket, y=rate, group=1)) + geom_line() + geom_point() +\n"
+                + f"ggplot(agg, aes(x=bucket_start, y=rate, group=1)) + geom_line() + geom_point() +\n"
                 + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
                 + _r_intervention_layer(params)
             )
@@ -186,7 +191,7 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             + f"cbar <- mean(agg$cnt, na.rm=TRUE)\n"
             + f"agg$ucl <- cbar + 3*sqrt(cbar)\n"
             + f"agg$lcl <- pmax(0, cbar - 3*sqrt(cbar))\n"
-            + f"ggplot(agg, aes(x=bucket, y=cnt, group=1)) + geom_line() + geom_point() +\n"
+            + f"ggplot(agg, aes(x=bucket_start, y=cnt, group=1)) + geom_line() + geom_point() +\n"
             + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
             + _r_intervention_layer(params)
         )
@@ -241,7 +246,8 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
         cc = params.get("count_col", "count")
         denom = params.get("denominator_col")
         bucket = _spss_date_bucket(params)
-        if denom:
+        runtime_chart_type = _runtime_chart_type(result)
+        if denom and runtime_chart_type != "c":
             return (
                 f"{_spss_intervention_comment(params)}{bucket}\n"
                 f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}) /denom=SUM({denom}).\n"
@@ -301,7 +307,8 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         cc = params.get("count_col", "count")
         denom = params.get("denominator_col")
         bucket = _sas_date_bucket(params)
-        if denom:
+        runtime_chart_type = _runtime_chart_type(result)
+        if denom and runtime_chart_type != "c":
             return (
                 f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt, sum({denom}) AS denom "
                 f"FROM df GROUP BY date_bucket; "
