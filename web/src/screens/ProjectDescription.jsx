@@ -48,8 +48,8 @@ export default function ProjectDescription() {
     <div className="screen max-w-xl">
       <PageIntro
         step="description"
-        title="Describe Your QI Project"
-        lead="Imagine you're explaining it to a co-resident in the cafeteria. No jargon needed."
+        title="Tell us about your project."
+        lead="In one or two sentences, what is your QA/QI project about? Imagine you're explaining it to a co-resident in the cafeteria. No jargon needed."
       />
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}
       {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving description and checking for intake suggestions…</p>}
@@ -62,7 +62,7 @@ export default function ProjectDescription() {
           className="input min-h-32"
           value={desc}
           onChange={e => setDesc(e.target.value)}
-          placeholder="Describe your QI initiative in 1–3 sentences..."
+          placeholder="Describe your QI initiative in one or two sentences..."
           disabled={loading}
           required
         />
