@@ -33,7 +33,7 @@ describe('ProjectDescription guide wording', () => {
     expect(screen.getByPlaceholderText('Describe your QI initiative in one or two sentences...')).toBeInTheDocument()
   })
 })
-
+describe('ProjectDescription PHI prefill', () => {
   it('stores the PHI redaction flag returned by intake prefill', async () => {
     apiMock.updateProject.mockResolvedValue({})
     apiMock.saveAnswers.mockResolvedValue({})
@@ -49,3 +49,4 @@ describe('ProjectDescription guide wording', () => {
       expect(value.update).toHaveBeenCalledWith({ aiSuggestions: { q2: 'Something else / not sure' }, prefillPhiRedacted: true })
     })
   })
+})
