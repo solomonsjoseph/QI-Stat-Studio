@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -75,6 +76,14 @@ def test_readyz_reports_fernet_misconfiguration_without_startup_abort(client, mo
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "checks": {"database": True, "fernet": False}}
+
+
+def test_startup_requires_fernet_key(monkeypatch):
+    monkeypatch.setattr(settings, "fernet_key", "")
+
+    with pytest.raises(RuntimeError):
+        with TestClient(app):
+            pass
 
 
 def test_error_envelope_contains_request_id(client):

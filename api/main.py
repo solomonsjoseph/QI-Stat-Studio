@@ -54,6 +54,7 @@ def _parse_cors_origins(value: str) -> list[str]:
 async def lifespan(app: FastAPI):
     if settings.environment == "production" and settings.secret_key == "dev-secret-change-in-prod":
         raise RuntimeError("SECRET_KEY must be configured in production")
+    settings.fernet
     yield
 
 
