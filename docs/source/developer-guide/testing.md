@@ -13,9 +13,9 @@ cd web && npm run test
 cd web && npm run e2e
 ```
 
-Run one file (or one test) directly when iterating — the project convention
-is to run only the tests you touched, not the full suite, until you're ready
-to confirm no regressions:
+Run one file (or one test) directly when iterating. The project convention
+is to run only the tests you touched, not the full suite, until you're
+ready to confirm no regressions:
 
 ```bash
 FERNET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= PYTHONPATH=. python -m pytest -q tests/test_report.py -k limitations
@@ -27,7 +27,7 @@ FERNET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= PYTHONPATH=. python -m p
 valid (but not secret) base64 Fernet key. It's required because
 `settings.fernet` raises `RuntimeError` if `FERNET_KEY` is unset
 (`api/config.py`), and upload/report code paths encrypt and decrypt through
-it — tests that touch uploads at all need a real, working key, just not a
+it. Tests that touch uploads at all need a real, working key, just not a
 production one. The same value is reused in
 `web/playwright.config.js`'s backend environment and hardcoded at the top of
 most backend test modules that need it.
@@ -38,8 +38,8 @@ most backend test modules that need it.
 *before* the app or its settings are imported, deletes any stale copy of
 that file up front, creates the full schema once per test session via
 `Base.metadata.create_all`, and truncates every table before each individual
-test — so tests never touch your dev database (`qi_stat_studio.db`) and
-never leak state between tests, regardless of run order.
+test. Tests never touch your dev database (`qi_stat_studio.db`) and never
+leak state between tests, regardless of run order.
 
 ## What each backend test file covers
 
@@ -92,12 +92,12 @@ never leak state between tests, regardless of run order.
 ## End-to-end (Playwright)
 
 `web/e2e/critical-path.spec.js` is the one E2E spec: it walks the *entire*
-resident journey against a real, running backend and frontend — register,
+resident journey against a real, running backend and frontend. Register,
 describe, all nine intake questions, upload a generated 12-row CSV, confirm
 column types, acknowledge data-quality warnings, pick Run Chart, map
 columns, view results, edit the report, download links, share with a
-mentor, then switches to the mentor's view (in the same test) to confirm no
-download links exist there, and posts a mentor comment.
+mentor, then switch to the mentor's view (in the same test) to confirm no
+download links exist there, and post a mentor comment.
 
 It's gated behind an env var and skipped otherwise:
 
@@ -108,13 +108,13 @@ QISS_E2E=1 npm run e2e
 By default Playwright expects the servers already running; set
 `QISS_E2E_START_SERVER=1` to have Playwright's `webServer` config start
 both for you (backend: `alembic upgrade head` against a fresh
-`QISS_E2E_DB` — default `e2e_qi_stat_studio.db` — then `uvicorn`; frontend:
+`QISS_E2E_DB`, default `e2e_qi_stat_studio.db`, then `uvicorn`; frontend:
 `npm run dev`). `baseURL` defaults to `http://127.0.0.1:5173`, one browser
 project (`chromium`/Desktop Chrome), global timeout 120s.
 
 ## Continuous integration
 
 There is currently no `.github/workflows/` (or other CI config) in this
-repository — the three commands above are run manually / by whatever
+repository. The three commands above are run manually, or by whatever
 external process your team wires up. If you add CI, run them in this order
 (cheapest/most-isolated first): backend tests → frontend unit tests → E2E.

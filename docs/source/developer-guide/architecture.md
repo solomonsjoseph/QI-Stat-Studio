@@ -41,11 +41,11 @@ flowchart LR
   with a single global `SessionLocal` (`api/database.py`); `PRAGMA
   foreign_keys=ON` is set on every new SQLite connection via a `connect`
   event listener, since SQLite doesn't enforce FKs by default. Schema is
-  owned entirely by Alembic (see {doc}`data-model`) — the app never calls
+  owned entirely by Alembic (see {doc}`data-model`); the app never calls
   `Base.metadata.create_all()` outside tests.
 - **Encrypted upload storage**: uploaded files are Fernet-encrypted and
   written to `uploads_enc/` on disk, referenced from the `uploads` table by
-  `storage_key`/`encrypted_path` — never stored as blobs in the database.
+  `storage_key`/`encrypted_path`, never stored as blobs in the database.
 - **AI provider**: reached only through `litellm.completion(...)`, which
   normalizes OpenRouter/OpenAI/local-Ollama-style calls behind one interface
   (see {doc}`how-to` for provider configuration).
@@ -55,37 +55,37 @@ flowchart LR
 Every HTTP request passes through the same three-layer middleware stack,
 outermost first:
 
-1. **`CORSMiddleware`** — origins from `CORS_ORIGINS`, credentials allowed
+1. **`CORSMiddleware`**: origins from `CORS_ORIGINS`, credentials allowed
    (required for the session cookie), all methods/headers allowed.
-2. **`ApiPrefixMiddleware`** — strips a leading `/api` from the ASGI scope
+2. **`ApiPrefixMiddleware`**: strips a leading `/api` from the ASGI scope
    path before routing. This exists because the built frontend calls
    `/api/...` (matching the Vite dev proxy's mount point) in both dev and
    production, but the FastAPI routers themselves are registered without an
-   `/api` prefix — so production serving needs exactly this rewrite to make
+   `/api` prefix, so production serving needs exactly this rewrite to make
    the same frontend bundle work identically against the dev proxy and the
    real server.
-3. **`request_id_middleware`** — assigns (or trusts an inbound)
+3. **`request_id_middleware`**: assigns (or trusts an inbound)
    `X-Request-ID`, stores it on `request.state`, and echoes it back in the
    response header. For JSON bodies it also pre-parses `project_id` /
    `upload_id` / `run_id` into `request.state.sanitized_body_ids` *before*
-   the route handler consumes the body stream — this is what lets the global
+   the route handler consumes the body stream. That's what lets the global
    exception handler attach identifying context to a failure log entry
    without re-reading (or logging) the full, possibly PHI-adjacent request
    body.
 
-Three global exception handlers turn every error — `HTTPException`,
-Pydantic's `RequestValidationError`, and any unhandled `Exception` — into
-the same JSON envelope shape: `{"error": {"code", "message", "request_id",
+Three global exception handlers turn every error (`HTTPException`,
+Pydantic's `RequestValidationError`, and any unhandled `Exception`) into the
+same JSON envelope shape: `{"error": {"code", "message", "request_id",
 "field_errors"}}`. Unhandled exceptions and `HTTPException`s both also write
 a `FailureLog` row (`api/main.py:_record_failure`) with the sanitized
-route/action/ids — so `GET /admin/failures` (see {doc}`api-reference`) has
+route/action/ids, so `GET /admin/failures` (see {doc}`api-reference`) has
 something to show without ever persisting raw exception text or request
 bodies that could contain PHI.
 
 ## Auth and sessions
 
-There is no JWT and no third-party identity provider (Rutgers SSO is an
-explicitly deferred v1 decision — see {doc}`decisions`). Instead:
+There is no JWT and no third-party identity provider. Rutgers SSO is a
+deferred v1 decision (see {doc}`decisions`). Instead:
 
 - Passwords are hashed with PBKDF2-HMAC-SHA256, a random 16-byte salt per
   user, and 260,000 iterations, stored as
@@ -95,8 +95,8 @@ explicitly deferred v1 decision — see {doc}`decisions`). Instead:
 - On login, a random 32-byte URL-safe token is minted
   (`secrets.token_urlsafe(32)`), its SHA-256 hash is stored in
   `user_sessions.token_hash` (never the raw token), and the raw token is
-  signed — with `itsdangerous.URLSafeTimedSerializer` when available, or an
-  HMAC-SHA256 fallback (`_fallback_signature`) when it isn't — before being
+  signed (with `itsdangerous.URLSafeTimedSerializer` when available, or an
+  HMAC-SHA256 fallback, `_fallback_signature`, when it isn't) before being
   set as the `qiss_session` cookie (`httponly`, `samesite=lax`, `secure`
   driven by `COOKIE_SECURE`). Sessions last 8 hours
   (`SESSION_SECONDS = 8 * 60 * 60`).
@@ -105,17 +105,17 @@ explicitly deferred v1 decision — see {doc}`decisions`). Instead:
   row, else `401`), `require_admin` (adds a `role == "admin"` check, else
   `403`), and `require_project_owner` (loads the `Project`, allows admins or
   the owning user, else `403`/`404`). Every authenticated router depends on
-  one of these three — there's no separate authorization layer to keep in
+  one of these three, so there's no separate authorization layer to keep in
   sync.
 - Mentor share links (`/share/view/{token}` and friends) are the one
-  deliberately unauthenticated surface — access control there is entirely
+  deliberately unauthenticated surface. Access control there is entirely
   "do you have the unguessable token," checked per-request against
-  `mentor_shares.revoked_at`/`expires_at`, not against any user session.
+  `mentor_shares.revoked_at`/`expires_at` rather than any user session.
 
 ## The wizard as a state machine
 
-The 10 screens (`SCREENS` in `web/src/App.jsx`) are not just a linear
-frontend flow — the backend independently derives "what screen should this
+The 10 screens (`SCREENS` in `web/src/App.jsx`) aren't just a linear
+frontend flow: the backend independently derives "what screen should this
 project be on" from what's actually persisted, in
 `api/routers/projects.py:_derive_current_screen`. On `GET
 /projects/{id}/resume`, that function walks: has a description → has all

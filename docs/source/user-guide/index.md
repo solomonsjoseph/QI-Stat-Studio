@@ -1,7 +1,7 @@
 # User Guide
 
 For residents running a QI project and the mentors reviewing them. No
-statistics background or coding required — the app runs every analysis for
+statistics background or coding required: the app runs every analysis for
 you and asks plain-language questions to get there.
 
 ```{toctree}
@@ -13,7 +13,7 @@ reference
 concepts
 ```
 
-- **New to the app?** Start with the {doc}`tutorial` — a full walk-through of
+- **New to the app?** Start with the {doc}`tutorial`, a full walk-through of
   one project, screen by screen.
 - **Know the app, need one task done?** Jump to {doc}`how-to`.
 - **Looking something up** (a question's exact wording, which analysis does

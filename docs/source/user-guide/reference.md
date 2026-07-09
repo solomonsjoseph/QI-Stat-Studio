@@ -18,13 +18,13 @@ to finish.
 | 9 | Edit & Review | Edit the report title, figure caption, and interpretation. |
 | 10 | Download & Share | Generate the report, download Word/PDF, and share a mentor review link. |
 
-The progress bar counts 9 steps (Description through Download) — Landing
-itself isn't numbered since it's where you choose *which* project to work
+The progress bar counts 9 steps (Description through Download). Landing
+itself isn't numbered, since it's where you choose *which* project to work
 on.
 
 ## Intake questions, exact wording
 
-Q1 is your project description from screen 2, reused here — it isn't asked
+Q1 is your project description from screen 2, reused here. It isn't asked
 again. "I'm not sure" is always an available answer.
 
 `````{list-table}
@@ -76,13 +76,13 @@ again. "I'm not sure" is always an available answer.
 * - Q9
   - Which software should we put in the code export?
   - R · SPSS · SAS · All three · I'm not sure (defaults to including all
-    three). You never run this code yourself — the app has already run the
+    three). You never run this code yourself. The app has already run the
     analysis; this only affects the exported supplement.
   - Always
 * - Q10
   - Your mentor and timeline (optional)
   - Mentor's email (so they get a share link) + Abstract deadline. Saving a
-    mentor email here automatically creates and emails the share link — you
+    mentor email here automatically creates and emails the share link. You
     don't have to also click "Share with mentor" later, though you can.
   - Always, optional
 `````
@@ -98,15 +98,15 @@ again. "I'm not sure" is always an available answer.
 | **p-Chart** | You're tracking a percentage/proportion over time with 12+ points. | 3-sigma control limits computed from each period's numerator and denominator. |
 | **u/c-Chart** | You're tracking a rate or count over time with 12+ points. | Uses a u-chart when the denominator varies period to period, or a c-chart when it's stable; both use 3-sigma control limits. |
 
-The app always runs the statistics itself — the R/SPSS/SAS code from Q9 is
-an *export-only* record of what was already done, for your supplement or
-your mentor, not something you need to run.
+The app always runs the statistics itself. The R/SPSS/SAS code from Q9 is
+only an *export-only* record of what was already done, for your supplement
+or your mentor.
 
 ## What "I'm not sure" does
 
-Every question accepts "I'm not sure" without blocking you. Concretely: for
-Q6 (time points), leaving it unset or unclear falls back to a run chart
-instead of a control chart; for Q9 (code export), "I'm not sure" exports all
-three languages so you're covered either way; for every other question, an
-"I'm not sure" answer is simply one more input to the analysis
-recommendation — it never prevents you from continuing.
+Every question accepts "I'm not sure" without blocking you. For Q6 (time
+points), leaving it unset or unclear falls back to a run chart instead of a
+control chart. For Q9 (code export), "I'm not sure" exports all three
+languages so you're covered either way. For every other question, "I'm not
+sure" is simply one more input to the analysis recommendation and never
+stops you from continuing.

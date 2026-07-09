@@ -5,11 +5,11 @@ your first user account.
 
 ## Prerequisites
 
-- Python 3.10+ (3.11 is what Docker uses in production — prefer it locally
+- Python 3.10+ (3.11 is what Docker uses in production; prefer it locally
   too).
 - Node.js 18+.
-- A Fernet key for upload encryption (generated below — there's no default;
-  the app refuses to start without one).
+- A Fernet key for upload encryption, generated below. There's no default;
+  the app refuses to start without one.
 
 ## 1. Install backend dependencies
 
@@ -23,7 +23,7 @@ python -m spacy download en_core_web_sm
 `en_core_web_sm` is spaCy's small English NER model, used by the PHI
 scrubber (see {doc}`security`) to catch names/dates/orgs that regex alone
 would miss. If it's missing, the scrubber logs a warning and falls back to
-regex-only redaction — it does not crash the app.
+regex-only redaction instead of crashing the app.
 
 ## 2. Configure the environment
 
@@ -38,8 +38,8 @@ SMTP); see {doc}`how-to` for what each one does and when you need it.
 
 ## 3. Create the database schema
 
-The app does **not** auto-create tables on a normal `uvicorn` startup —
-that's Alembic's job:
+The app does **not** auto-create tables on a normal `uvicorn` startup; that's
+Alembic's job:
 
 ```bash
 alembic upgrade head
@@ -74,8 +74,8 @@ npm run dev
 
 The app is now at `http://localhost:5173`. Vite's dev server proxies
 `/api/*` to `http://localhost:8000` and strips the `/api` prefix (see
-`web/vite.config.js`) — in production, the same `api.js` client instead
-talks to the FastAPI app directly, which is why `api/main.py` also has an
+`web/vite.config.js`). In production the same `api.js` client instead talks
+to the FastAPI app directly, which is why `api/main.py` also has an
 `ApiPrefixMiddleware` that strips `/api` server-side (see
 {doc}`architecture`).
 
@@ -84,9 +84,9 @@ talks to the FastAPI app directly, which is why `api/main.py` also has an
 Open `http://localhost:5173` and register an email/password account. **The
 very first user ever registered on a given database becomes `admin`**;
 every registration after that becomes a `resident`. There's no separate
-admin-invite flow — if you need a second admin, promote them directly in the
-database (there's no API endpoint for it, by design: admin escalation isn't
-something the app exposes over HTTP).
+admin-invite flow. If you need a second admin, promote them directly in the
+database; there's no API endpoint for it, by design, since admin escalation
+isn't something the app exposes over HTTP.
 
 ## 7. Confirm it all works
 

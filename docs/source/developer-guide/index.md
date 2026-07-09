@@ -20,8 +20,8 @@ decisions
 - **New to this repo?** Start with {doc}`getting-started`.
 - **Have a specific task** (add a template, deploy, run one test suite)?
   See {doc}`how-to`.
-- **Need to understand the system**, not just run it? See {doc}`architecture`,
+- **Need to understand the system, not just run it?** See {doc}`architecture`,
   {doc}`data-model`, and {doc}`security`.
 - **Looking something up** (a route's exact behavior, a table's columns)?
   See {doc}`api-reference` and {doc}`data-model`.
-- **Wondering why something was built a certain way**? See {doc}`decisions`.
+- **Wondering why something was built a certain way?** See {doc}`decisions`.

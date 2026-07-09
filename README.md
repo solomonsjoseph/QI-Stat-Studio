@@ -4,11 +4,11 @@ QI Stat Studio is a guided statistical analysis app for medical residents
 running quality-improvement (QI) projects. A resident describes a project,
 uploads a CSV or Excel file, confirms data-quality checks, runs one of six
 guide-recommended analyses, edits the interpretation, and downloads a
-Word/PDF report or shares an in-browser mentor review link — no statistics
+Word/PDF report or shares an in-browser mentor review link. No statistics
 training or coding required.
 
-Full documentation — user guide, architecture, API reference, data model,
-security design, testing, and deployment — lives in [`docs/`](docs/) and is
+Full documentation (user guide, architecture, API reference, data model,
+security design, testing, and deployment) lives in [`docs/`](docs/) and is
 built with Sphinx. See **Documentation** below to build and browse it.
 
 ## Quick start
@@ -41,8 +41,8 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` and register an account — the first user ever
-registered becomes admin, everyone after that is a resident.
+Open `http://localhost:5173` and register an account. The first user ever
+registered becomes admin; everyone after that is a resident.
 
 ## Commands
 
@@ -66,12 +66,12 @@ make -C docs html
 Then open `docs/build/html/index.html` in a browser. The site has two
 independent guides:
 
-- **User Guide** — for residents and mentors: the full walkthrough, task
+- **User Guide**: for residents and mentors. The full walkthrough, task
   how-tos, exact intake question wording, and the six analyses explained in
   plain English.
-- **Developer Guide** — for engineers: local setup, system architecture,
-  the full data model, complete API reference, security/PHI design,
-  the test suite, and deployment.
+- **Developer Guide**: for engineers. Local setup, system architecture, the
+  full data model, complete API reference, security/PHI design, the test
+  suite, and deployment.
 
 ## License
 

@@ -2,7 +2,7 @@
 
 All 13 tables, as defined in `api/models_db.py` and enforced by the Alembic
 migration chain below. SQLite enforces foreign keys at runtime (`PRAGMA
-foreign_keys=ON`, set on every connection — see {doc}`architecture`), so the
+foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 `ondelete` behaviors listed here are real, not just documentation.
 
 ## Tables
@@ -108,7 +108,7 @@ foreign_keys=ON`, set on every connection — see {doc}`architecture`), so the
 
 `mentor_shares.comments_json` existed in an earlier schema revision and was
 dropped in favor of the normalized `mentor_comments` table (migration
-`c4e1f8a2d9b6` — see {doc}`decisions`).
+`c4e1f8a2d9b6`; see {doc}`decisions`).
 
 ### `mentor_comments`
 

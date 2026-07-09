@@ -15,17 +15,17 @@ matching credentials:
 | `local` (e.g. Ollama) | — | `LOCAL_API_BASE` (default `http://localhost:11434`), `LOCAL_API_KEY`, `LOCAL_MODEL` (default `llama3.1`) |
 
 Without valid provider credentials, AI endpoints (`/ai/intake-prefill`,
-`/ai/chat`) return an "unavailable" response — core upload/analysis/report
-functionality is entirely independent of the AI provider and keeps working.
-`ai_provider` and the per-provider model names are also editable at runtime
-by an admin from **Settings** (backed by `api/settings_registry.py`) without
-restarting the server; API keys are not — they're boot-time-only and never
-exposed through that screen (see {doc}`security`).
+`/ai/chat`) return an "unavailable" response. Core upload/analysis/report
+functionality doesn't depend on the AI provider and keeps working either
+way. `ai_provider` and the per-provider model names are also editable at
+runtime by an admin from **Settings** (backed by `api/settings_registry.py`)
+without restarting the server. API keys are not: they're boot-time-only and
+never exposed through that screen (see {doc}`security`).
 
 ## Add a new statistical template
 
-A template is not just one function — it's five coordinated pieces. Using
-the six existing templates in `api/templates/` as your model:
+A template isn't just one function; it's eight coordinated pieces. Use the
+six existing templates in `api/templates/` as your model:
 
 1. **The runner** (`api/templates/your_template.py`): a function
    `run_your_template(df, params)` returning a dict with (at minimum) `table`,
@@ -48,8 +48,8 @@ the six existing templates in `api/templates/` as your model:
 5. **Code generation** (`api/templates/codegen.py`): add a branch to each of
    `generate_r_code`, `generate_spss_code`, and `generate_sas_code`.
    Templates you haven't implemented yet return the exact fallback string
-   `# {language} code for template "{template}" not yet implemented.` —
-   don't ship a template whose Q9 export is still that placeholder.
+   `# {language} code for template "{template}" not yet implemented.`. Don't
+   ship a template whose Q9 export is still that placeholder.
 6. **Selection logic** (`api/routers/analyze.py`): decide where your new
    template fits into `select_template`'s branch order, and add a
    one-sentence entry to `_DESCRIPTIONS`.
@@ -71,15 +71,16 @@ template.
 alembic revision -m "short description"
 ```
 
-Edit the generated file's `upgrade()`/`downgrade()`. For SQLite compatibility
-(SQLite can't `ALTER TABLE` arbitrarily), use `op.batch_alter_table(...)` —
-every migration in this repo already does, e.g.
-`alembic/versions/d4a1e6f0b8c2_tighten_backfilled_not_null_columns.py`, which
-also shows the pattern for backfilling data before tightening a column to
-`NOT NULL`. See {doc}`data-model` for the full existing migration chain.
+Edit the generated file's `upgrade()`/`downgrade()`. SQLite can't
+`ALTER TABLE` arbitrarily, so for compatibility use
+`op.batch_alter_table(...)`; every migration in this repo already does,
+e.g. `alembic/versions/d4a1e6f0b8c2_tighten_backfilled_not_null_columns.py`,
+which also shows the pattern for backfilling data before tightening a
+column to `NOT NULL`. See {doc}`data-model` for the full existing migration
+chain.
 
 Before committing, confirm your migration produces a schema that actually
-matches the SQLAlchemy models — this repo has two dedicated regression tests
+matches the SQLAlchemy models. This repo has two dedicated regression tests
 for exactly that gap:
 
 ```bash
@@ -100,7 +101,7 @@ Add an entry to `REGISTRY` in `api/settings_registry.py`:
 ```
 
 If the value should never be admin-editable (an API key, the database URL,
-the Fernet key), add its key to `REJECTED_DB_KEYS` instead — or simply don't
+the Fernet key), add its key to `REJECTED_DB_KEYS` instead, or simply don't
 register it at all, since `require_allowed_setting` rejects anything not in
 `REGISTRY`. Runtime settings are readable via `GET /settings` and writable
 via `PUT /settings` (admin-only both ways); see {doc}`api-reference`.
@@ -121,12 +122,12 @@ The image is a two-stage build: `node:20-slim` builds `web/dist`, then
 `python:3.11-slim` installs `requirements.txt` plus the spaCy model and
 copies the built frontend in alongside the backend. The container's entry
 point is `alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port
-8000` — migrations run automatically on every container start, so a fresh
+8000`, so migrations run automatically on every container start and a fresh
 container against a blank volume produces a fully migrated schema with no
 manual step. Both the API and the built frontend are served from the same
-`http://localhost:8000` in this mode (`api/main.py` mounts `web/dist` as
-static files when that directory exists — i.e. only in the Docker/production
-build, never in local dev where Vite serves the frontend itself).
+`http://localhost:8000` in this mode. `api/main.py` mounts `web/dist` as
+static files when that directory exists, which only happens in the
+Docker/production build; in local dev, Vite serves the frontend itself.
 
 ## Environment variables
 
@@ -147,5 +148,5 @@ build, never in local dev where Vite serves the frontend itself).
 | `ENVIRONMENT` | No | `development` | Set to `production` to enforce the `SECRET_KEY` check above. |
 
 Without SMTP credentials, share/reminder emails fail but the share link
-itself is still created — see the `notification_status` field returned by
+itself is still created. See the `notification_status` field returned by
 `POST /share/{project_id}/create` in {doc}`api-reference`.
