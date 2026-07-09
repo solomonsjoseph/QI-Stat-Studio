@@ -137,16 +137,20 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
     total_redactions = 0
     prompt_chars = 0
     for msg in req.messages:
-        content = msg.get("content")
-        if isinstance(content, str) and content:
-            clean, count = scrub_text(content)
-            total_redactions += count
-            prompt_chars += len(clean)
-            scrubbed_messages.append({**msg, "content": clean})
-        else:
-            if isinstance(content, str):
-                prompt_chars += len(content)
-            scrubbed_messages.append(msg)
+        clean_msg = {}
+        for field_key, field_val in msg.items():
+            if field_key == "content" and isinstance(field_val, str) and field_val:
+                clean, count = scrub_text(field_val)
+                total_redactions += count
+                prompt_chars += len(clean)
+                clean_msg[field_key] = clean
+            elif isinstance(field_val, str) and field_val:
+                clean, count = scrub_text(field_val)
+                total_redactions += count
+                clean_msg[field_key] = clean
+            else:
+                clean_msg[field_key] = field_val
+        scrubbed_messages.append(clean_msg)
 
     if total_redactions > 0:
         log_action(db, req.project_id, "phi_redacted", {"redaction_count": total_redactions, "source": "ai_chat"})

@@ -67,6 +67,33 @@ def test_chat_scrubs_phi_and_records_usage(client, monkeypatch):
     assert rows[0].completion_chars == len("Test response")
 
 
+def test_chat_scrubs_phi_from_non_content_message_fields(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion()) as mocked_completion:
+        response = client.post(
+            "/ai/chat",
+            json={
+                "project_id": project_id,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "clean text",
+                        "name": "Contact SSN 123-45-6789 for follow-up",
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    sent_message = mocked_completion.call_args.kwargs["messages"][0]
+    assert sent_message["content"] == "clean text"
+    assert "123-45-6789" not in sent_message["name"]
+    assert "[REDACTED]" in sent_message["name"]
+
+
 def test_chat_uses_runtime_model_when_request_model_omitted(client, monkeypatch):
     _set_openrouter_provider()
     project_id = _project_id(client)
