@@ -266,6 +266,7 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
     assert package["code_sas"] == "/* mentor SAS code */"
     assert "report_urls" not in package
     assert client.get(f"/api/share/view/{share['token']}/report/docx").status_code == 404
+    assert client.get(f"/share/view/{share['token']}/report/docx").status_code == 404
     assert package["comments"] == []
 
     added = client.post(

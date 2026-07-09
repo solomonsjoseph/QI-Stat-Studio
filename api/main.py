@@ -275,6 +275,11 @@ app.include_router(share.router)
 app.include_router(settings_router.router)
 app.include_router(notifications.router)
 
+
+
+@app.get("/share/view/{token}/report/{fmt}", include_in_schema=False)
+async def removed_public_mentor_report_download(token: str, fmt: str):
+    raise HTTPException(status_code=404, detail="Report download is not available from mentor share links")
 # Serve frontend static files when web/dist exists (production / Docker)
 _dist = os.path.join(os.path.dirname(__file__), "..", "web", "dist")
 if os.path.isdir(_dist):
