@@ -113,8 +113,8 @@ test.describe('critical resident workflow', () => {
     await expect(page.getByRole('heading', { name: 'Mentor Comments' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Resident-approved run chart report' })).toBeVisible()
     await expect(page.getByText('Monthly wait days declined over the project year.')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Download Word Report' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Download PDF Report' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Download Word Report' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Download PDF Report' })).toHaveCount(0)
 
     await page.getByLabel('Your name').fill('Dr Mentor')
     await page.getByLabel('Email (optional, used if you edit your comment later)').fill('mentor@example.edu')
