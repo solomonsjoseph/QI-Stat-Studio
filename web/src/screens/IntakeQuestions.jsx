@@ -75,6 +75,10 @@ export default function IntakeQuestions() {
         delete final.q7
         delete final.q8
       }
+      if (final.q7?.date === "I'm not sure") {
+        final.q7 = { ...final.q7 }
+        delete final.q7.date
+      }
       await api.saveAnswers(ctx.projectId, final)
       update({ answers: final })
       next()
@@ -151,16 +155,32 @@ export default function IntakeQuestions() {
 
           {q.type === 'composite' && (
             <div className="flex flex-col gap-3">
-              {Object.entries(q.fields).map(([sub, inputType]) => (
-                <label key={sub} className="flex flex-col gap-1">
-                  <span className="label">{q.labels[sub]}</span>
-                  {inputType === 'textarea' ? (
-                    <textarea className="input min-h-24" value={answers[q.key]?.[sub] || ''} onChange={e => setSubField(q.key, sub, e.target.value)} />
-                  ) : (
-                    <input type={inputType} className="input" value={answers[q.key]?.[sub] || ''} onChange={e => setSubField(q.key, sub, e.target.value)} />
-                  )}
-                </label>
-              ))}
+              {Object.entries(q.fields).map(([sub, inputType]) => {
+                const unsureDate = q.key === 'q7' && sub === 'date' && answers[q.key]?.[sub] === "I'm not sure"
+                return (
+                  <div key={sub} className="flex flex-col gap-2">
+                    <label className="flex flex-col gap-1">
+                      <span className="label">{q.labels[sub]}</span>
+                      {inputType === 'textarea' ? (
+                        <textarea className="input min-h-24" value={answers[q.key]?.[sub] || ''} onChange={e => setSubField(q.key, sub, e.target.value)} />
+                      ) : (
+                        <input type={inputType} className="input disabled:bg-canvas disabled:text-ink-faint" value={unsureDate ? '' : answers[q.key]?.[sub] || ''} onChange={e => setSubField(q.key, sub, e.target.value)} disabled={unsureDate} />
+                      )}
+                    </label>
+                    {q.key === 'q7' && sub === 'date' && (
+                      <label className="choice max-w-xs">
+                        <input
+                          type="checkbox"
+                          checked={unsureDate}
+                          onChange={e => setSubField(q.key, sub, e.target.checked ? "I'm not sure" : '')}
+                          className="mt-0.5 h-4 w-4 text-brand"
+                        />
+                        <span>I'm not sure when it started</span>
+                      </label>
+                    )}
+                  </div>
+                )
+              })}
               {q.hint && <p className="mt-2 text-sm text-ink-soft">{q.hint}</p>}
             </div>
           )}

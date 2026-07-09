@@ -55,3 +55,29 @@ describe('IntakeQuestions guide wording', () => {
     expect(screen.getByText('Abstract deadline')).toBeInTheDocument()
   })
 })
+
+describe('IntakeQuestions Q7 unsure date', () => {
+  it('clears and omits q7 date when the resident is not sure when the intervention started', async () => {
+    apiMock.saveAnswers.mockResolvedValue({})
+    const user = userEvent.setup()
+    renderScreen()
+
+    await advance(5)
+    await user.type(screen.getByLabelText('Intervention description (optional)'), 'Standing orders')
+    const dateInput = screen.getByLabelText('Intervention date (if known)')
+    await user.type(dateInput, '2025-01-01')
+
+    await user.click(screen.getByRole('checkbox', { name: "I'm not sure when it started" }))
+
+    expect(dateInput).toBeDisabled()
+    expect(dateInput).toHaveValue('')
+
+    await advance(3)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(apiMock.saveAnswers).toHaveBeenCalledTimes(1)
+    const saved = apiMock.saveAnswers.mock.calls[0][1]
+    expect(saved.q7).toEqual({ description: 'Standing orders' })
+    expect(saved.q7).not.toHaveProperty('date')
+  })
+})
