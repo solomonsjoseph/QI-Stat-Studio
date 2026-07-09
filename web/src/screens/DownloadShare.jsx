@@ -38,7 +38,7 @@ export default function DownloadShare() {
   const resultSummary = ctx.resultSummary || ctx.results?.result_summary
   const previewTable = Array.isArray(ctx.results?.table) ? ctx.results.table : []
   const tableHeaders = previewTable.length > 0 ? Object.keys(previewTable[0]) : []
-  const limitations = ctx.acknowledgedFlags?.length ? ctx.acknowledgedFlags : (ctx.qualityFlags || [])
+  const limitations = ctx.acknowledgedFlags || []
   const interpretation = ctx.editedInterp || ctx.aiInterpretation || ctx.results?.interpretation
   const caption = ctx.editedCaption
   const q10 = ctx.answers?.q10
