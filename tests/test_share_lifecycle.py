@@ -234,7 +234,7 @@ def test_share_revoke_and_regenerate_require_explicit_target_and_do_not_mutate(c
 def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client, monkeypatch):
     _register(client, "admin@example.com")
     project = _create_project(client, title="Scoped Mentor Package")
-    _seed_analysis_package(project["id"])
+    run_id = _seed_analysis_package(project["id"])
     other_project = _create_project(client, title="Other Mentor Package")
     _seed_analysis_package(other_project["id"], title="Other final title")
     monkeypatch.setattr(notification_service, "send_share_invite", lambda *args, **kwargs: None)
@@ -264,10 +264,8 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
     assert package["code_r"] == "# mentor report R code"
     assert package["code_spss"] == "* mentor SPSS code"
     assert package["code_sas"] == "/* mentor SAS code */"
-    assert package["report_urls"] == {
-        "docx": f"/share/view/{share['token']}/report/docx",
-        "pdf": f"/share/view/{share['token']}/report/pdf",
-    }
+    assert "report_urls" not in package
+    assert client.get(f"/api/share/view/{share['token']}/report/docx").status_code == 404
     assert package["comments"] == []
 
     added = client.post(
@@ -293,7 +291,7 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
     assert edited.json()["text"] == "Scoped edited feedback"
     assert edited.json()["updated_at"] is not None
 
-    report = client.get(f"/share/view/{share['token']}/report/docx")
+    report = client.get(f"/report/{run_id}/docx")
     assert report.status_code == 200, report.text
     report_text = _docx_text(report.content)
     assert "Scoped edited feedback" in report_text
@@ -312,7 +310,7 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
         assert "mentor_comment_created" in actions
         assert "mentor_comment_edited" in actions
         assert "mentor_comment_deleted" in actions
-        assert "mentor_report_downloaded" in actions
+        assert "report_downloaded" in actions
 
 
 def test_owner_can_edit_and_admin_can_delete_protected_mentor_comments_while_other_residents_are_denied(monkeypatch):

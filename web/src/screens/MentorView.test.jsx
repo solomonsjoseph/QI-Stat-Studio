@@ -9,8 +9,6 @@ const { apiMock } = vi.hoisted(() => ({
     addComment: vi.fn(),
     editComment: vi.fn(),
     deleteComment: vi.fn(),
-    shareDocxUrl: vi.fn(),
-    sharePdfUrl: vi.fn(),
   },
 }))
 
@@ -43,8 +41,6 @@ beforeEach(() => {
   apiMock.addComment.mockReset()
   apiMock.editComment.mockReset()
   apiMock.deleteComment.mockReset()
-  apiMock.shareDocxUrl.mockImplementation(token => `/api/share/view/${token}/report/docx`)
-  apiMock.sharePdfUrl.mockImplementation(token => `/api/share/view/${token}/report/pdf`)
 })
 
 afterEach(() => {
@@ -74,6 +70,8 @@ describe('MentorView', () => {
 
     expect(await screen.findByRole('heading', { name: 'Recovered Mentor Project' })).toBeInTheDocument()
     expect(apiMock.getMentorView).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('link', { name: /Download Word Report/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Download PDF Report/i })).not.toBeInTheDocument()
   })
 
   it('shows comment saving progress and keeps the draft visible when saving the comment fails', async () => {

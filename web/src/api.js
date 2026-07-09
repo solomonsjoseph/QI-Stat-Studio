@@ -129,8 +129,6 @@ export const api = {
     req('PATCH', `/share/view/${token}/comment/${commentId}`, { author_email: authorEmail || null, text }),
   deleteComment: (token, commentId, authorEmail) =>
     req('DELETE', `/share/view/${token}/comment/${commentId}`, { author_email: authorEmail || null }),
-  shareDocxUrl: (token) => `${BASE}/share/view/${token}/report/docx`,
-  sharePdfUrl: (token) => `${BASE}/share/view/${token}/report/pdf`,
 
   // Settings
   getSettings: () => req('GET', '/settings'),

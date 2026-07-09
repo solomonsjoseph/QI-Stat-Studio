@@ -217,9 +217,8 @@ def test_real_dataset_resident_journey_and_regression_guards(client):
         protected_projects = anonymous_client.get("/projects")
         assert protected_projects.status_code == 401
 
-        mentor_docx = anonymous_client.get(f"/share/view/{token}/report/docx")
-        assert mentor_docx.status_code == 200, mentor_docx.text
-        assert mentor_docx.content.startswith(b"PK")
+        mentor_docx = anonymous_client.get(f"/api/share/view/{token}/report/docx")
+        assert mentor_docx.status_code == 404
 
     prefixed_health = client.get("/api/health")
     assert prefixed_health.status_code == 200, prefixed_health.text

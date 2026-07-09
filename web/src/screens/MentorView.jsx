@@ -138,8 +138,6 @@ export default function MentorView({ token }) {
   const table = data.table || []
   const tableHeaders = table.length > 0 ? Object.keys(table[0]) : []
   const limitations = data.limitations || []
-  const docxUrl = api.shareDocxUrl(token)
-  const pdfUrl = api.sharePdfUrl(token)
 
   return (
     <main className="screen max-w-3xl">
@@ -149,10 +147,6 @@ export default function MentorView({ token }) {
       {submitted && <p className="alert-ok mb-4" aria-live="polite">Comment submitted.</p>}
       {saving && <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Saving comment…</p>}
 
-      <div className="mb-6 flex flex-wrap gap-3">
-        <a href={docxUrl} className="btn-secondary">Download Word Report</a>
-        <a href={pdfUrl} className="btn-secondary">Download PDF Report</a>
-      </div>
 
       {data.methods && <section className="mb-4"><h2 className="mb-1 font-semibold text-ink">Methods</h2><p className="text-sm leading-6 text-ink-soft">{data.methods}</p></section>}
       {data.result_summary && <section className="alert-info mb-6"><h2 className="mb-1 text-sm font-semibold">Result Summary</h2><p>{data.result_summary}</p></section>}

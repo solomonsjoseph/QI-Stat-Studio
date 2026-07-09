@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import io
 import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -262,10 +260,6 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
         "code_r": run.code_r if run else "",
         "code_spss": run.code_spss if run else "",
         "code_sas": run.code_sas if run else "",
-        "report_urls": {
-            "docx": f"/share/view/{token}/report/docx",
-            "pdf": f"/share/view/{token}/report/pdf",
-        },
         "comments": normalized_comments,
     }
 
@@ -360,35 +354,3 @@ def owner_delete_comment(
     return {"ok": True}
 
 
-@router.get("/view/{token}/report/docx")
-def mentor_download_docx(token: str, db: Session = Depends(get_db)):
-    from api.routers.report import _build_docx
-
-    share = _active_share_or_404(token, db)
-    run = _latest_run(share.project_id, db)
-    if not run:
-        raise HTTPException(status_code=404, detail="Analysis run not found")
-    content = _build_docx(run, db, share_id=share.id)
-    log_action(db, share.project_id, "mentor_report_downloaded", {"share_id": share.id, "run_id": run.id, "format": "docx"})
-    return StreamingResponse(
-        io.BytesIO(content),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename=mentor-report-{run.id}.docx"},
-    )
-
-
-@router.get("/view/{token}/report/pdf")
-def mentor_download_pdf(token: str, db: Session = Depends(get_db)):
-    from api.routers.report import _build_pdf
-
-    share = _active_share_or_404(token, db)
-    run = _latest_run(share.project_id, db)
-    if not run:
-        raise HTTPException(status_code=404, detail="Analysis run not found")
-    content = _build_pdf(run, db, share_id=share.id)
-    log_action(db, share.project_id, "mentor_report_downloaded", {"share_id": share.id, "run_id": run.id, "format": "pdf"})
-    return StreamingResponse(
-        io.BytesIO(content),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=mentor-report-{run.id}.pdf"},
-    )
