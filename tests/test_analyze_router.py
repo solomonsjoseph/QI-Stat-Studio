@@ -11,7 +11,7 @@ os.environ.setdefault("FERNET_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 from api.config import settings
 from api.database import SessionLocal
-from api.models_db import IntakeAnswer, Project, Upload
+from api.models_db import AnalysisRun, IntakeAnswer, Project, Upload
 
 
 def _project(client, title="Analyze Test"):
@@ -69,6 +69,26 @@ def test_run_descriptive_returns_run_id(auth_client):
     data = resp.json()
     assert "run_id" in data
     assert data["run_id"] > 0
+
+
+def test_q9_unsure_generates_all_code_supplements(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    with SessionLocal() as db:
+        db.add(IntakeAnswer(project_id=pid, question_key="q9", answer="I'm not sure"))
+        db.commit()
+
+    resp = auth_client.post("/analyze/run", json={
+        "project_id": pid, "upload_id": uid,
+        "template": "descriptive_summary",
+        "parameters": {"value_cols": ["hba1c"], "group_col": "period"},
+    })
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter_by(project_id=pid).order_by(AnalysisRun.id.desc()).first()
+        assert run.code_r
+        assert run.code_spss
+        assert run.code_sas
 
 
 def test_run_run_chart_returns_figure(auth_client):

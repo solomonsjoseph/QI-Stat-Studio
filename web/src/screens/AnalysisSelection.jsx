@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useApp } from '../App'
+import BackButton from '../components/BackButton'
+import PageIntro from '../components/PageIntro'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
 const TEMPLATES = [
@@ -18,7 +21,7 @@ function fallbackRecommendations() {
 }
 
 export default function AnalysisSelection() {
-  const { ctx, update, next } = useApp()
+  const { ctx, update, next, prev } = useApp()
   const selected = ctx.template || ''
   const [ranked, setRanked] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -43,36 +46,40 @@ export default function AnalysisSelection() {
   const options = ranked ?? []
 
   return (
-    <div className="max-w-2xl mx-auto p-8 mt-8">
-      <h1 className="text-2xl font-bold mb-2 text-blue-800">Choose Your Analysis</h1>
-      <p className="text-gray-500 text-sm mb-6">Based on your answers, we recommend the highlighted option. You can choose any.</p>
-      {loading && <p aria-live="polite" className="text-gray-500 text-sm mb-4">Loading recommendations…</p>}
-      {error && <p role="alert" className="text-yellow-800 bg-yellow-50 border border-yellow-200 rounded p-3 text-sm mb-4">{error}</p>}
-      <div className="flex flex-col gap-3 mb-8" role="radiogroup" aria-label="Analysis template">
+    <div className="screen">
+      <PageIntro step="analysis" title="Choose Your Analysis" lead="Based on your answers, we recommend the highlighted option. You can choose any." />
+      {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Loading recommendations…</p>}
+      {error && <p role="alert" className="alert-warn mb-4">{error}</p>}
+      <div className="mb-8 flex flex-col gap-3" role="radiogroup" aria-label="Analysis template">
         {options.map((opt, i) => {
           const tmpl = LABEL[opt.template] || { label: opt.template, desc: opt.description }
+          const isSelected = selected === opt.template
           return (
             <button
               type="button"
               key={opt.template}
-              onClick={() => update({ template: opt.template })}
-              aria-pressed={selected === opt.template}
-              className={`text-left px-4 py-3 border rounded-lg transition ${selected === opt.template ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-blue-300'} ${opt.recommended ? 'ring-2 ring-blue-200' : ''}`}
+              onClick={() => update({ template: opt.template, params: {}, columnMap: {}, results: {}, resultSummary: undefined, runId: undefined, aiInterpretation: '', editedInterp: '', editedCaption: '' })}
+              aria-pressed={isSelected}
+              className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left text-sm transition hover:border-brand-ring ${isSelected ? 'border-brand bg-brand-tint' : 'border-line bg-surface'}`}
             >
-              <div className="font-medium">{i + 1}. {tmpl.label}{opt.recommended && <span className="text-xs text-blue-600 ml-1">Recommended</span>}</div>
-              <div className="text-sm text-gray-500">{opt.description || tmpl.desc}</div>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-line bg-canvas text-xs font-medium text-ink-soft">{i + 1}</span>
+              <span className="min-w-0">
+                <span className="block font-medium text-ink">
+                  {tmpl.label}
+                  {opt.recommended && <span className="ml-2 inline-flex rounded-lg bg-brand-tint px-2 py-0.5 text-xs font-medium text-brand-deep">Recommended</span>}
+                </span>
+                <span className="mt-1 block text-ink-soft">{opt.description || tmpl.desc}</span>
+              </span>
             </button>
           )
         })}
       </div>
-      <button
-        type="button"
-        onClick={next}
-        disabled={!selected || loading}
-        className="px-6 py-2 bg-blue-700 text-white rounded font-medium hover:bg-blue-800 disabled:opacity-50"
-      >
-        Continue
-      </button>
+      <div className="flex flex-wrap gap-3">
+        <BackButton onClick={prev} disabled={loading} />
+        <button type="button" onClick={next} disabled={!selected || loading} className="btn-primary">
+          Continue
+        </button>
+      </div>
     </div>
   )
 }

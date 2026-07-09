@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useApp } from '../App'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
 function formatError(err) {
@@ -11,8 +12,16 @@ function formatDate(project) {
   return raw ? new Date(raw).toLocaleDateString() : 'No date available'
 }
 
+function SkeletonRows() {
+  return (
+    <div className="space-y-3 p-5" aria-hidden="true">
+      {[0, 1, 2].map(i => <div key={i} className="h-12 rounded-lg bg-line/60 animate-pulse" />)}
+    </div>
+  )
+}
+
 export default function Landing() {
-  const { update, goTo, user, logout, resumeProject } = useApp()
+  const { update, goTo, user, resumeProject, resetProgress } = useApp()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -40,6 +49,7 @@ export default function Landing() {
     try {
       const project = await api.createProject({ title: 'New QI Project', description: '' })
       update({ projectId: project.id, projectTitle: project.title, projectDesc: project.description || '' })
+      resetProgress()
       goTo('description')
     } catch (err) {
       setError(formatError(err))
@@ -74,69 +84,61 @@ export default function Landing() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto min-h-screen flex flex-col justify-center gap-6 p-8">
-      <div className="text-center">
-        <p className="text-sm text-gray-500 mb-2">Signed in as {user?.email}</p>
-        <h1 className="text-4xl font-bold text-blue-800 mb-4">QI Stat Studio</h1>
-        <p className="text-gray-600 max-w-md mx-auto text-lg">
+    <div className="screen max-w-3xl">
+      <section className="py-16 text-center" aria-labelledby="landing-heading">
+        <p className="mb-2 text-sm text-ink-soft">Signed in as {user?.email}</p>
+        <h1 id="landing-heading" className="mb-4 text-4xl font-semibold text-ink">QI Stat Studio</h1>
+        <p className="mx-auto max-w-md text-lg leading-8 text-ink-soft">
           A guided statistical analysis tool for medical residents conducting quality improvement projects at Rutgers IM Clinic.
         </p>
-      </div>
+      </section>
 
-      {error && <p role="alert" className="text-sm text-red-700 text-center">{error}</p>}
-      {loading && <p aria-live="polite" className="text-sm text-gray-500 text-center">Loading your projects…</p>}
+      {error && (
+        <div className="mb-6 text-center">
+          <p role="alert" className="alert-error mb-3 text-left">{error}</p>
+          <button type="button" onClick={loadProjects} className="btn-secondary">
+            Retry
+          </button>
+        </div>
+      )}
 
-      <div className="flex flex-wrap justify-center gap-3">
-        <button
-          type="button"
-          onClick={start}
-          disabled={saving}
-          className="px-8 py-3 bg-blue-700 text-white rounded-lg text-lg font-medium hover:bg-blue-800 disabled:opacity-50"
-        >
+      {loading && <p aria-live="polite" className="sr-only">Loading your projects…</p>}
+
+      <div className="mb-8 flex flex-wrap justify-center gap-3">
+        <button type="button" onClick={start} disabled={saving} className="btn-primary px-8 text-base">
+          {saving && <Spinner />}
           {saving ? 'Working…' : 'Start New Project'}
         </button>
-        <button
-          type="button"
-          onClick={logout}
-          className="px-5 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-white"
-        >
-          Logout
-        </button>
       </div>
 
-      <section className="bg-white border rounded-xl p-5 shadow-sm" aria-labelledby="project-list-heading">
-        <h2 id="project-list-heading" className="text-xl font-semibold text-blue-900 mb-3">Resume Existing Project</h2>
-        {!loading && projects.length === 0 && (
-          <p className="text-sm text-gray-500">No active projects yet. Start a new project to begin.</p>
-        )}
-        <div className="flex flex-col gap-3">
-          {projects.map(project => (
-            <article key={project.id} className="border rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h3 className="font-semibold text-gray-900">{project.title || 'Untitled project'}</h3>
-                <p className="text-sm text-gray-500">Status: {project.status || 'draft'} · {formatDate(project)}</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => resumeExistingProject(project)}
-                  disabled={saving}
-                  className="px-4 py-2 bg-blue-700 text-white rounded text-sm font-medium hover:bg-blue-800 disabled:opacity-50"
-                >
-                  Resume
-                </button>
-                <button
-                  type="button"
-                  onClick={() => archiveProject(project.id)}
-                  disabled={saving}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-                >
-                  Archive
-                </button>
-              </div>
-            </article>
-          ))}
+      <section className="card p-0" aria-labelledby="project-list-heading">
+        <div className="border-b border-line px-5 py-4">
+          <h2 id="project-list-heading" className="text-lg font-semibold text-ink">Resume Existing Project</h2>
         </div>
+        {loading ? (
+          <SkeletonRows />
+        ) : projects.length === 0 ? (
+          <div className="px-5 py-12 text-center text-sm text-ink-soft">No active projects yet. Start a new project to begin.</div>
+        ) : (
+          <div className="divide-y divide-line">
+            {projects.map(project => (
+              <article key={project.id} className="flex flex-col gap-3 px-5 py-4 transition hover:bg-canvas sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-medium text-ink">{project.title || 'Untitled project'}</h3>
+                  <p className="text-sm text-ink-faint">Status: {project.status || 'draft'} · {formatDate(project)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => resumeExistingProject(project)} disabled={saving} className="btn-primary px-4 py-1.5">
+                    Resume
+                  </button>
+                  <button type="button" onClick={() => archiveProject(project.id)} disabled={saving} className="btn-secondary px-4 py-1.5">
+                    Archive
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   )

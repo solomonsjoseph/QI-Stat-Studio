@@ -1,16 +1,16 @@
 # QI Stat Studio
 
-A guided statistical analysis tool for medical residents conducting quality improvement (QI) projects at Rutgers IM Clinic. Residents answer 9 intake questions, upload a CSV, and receive a publication-ready report — no statistical expertise required.
+A guided statistical analysis tool for medical residents conducting quality improvement (QI) projects at Rutgers IM Clinic. Residents answer 10 intake questions, upload CSV or Excel data, and receive a publication-ready report — no statistical expertise required.
 
 ## Features
 
-- **10-screen wizard** guiding residents from project description to downloadable report
+- **9-step wizard** guiding residents from project description to downloadable report
 - **6 statistical templates**: descriptive summary, before/after mean, before/after proportion, run chart, p-chart, u/c-chart
 - **AI assistance**: pre-fills intake questions from project description; generates plain-language result interpretations
 - **PHI protection**: all text is scrubbed (spaCy NER + regex) before any AI call leaves the server
-- **Encrypted data**: uploaded CSVs are encrypted at rest with Fernet (AES-128)
-- **Report export**: Word (.docx) and PDF with Methods, Results, figure, Limitations, Audit Trail, and R code supplement
-- **Mentor sharing**: shareable review link with comment thread; auto-created when Q10 email is provided
+- **Encrypted data**: uploaded CSV/Excel datasets are encrypted at rest with Fernet (AES-128)
+- **Report export**: Word (.docx) and PDF with Methods, Results, figure, Limitations, Audit Trail, and selected R/SPSS/SAS code supplement(s)
+- **Mentor sharing**: shareable review link with comment thread; can email the Q10 mentor contact when shared
 - **6 data quality checks** on every upload, with resident acknowledgement before analysis
 
 ## Tech Stack

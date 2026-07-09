@@ -178,8 +178,9 @@ def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db), user: Use
         code_r = generate_r_code(body.template, params, result)
         q9_row = db.query(IntakeAnswer).filter(IntakeAnswer.project_id == body.project_id, IntakeAnswer.question_key == "q9").first()
         q9 = (q9_row.answer or "").lower() if q9_row else "r"
-        code_spss = generate_spss_code(body.template, params, result) if "spss" in q9 or "all" in q9 else ""
-        code_sas = generate_sas_code(body.template, params, result) if "sas" in q9 or "all" in q9 else ""
+        unsure = "not sure" in q9
+        code_spss = generate_spss_code(body.template, params, result) if "spss" in q9 or "all" in q9 or unsure else ""
+        code_sas = generate_sas_code(body.template, params, result) if "sas" in q9 or "all" in q9 or unsure else ""
         run = AnalysisRun(
             project_id=body.project_id,
             upload_id=body.upload_id,

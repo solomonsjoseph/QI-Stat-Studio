@@ -44,14 +44,16 @@ def test_intake_validates_q6_q7_q10_and_sets_unsure(client):
     assert bad_q10.status_code == 422
     assert bad_q10.json()["error"]["field_errors"]["answers.q10"] == ["Must include optional email and YYYY-MM-DD deadline"]
 
-    saved = client.post(f"/intake/{project['id']}", json={"answers": {"q3": "I'm not sure", "q6": "0"}})
+    saved = client.post(f"/intake/{project['id']}", json={"answers": {"q3": "I'm not sure", "q6": "0", "q9": "I'm not sure"}})
     assert saved.status_code == 200, saved.text
 
     with SessionLocal() as db:
         q3 = db.query(IntakeAnswer).filter_by(project_id=project["id"], question_key="q3").one()
         q6 = db.query(IntakeAnswer).filter_by(project_id=project["id"], question_key="q6").one()
+        q9 = db.query(IntakeAnswer).filter_by(project_id=project["id"], question_key="q9").one()
         assert q3.is_unsure is True
         assert q6.is_unsure is False
+        assert q9.is_unsure is True
 
 
 

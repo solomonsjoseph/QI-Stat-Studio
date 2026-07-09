@@ -48,7 +48,7 @@ QUESTIONS: dict[str, dict[str, Any]] = {
         "type": "radio",
         "options": ["Same unit pre vs. post", "Intervention vs. control", "Subgroups", "I'm not sure"],
     },
-    "q9": {"type": "radio", "options": ["R", "SPSS", "SAS", "All three"]},
+    "q9": {"type": "radio", "options": ["R", "SPSS", "SAS", "All three", "I'm not sure"]},
     "q10": {"type": "composite", "fields": {"email", "deadline"}},
 }
 

@@ -1,15 +1,76 @@
 import React, { useEffect, useState } from 'react'
+import PageIntro from '../components/PageIntro'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
-function CommentCard({ comment }) {
+function CommentCard({ comment, token, authorEmail, load, setError }) {
   const author = comment.author_name || comment.author || 'Mentor'
   const timestamp = comment.created_at ? new Date(comment.created_at).toLocaleString() : ''
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(comment.text || '')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setText(comment.text || '')
+  }, [comment.text])
+
+  async function saveEdit(e) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      await api.editComment(token, comment.id, authorEmail || undefined, text)
+      setEditing(false)
+      setBusy(false)
+      await load()
+    } catch (err) {
+      setError(errorMessage(err, 'Could not update comment'))
+      setBusy(false)
+    }
+  }
+
+  async function deleteComment() {
+    if (!window.confirm('Delete this comment?')) return
+    setBusy(true)
+    setError('')
+    try {
+      await api.deleteComment(token, comment.id, authorEmail || undefined)
+      setBusy(false)
+      await load()
+    } catch (err) {
+      setError(errorMessage(err, 'Could not delete comment'))
+      setBusy(false)
+    }
+  }
+
+  function cancelEdit() {
+    setText(comment.text || '')
+    setEditing(false)
+  }
+
   return (
-    <div className="bg-blue-50 rounded px-3 py-2 text-sm">
-      <div className="font-medium text-blue-950">{author}{comment.author_email ? ` (${comment.author_email})` : ''}</div>
-      {timestamp && <div className="text-xs text-blue-700 mb-1">{timestamp}</div>}
-      <p>{comment.text}</p>
-    </div>
+    <article className="card p-4 text-sm">
+      <div className="font-medium text-ink">{author}{comment.author_email ? ` (${comment.author_email})` : ''}</div>
+      {timestamp && <div className="mb-2 text-xs text-ink-faint">{timestamp}</div>}
+      {editing ? (
+        <form onSubmit={saveEdit} className="flex flex-col gap-2">
+          <label className="sr-only" htmlFor={`comment-edit-${comment.id}`}>Edit comment</label>
+          <textarea id={`comment-edit-${comment.id}`} value={text} onChange={e => setText(e.target.value)} disabled={busy} required className="input min-h-20" />
+          <div className="flex gap-2">
+            <button type="submit" disabled={busy} className="btn-primary px-4 py-2">Save</button>
+            <button type="button" onClick={cancelEdit} disabled={busy} className="btn-secondary px-4 py-2">Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <p className="leading-6 text-ink-soft">{comment.text}</p>
+          <div className="mt-3 flex gap-3">
+            <button type="button" onClick={() => setEditing(true)} disabled={busy || !comment.id} className="text-sm font-medium text-brand hover:text-brand-deep disabled:opacity-50">Edit</button>
+            <button type="button" onClick={deleteComment} disabled={busy || !comment.id} className="text-sm font-medium text-error-ink disabled:opacity-50">Delete</button>
+          </div>
+        </>
+      )}
+    </article>
   )
 }
 
@@ -58,8 +119,21 @@ export default function MentorView({ token }) {
     }
   }
 
-  if (loading) return <div className="p-8 text-gray-500" aria-live="polite">Loading mentor review…</div>
-  if (error && !data) return <div className="flex items-center justify-center min-h-screen"><p role="alert" className="text-red-600">{error}</p></div>
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Loading mentor review…</div>
+  }
+  if (error && !data) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas px-6">
+        <div className="max-w-md text-center">
+          <p role="alert" className="alert-error mb-4 text-left">{error}</p>
+          <button type="button" onClick={load} className="btn-primary">
+            Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const table = data.table || []
   const tableHeaders = table.length > 0 ? Object.keys(table[0]) : []
@@ -68,52 +142,53 @@ export default function MentorView({ token }) {
   const pdfUrl = api.sharePdfUrl(token)
 
   return (
-    <main className="max-w-3xl mx-auto p-8 mt-8">
-      <div className="mb-2 text-xs text-blue-600 font-semibold uppercase tracking-wide">Mentor Review</div>
-      <h1 className="text-2xl font-bold mb-2">{data.project?.title || 'QI Project'}</h1>
-      <p className="text-gray-600 text-sm mb-6">{data.project?.description}</p>
+    <main className="screen max-w-3xl">
+      <PageIntro title={data.project?.title || 'QI Project'} lead={data.project?.description} />
 
-      {error && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
-      {submitted && <p className="mb-4 text-green-700 text-sm" aria-live="polite">Comment submitted.</p>}
-      {saving && <p className="mb-4 text-gray-500 text-sm" aria-live="polite">Saving comment…</p>}
+      {error && <p role="alert" className="alert-error mb-4">{error}</p>}
+      {submitted && <p className="alert-ok mb-4" aria-live="polite">Comment submitted.</p>}
+      {saving && <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Saving comment…</p>}
 
-      <div className="flex flex-wrap gap-3 mb-6">
-        <a href={docxUrl} className="px-4 py-2 border border-blue-600 text-blue-700 rounded text-sm font-medium hover:bg-blue-50">Download Word Report</a>
-        <a href={pdfUrl} className="px-4 py-2 border border-blue-600 text-blue-700 rounded text-sm font-medium hover:bg-blue-50">Download PDF Report</a>
+      <div className="mb-6 flex flex-wrap gap-3">
+        <a href={docxUrl} className="btn-secondary">Download Word Report</a>
+        <a href={pdfUrl} className="btn-secondary">Download PDF Report</a>
       </div>
 
-      {data.methods && <section className="mb-4"><h2 className="font-semibold mb-1">Methods</h2><p className="text-sm text-gray-700">{data.methods}</p></section>}
-      {data.result_summary && <section className="bg-gray-50 rounded p-4 mb-6"><h2 className="font-semibold text-sm mb-1">Result Summary</h2><p className="text-sm">{data.result_summary}</p></section>}
+      {data.methods && <section className="mb-4"><h2 className="mb-1 font-semibold text-ink">Methods</h2><p className="text-sm leading-6 text-ink-soft">{data.methods}</p></section>}
+      {data.result_summary && <section className="alert-info mb-6"><h2 className="mb-1 text-sm font-semibold">Result Summary</h2><p>{data.result_summary}</p></section>}
 
       {table.length > 0 && (
         <section className="mb-6 overflow-x-auto">
-          <h2 className="font-semibold mb-2">Results Table</h2>
-          <table className="min-w-full text-sm border">
-            <thead><tr>{tableHeaders.map(h => <th key={h} className="border px-2 py-1 text-left bg-gray-50">{h}</th>)}</tr></thead>
-            <tbody>{table.map((row, idx) => <tr key={idx}>{tableHeaders.map(h => <td key={h} className="border px-2 py-1">{String(row[h] ?? '')}</td>)}</tr>)}</tbody>
+          <h2 className="mb-2 font-semibold text-ink">Results Table</h2>
+          <table className="table-clean">
+            <thead><tr>{tableHeaders.map(h => <th key={h}>{h}</th>)}</tr></thead>
+            <tbody>{table.map((row, idx) => <tr key={idx}>{tableHeaders.map(h => <td key={h}>{String(row[h] ?? '')}</td>)}</tr>)}</tbody>
           </table>
         </section>
       )}
 
-      {data.figure_base64 && <section className="mb-6"><h2 className="font-semibold mb-2">Figure</h2><img className="w-full border rounded" src={`data:image/png;base64,${data.figure_base64}`} alt="Analysis figure" />{data.caption && <p className="text-sm text-gray-600 mt-2">{data.caption}</p>}</section>}
-      {data.interpretation && <section className="mb-6"><h2 className="font-semibold mb-1">Interpretation</h2><p className="text-sm text-gray-700">{data.interpretation}</p></section>}
+      {data.figure_base64 && <section className="mb-6"><h2 className="mb-2 font-semibold text-ink">Figure</h2><img className="w-full rounded-lg border border-line" src={`data:image/png;base64,${data.figure_base64}`} alt="Analysis figure" />{data.caption && <p className="mt-2 text-sm text-ink-soft">{data.caption}</p>}</section>}
+      {data.interpretation && <section className="mb-6"><h2 className="mb-1 font-semibold text-ink">Interpretation</h2><p className="text-sm leading-6 text-ink-soft">{data.interpretation}</p></section>}
 
       <section className="mb-6">
-        <h2 className="font-semibold mb-1">Limitations</h2>
-        {limitations.length > 0 ? <ul className="list-disc pl-5 text-sm text-gray-700">{limitations.map((item, idx) => <li key={idx}>{item.msg || item.message || JSON.stringify(item)}</li>)}</ul> : <p className="text-sm text-gray-500">No data quality issues were flagged for this dataset.</p>}
+        <h2 className="mb-1 font-semibold text-ink">Limitations</h2>
+        {limitations.length > 0 ? <ul className="list-disc pl-5 text-sm leading-6 text-ink-soft">{limitations.map((item, idx) => <li key={idx}>{item.msg || item.message || JSON.stringify(item)}</li>)}</ul> : <p className="text-sm text-ink-soft">No data quality issues were flagged for this dataset.</p>}
       </section>
 
-      {(data.code_r || data.code_spss || data.code_sas) && <section className="mb-6"><h2 className="font-semibold mb-2">Code Supplement</h2>{data.code_r && <pre className="bg-gray-950 text-gray-50 rounded p-3 text-xs overflow-x-auto mb-2">{data.code_r}</pre>}{data.code_spss && <pre className="bg-gray-950 text-gray-50 rounded p-3 text-xs overflow-x-auto mb-2">{data.code_spss}</pre>}{data.code_sas && <pre className="bg-gray-950 text-gray-50 rounded p-3 text-xs overflow-x-auto">{data.code_sas}</pre>}</section>}
+      {(data.code_r || data.code_spss || data.code_sas) && <section className="mb-6"><h2 className="mb-2 font-semibold text-ink">Code Supplement</h2>{data.code_r && <pre className="mb-2 overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{data.code_r}</pre>}{data.code_spss && <pre className="mb-2 overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{data.code_spss}</pre>}{data.code_sas && <pre className="overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{data.code_sas}</pre>}</section>}
 
-      <section className="border-t pt-6">
-        <h2 className="font-semibold mb-3">Mentor Comments</h2>
-        {data.comments?.length > 0 ? <div className="flex flex-col gap-2 mb-4">{data.comments.map((c, i) => <CommentCard key={c.id || i} comment={c} />)}</div> : <p className="text-gray-400 text-sm mb-4">No comments yet.</p>}
+      <section className="border-t border-line pt-6">
+        <h2 className="mb-3 font-semibold text-ink">Mentor Comments</h2>
+        {data.comments?.length > 0 ? <div className="mb-4 flex flex-col gap-2">{data.comments.map((c, i) => <CommentCard key={c.id || i} comment={c} token={token} authorEmail={authorEmail} load={load} setError={setError} />)}</div> : <p className="mb-4 text-sm text-ink-soft">No comments yet.</p>}
 
         <form onSubmit={addComment} className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-sm" htmlFor="mentor-name"><span className="font-medium">Your name</span><input id="mentor-name" className="border rounded px-3 py-2" value={authorName} onChange={e => setAuthorName(e.target.value)} required disabled={saving} /></label>
-          <label className="flex flex-col gap-1 text-sm" htmlFor="mentor-email"><span className="font-medium">Email (optional, used if you edit your comment later)</span><input id="mentor-email" className="border rounded px-3 py-2" type="email" value={authorEmail} onChange={e => setAuthorEmail(e.target.value)} disabled={saving} /></label>
-          <label className="flex flex-col gap-1 text-sm" htmlFor="mentor-comment"><span className="font-medium">Comment</span><textarea id="mentor-comment" className="border rounded px-3 py-2 min-h-24" value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a comment…" required disabled={saving} /></label>
-          <button type="submit" disabled={saving} className="px-4 py-2 bg-blue-700 text-white rounded text-sm font-medium hover:bg-blue-800 disabled:opacity-50 self-start">{saving ? 'Sending…' : 'Send Comment'}</button>
+          <label className="flex flex-col gap-1" htmlFor="mentor-name"><span className="label">Your name</span><input id="mentor-name" className="input" value={authorName} onChange={e => setAuthorName(e.target.value)} required disabled={saving} /></label>
+          <label className="flex flex-col gap-1" htmlFor="mentor-email"><span className="label">Email (optional, used if you edit your comment later)</span><input id="mentor-email" className="input" type="email" value={authorEmail} onChange={e => setAuthorEmail(e.target.value)} disabled={saving} /></label>
+          <label className="flex flex-col gap-1" htmlFor="mentor-comment"><span className="label">Comment</span><textarea id="mentor-comment" className="input min-h-24" value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a comment…" required disabled={saving} /></label>
+          <button type="submit" disabled={saving} className="btn-primary self-start">
+            {saving && <Spinner />}
+            {saving ? 'Sending…' : 'Send Comment'}
+          </button>
         </form>
       </section>
     </main>

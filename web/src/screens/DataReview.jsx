@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
 import { useApp } from '../App'
+import BackButton from '../components/BackButton'
+import PageIntro from '../components/PageIntro'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
 function errorMessage(err) {
@@ -16,7 +19,12 @@ export default function DataReview() {
   const errors = flags.filter(f => f.severity === 'ERROR')
   const warnings = flags.filter(f => f.severity !== 'ERROR')
 
-  const [acknowledged, setAcknowledged] = useState({})
+  const [acknowledged, setAcknowledged] = useState(() => {
+    const acked = new Set((ctx.acknowledgedFlags || []).map(f => f.msg))
+    const init = {}
+    warnings.forEach((f, i) => { if (acked.has(f.msg)) init[i] = true })
+    return init
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -43,78 +51,81 @@ export default function DataReview() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-8 mt-8">
-      <h1 className="text-2xl font-bold mb-4 text-blue-800">Data Review</h1>
-      {error && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
-      {saving && <p aria-live="polite" className="mb-4 text-sm text-gray-500">Saving acknowledgements…</p>}
+    <div className="screen">
+      <PageIntro step="review" title="Data Review" />
+      {error && <p role="alert" className="alert-error mb-4">{error}</p>}
+      {saving && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving acknowledgements…</p>}
 
-      {rowCount != null && <p className="text-sm text-gray-600 mb-4">{rowCount.toLocaleString()} rows loaded</p>}
+      {(rowCount != null || Object.keys(colTypes).length > 0) && (
+        <p className="mb-4 text-sm text-ink-soft">
+          {rowCount != null ? `${rowCount.toLocaleString()} rows` : 'Rows loaded'} · {Object.keys(colTypes).length.toLocaleString()} columns
+        </p>
+      )}
 
-      <p className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded p-3 mb-4">
+      <p className="alert-info mb-4">
         Acknowledged warnings appear in report limitations. Analysis still blocks selected outcome columns with more than 30% missing values; acknowledgement does not override that safety check.
       </p>
 
-      <div className="mb-6">
-        <h2 className="font-semibold mb-2">Column Types</h2>
-        <table className="w-full text-sm border-collapse">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border px-3 py-2 text-left">Column</th>
-              <th className="border px-3 py-2 text-left">Type</th>
-              <th className="border px-3 py-2 text-left">Missing %</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(colTypes).map(([col, type]) => (
-              <tr key={col}>
-                <td className="border px-3 py-2 font-mono">{col}</td>
-                <td className="border px-3 py-2">{type}</td>
-                <td className="border px-3 py-2">{missingPct[col] != null ? `${missingPct[col].toFixed(1)}%` : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <section className="mb-6" aria-labelledby="column-types-heading">
+        <h2 id="column-types-heading" className="mb-2 font-semibold text-ink">Column Types</h2>
+        <div className="overflow-x-auto">
+          <table className="table-clean">
+            <thead>
+              <tr><th>Column</th><th>Type</th><th>Missing %</th></tr>
+            </thead>
+            <tbody>
+              {Object.entries(colTypes).map(([col, type]) => (
+                <tr key={col}>
+                  <td className="font-mono">{col}</td>
+                  <td>{type}</td>
+                  <td>{missingPct[col] != null ? `${missingPct[col].toFixed(1)}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {errors.length > 0 && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-300 rounded">
-          <h2 className="font-semibold text-red-700 mb-2">Data Errors (must fix before continuing)</h2>
+        <div className="alert-error mb-6">
+          <h2 className="mb-2 font-semibold">Data Errors (must fix before continuing)</h2>
           {errors.map((flag, i) => (
-            <p key={i} className="text-sm text-red-700 mb-1"><span className="font-bold mr-1">ERROR:</span>{flag.msg}</p>
+            <p key={i} className="mb-1"><span className="font-semibold mr-1">ERROR:</span>{flag.msg}</p>
           ))}
-          <button type="button" onClick={prev} className="mt-3 px-5 py-2 bg-red-600 text-white rounded font-medium hover:bg-red-700">
+          <button type="button" onClick={prev} className="btn-danger mt-3">
             Re-upload corrected file
           </button>
         </div>
       )}
 
       {warnings.length > 0 && (
-        <div className="mb-6">
-          <h2 className="font-semibold mb-2 text-yellow-700">Data Quality Warnings</h2>
-          <p className="text-sm text-gray-600 mb-3">
+        <section className="mb-6" aria-labelledby="quality-warnings-heading">
+          <h2 id="quality-warnings-heading" className="mb-2 font-semibold text-warn-ink">Data Quality Warnings</h2>
+          <p className="mb-3 text-sm text-ink-soft">
             Please acknowledge each issue before proceeding. Acknowledged warnings appear in report limitations, but selected outcome columns with more than 30% missing values are blocked during analysis and require a different outcome column or corrected upload.
           </p>
-          {warnings.map((flag, i) => (
-            <label key={i} className="flex items-start gap-2 mb-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
-              <input type="checkbox" checked={!!acknowledged[i]} onChange={() => toggleAck(i)} disabled={saving} className="mt-1" />
-              <div><span className="text-xs font-bold text-yellow-700 mr-2">WARNING</span><span className="text-sm">{flag.msg}</span></div>
-            </label>
-          ))}
-        </div>
+          <div className="flex flex-col gap-2">
+            {warnings.map((flag, i) => (
+              <label key={i} className="choice">
+                <input type="checkbox" checked={!!acknowledged[i]} onChange={() => toggleAck(i)} disabled={saving} className="mt-0.5 h-4 w-4 text-brand" />
+                <span><span className="mr-2 text-xs font-semibold text-warn-ink">WARNING</span><span className="text-ink">{flag.msg}</span></span>
+              </label>
+            ))}
+          </div>
+        </section>
       )}
 
-      {flags.length === 0 && <p className="text-green-700 mb-6">✓ No data quality issues detected.</p>}
+      {flags.length === 0 && <p className="alert-ok mb-6">No data quality issues detected.</p>}
 
-      {errors.length === 0 && (
-        <button
-          type="button"
-          onClick={proceed}
-          disabled={!canContinue || saving}
-          className="px-6 py-2 bg-blue-700 text-white rounded font-medium hover:bg-blue-800 disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Continue to Analysis Selection'}
-        </button>
-      )}
+      <div className="flex flex-wrap gap-3">
+        <BackButton onClick={prev} disabled={saving} />
+        {errors.length === 0 && (
+          <button type="button" onClick={proceed} disabled={!canContinue || saving} className="btn-primary">
+            {saving && <Spinner />}
+            {saving ? 'Saving…' : 'Continue to Analysis Selection'}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

@@ -102,14 +102,15 @@ test.describe('critical resident workflow', () => {
     await page.getByRole('button', { name: 'Save & Continue' }).click()
 
     await expect(page.getByRole('heading', { name: 'Download & Share' })).toBeVisible()
+    await page.getByRole('button', { name: 'Generate report' }).click()
     await expect(page.getByRole('link', { name: 'Download Word (.docx)' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Download PDF' })).toBeVisible()
-    await page.getByRole('button', { name: 'Create Share Link' }).click()
+    await page.getByRole('button', { name: 'Share with mentor' }).click()
     const shareLink = await page.locator('code').innerText()
     expect(shareLink).toContain('/mentor/')
 
     await page.goto(shareLink)
-    await expect(page.getByText('Mentor Review')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Mentor Comments' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Resident-approved run chart report' })).toBeVisible()
     await expect(page.getByText('Monthly wait days declined over the project year.')).toBeVisible()
     await expect(page.getByRole('link', { name: 'Download Word Report' })).toBeVisible()

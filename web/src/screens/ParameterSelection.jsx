@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
 import { useApp } from '../App'
+import BackButton from '../components/BackButton'
+import PageIntro from '../components/PageIntro'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
 const PARAM_FIELDS = {
@@ -28,24 +31,41 @@ const FIELD_LABELS = {
 const COL_NAME_FIELDS = new Set(['group_col', 'value_col', 'date_col', 'numerator_col', 'denominator_col', 'count_col', 'outcome_col'])
 const SEMANTIC_COLUMN_FIELDS = new Set(['group_col', 'value_col', 'date_col', 'numerator_col', 'denominator_col', 'count_col', 'outcome_col'])
 
+function normalizeValueCols(value) {
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') return value.split(',').map(s => s.trim()).filter(Boolean)
+  return []
+}
+
+function activeParamsFor(fields, source, q7) {
+  return fields.reduce((acc, f) => {
+    if (f === 'value_cols') acc[f] = normalizeValueCols(source?.[f])
+    else if (source?.[f] !== undefined) acc[f] = source[f]
+    else acc[f] = f === 'intervention_date' ? q7.date || '' : ''
+    return acc
+  }, {})
+}
+
+function columnMapFor(params) {
+  const columnMap = {}
+  SEMANTIC_COLUMN_FIELDS.forEach(field => {
+    if (params[field]) columnMap[field] = params[field]
+  })
+  return columnMap
+}
+
 function errorMessage(err) {
   return `${err.message || 'Could not save column mapping'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
 }
 
 export default function ParameterSelection() {
-  const { ctx, update, next } = useApp()
+  const { ctx, update, next, prev } = useApp()
   const template = ctx.template || 'run_chart'
   const fields = PARAM_FIELDS[template] || []
   const q7 = ctx.answers?.q7 || {}
   const colNames = Object.keys(ctx.colTypes || {})
 
-  const [params, setParams] = useState(() => {
-    const init = { ...(ctx.params || {}) }
-    fields.forEach(f => {
-      if (init[f] === undefined) init[f] = f === 'intervention_date' ? q7.date || '' : ''
-    })
-    return init
-  })
+  const [params, setParams] = useState(() => activeParamsFor(fields, ctx.params || {}, q7))
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,13 +76,11 @@ export default function ParameterSelection() {
     e.preventDefault()
     setSaving(true)
     setError('')
-    const columnMap = {}
-    SEMANTIC_COLUMN_FIELDS.forEach(field => {
-      if (params[field]) columnMap[field] = params[field]
-    })
+    const activeParams = activeParamsFor(fields, params, q7)
+    const columnMap = columnMapFor(activeParams)
     try {
       if (ctx.uploadId) await api.updateColumnMap(ctx.uploadId, ctx.colTypes || {}, columnMap)
-      update({ params, columnMap })
+      update({ params: activeParams, columnMap, results: {}, resultSummary: undefined, runId: undefined, aiInterpretation: '', editedInterp: '', editedCaption: '' })
       next()
     } catch (err) {
       setError(errorMessage(err))
@@ -72,45 +90,51 @@ export default function ParameterSelection() {
   }
 
   return (
-    <div className="max-w-xl mx-auto p-8 mt-8">
-      <h1 className="text-2xl font-bold mb-2 text-blue-800">Map Your Columns</h1>
-      <p className="text-sm text-gray-500 mb-6">Tell us which columns in your uploaded dataset correspond to each field.</p>
-      {saving && <p aria-live="polite" className="mb-4 text-sm text-gray-500">Saving column mapping…</p>}
-      <form onSubmit={submit} className="flex flex-col gap-4">
+    <div className="screen max-w-xl">
+      <PageIntro step="params" title="Map Your Columns" lead="Tell us which columns in your uploaded dataset correspond to each field." />
+      {saving && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving column mapping…</p>}
+      <form onSubmit={submit} className="card flex flex-col gap-4">
         {fields.map(f => {
           const id = `param-${f}`
           return (
             <label key={f} htmlFor={id} className="flex flex-col gap-1">
-              <span className="font-medium text-sm">{FIELD_LABELS[f] || f}</span>
+              <span className="label">{FIELD_LABELS[f] || f}</span>
               {f === 'intervention_date' ? (
-                <input id={id} type="date" className="border rounded px-3 py-2 text-sm" value={params[f] || ''} onChange={e => setField(f, e.target.value)} disabled={saving} />
+                <input id={id} type="date" className="input" value={params[f] || ''} onChange={e => setField(f, e.target.value)} disabled={saving} />
               ) : f === 'value_cols' ? (
-                <select
-                  id={id}
-                  multiple
-                  className="border rounded px-3 py-2 text-sm"
-                  value={params[f] ? params[f].split(',').map(s => s.trim()) : []}
-                  onChange={e => setField(f, Array.from(e.target.selectedOptions, o => o.value).join(','))}
-                  required
-                  disabled={saving}
-                >
-                  {colNames.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <>
+                  <select
+                    id={id}
+                    multiple
+                    className="input min-h-28"
+                    value={normalizeValueCols(params[f])}
+                    onChange={e => setField(f, Array.from(e.target.selectedOptions, o => o.value))}
+                    required
+                    disabled={saving}
+                  >
+                    {colNames.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <span className="text-xs text-ink-faint">Hold Ctrl/Cmd to select multiple</span>
+                </>
               ) : COL_NAME_FIELDS.has(f) ? (
-                <select id={id} className="border rounded px-3 py-2 text-sm" value={params[f] || ''} onChange={e => setField(f, e.target.value)} required={f !== 'denominator_col'} disabled={saving}>
+                <select id={id} className="input" value={params[f] || ''} onChange={e => setField(f, e.target.value)} required={f !== 'denominator_col'} disabled={saving}>
                   <option value="">— select column —</option>
                   {colNames.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               ) : (
-                <input id={id} type="text" className="border rounded px-3 py-2 text-sm" value={params[f] || ''} onChange={e => setField(f, e.target.value)} required disabled={saving} />
+                <input id={id} type="text" className="input" value={params[f] || ''} onChange={e => setField(f, e.target.value)} required disabled={saving} />
               )}
             </label>
           )
         })}
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        <button type="submit" disabled={saving} className="px-6 py-2 bg-blue-700 text-white rounded font-medium hover:bg-blue-800 disabled:opacity-50 self-start mt-2">
-          {saving ? 'Saving…' : 'Run Analysis'}
-        </button>
+        {error && <p role="alert" className="alert-error">{error}</p>}
+        <div className="flex flex-wrap gap-3 pt-2">
+          <BackButton onClick={prev} disabled={saving} />
+          <button type="submit" disabled={saving} className="btn-primary">
+            {saving && <Spinner />}
+            {saving ? 'Saving…' : 'Run Analysis'}
+          </button>
+        </div>
       </form>
     </div>
   )

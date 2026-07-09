@@ -107,4 +107,39 @@ describe('App resume hydration', () => {
     expect(await screen.findByRole('heading', { name: 'Screen download' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/app/12/download')
   })
+
+  it('enables resumed wizard steps through review and keeps future steps disabled', async () => {
+    window.localStorage.setItem('qiss:lastProjectId', '77')
+    apiMock.resumeProject.mockResolvedValue(resumePayload({ id: 77, currentScreen: 'review' }))
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Screen review' })).toBeInTheDocument()
+    for (const label of ['Description', 'Intake', 'Upload', /Review/]) {
+      expect(screen.getByRole('button', { name: label })).toBeEnabled()
+    }
+    expect(screen.getByRole('button', { name: /Results/ })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Upload' }))
+
+    expect(await screen.findByRole('heading', { name: 'Screen upload' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/77/upload')
+  })
+
+  it('lets the landing project list recover from a load failure', async () => {
+    apiMock.listProjects
+      .mockRejectedValueOnce(Object.assign(new Error('Could not load projects'), { requestId: 'req-projects-2' }))
+      .mockResolvedValueOnce([{ id: 21, title: 'Sepsis huddle follow-up', description: '', status: 'draft' }])
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load projects (Request ID: req-projects-2)')
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('heading', { name: 'Sepsis huddle follow-up' })).toBeInTheDocument()
+    expect(apiMock.listProjects).toHaveBeenCalledTimes(2)
+    expect(apiMock.listProjects).toHaveBeenLastCalledWith({ limit: 25, order: 'created_desc' })
+  })
 })

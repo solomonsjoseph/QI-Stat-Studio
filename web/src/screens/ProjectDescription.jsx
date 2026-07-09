@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
 import { useApp } from '../App'
+import BackButton from '../components/BackButton'
+import PageIntro from '../components/PageIntro'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
 function errorMessage(err) {
@@ -7,7 +10,7 @@ function errorMessage(err) {
 }
 
 export default function ProjectDescription() {
-  const { ctx, update, next } = useApp()
+  const { ctx, update, next, prev } = useApp()
   const [title, setTitle] = useState(ctx.projectTitle || '')
   const [desc, setDesc] = useState(ctx.projectDesc || ctx.answers?.q1 || '')
   const [loading, setLoading] = useState(false)
@@ -42,37 +45,34 @@ export default function ProjectDescription() {
   }
 
   return (
-    <div className="max-w-xl mx-auto p-8 mt-12">
-      <h1 className="text-2xl font-bold mb-6 text-blue-800">Describe Your QI Project</h1>
-      {error && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
-      {loading && <p aria-live="polite" className="mb-4 text-sm text-gray-500">Saving description and checking for intake suggestions…</p>}
-      <form onSubmit={submit} className="flex flex-col gap-4">
-        <label htmlFor="project-title" className="font-medium">Project Title</label>
-        <input
-          id="project-title"
-          className="border rounded px-3 py-2"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          disabled={loading}
-          required
-        />
-        <label htmlFor="project-description" className="font-medium">Project Description</label>
+    <div className="screen max-w-xl">
+      <PageIntro
+        step="description"
+        title="Describe Your QI Project"
+        lead="Imagine you're explaining it to a co-resident in the cafeteria. No jargon needed."
+      />
+      {error && <p role="alert" className="alert-error mb-4">{error}</p>}
+      {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving description and checking for intake suggestions…</p>}
+      <form onSubmit={submit} className="card flex flex-col gap-4">
+        <label htmlFor="project-title" className="label">Project Title</label>
+        <input id="project-title" className="input" value={title} onChange={e => setTitle(e.target.value)} disabled={loading} required />
+        <label htmlFor="project-description" className="label">Project Description</label>
         <textarea
           id="project-description"
-          className="border rounded px-3 py-2 h-28"
+          className="input min-h-32"
           value={desc}
           onChange={e => setDesc(e.target.value)}
           placeholder="Describe your QI initiative in 1–3 sentences..."
           disabled={loading}
           required
         />
-        <button
-          type="submit"
-          disabled={loading}
-          className="px-6 py-2 bg-blue-700 text-white rounded font-medium hover:bg-blue-800 disabled:opacity-50"
-        >
-          {loading ? 'Analyzing…' : 'Continue'}
-        </button>
+        <div className="flex flex-wrap gap-3 pt-2">
+          <BackButton onClick={prev} disabled={loading} />
+          <button type="submit" disabled={loading} className="btn-primary">
+            {loading && <Spinner />}
+            {loading ? 'Analyzing…' : 'Continue'}
+          </button>
+        </div>
       </form>
     </div>
   )

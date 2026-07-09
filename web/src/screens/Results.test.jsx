@@ -89,4 +89,43 @@ describe('Results', () => {
     expect(apiMock.runAnalysis).not.toHaveBeenCalled()
     expect(apiMock.chat).not.toHaveBeenCalled()
   })
+  it('lets a failed analysis retry and keeps the column-mapping back action available', async () => {
+    const update = vi.fn()
+    const next = vi.fn()
+    const prev = vi.fn()
+    const user = userEvent.setup()
+    useAppMock.mockReturnValue({
+      ctx: {
+        projectId: 11,
+        uploadId: 22,
+        template: 'run_chart',
+        params: { date_col: 'week', value_col: 'falls', intervention_date: '2026-01-15' },
+      },
+      update,
+      next,
+      prev,
+    })
+    apiMock.runAnalysis.mockRejectedValueOnce(Object.assign(new Error('Analysis backend timed out'), { requestId: 'req-analysis-42' }))
+    apiMock.chat.mockResolvedValue({ content: 'Falls improved after the intervention.', phi_redacted: false })
+
+    render(<Results />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Analysis backend timed out (Request ID: req-analysis-42)')
+    const retryButton = screen.getByRole('button', { name: 'Try again' })
+    const backButton = screen.getByRole('button', { name: '← Back to column mapping' })
+
+    await user.click(backButton)
+    expect(prev).toHaveBeenCalledTimes(1)
+
+    apiMock.runAnalysis.mockResolvedValueOnce({
+      run_id: 88,
+      result_summary: 'Falls decreased from 12 to 7 per month after the intervention.',
+      methods: 'Run chart methods.',
+    })
+    await user.click(retryButton)
+
+    await waitFor(() => expect(apiMock.runAnalysis).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('Falls decreased from 12 to 7 per month after the intervention.')).toBeInTheDocument()
+  })
 })

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useApp } from '../App'
+import PageIntro from '../components/PageIntro'
+import Spinner from '../components/Spinner'
 import { api } from '../api'
 
 function errorMessage(err) {
@@ -59,47 +61,47 @@ export default function Settings() {
   }
 
   return (
-    <div className="max-w-xl mx-auto p-8 mt-8">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-blue-800">Settings</h1>
-        <button type="button" onClick={() => goTo(ctx.previousScreen || 'landing')} className="text-sm text-gray-600 underline">Back</button>
+    <div className="screen max-w-xl">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <PageIntro title="Settings" />
+        <button type="button" onClick={() => goTo(ctx.previousScreen || 'landing')} className="btn-secondary px-4 py-2">Back</button>
       </div>
 
-      {loading && <p aria-live="polite" className="mb-4 text-sm text-gray-500">Loading settings…</p>}
-      {error && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
+      {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Loading settings…</p>}
+      {error && <p role="alert" className="alert-error mb-4">{error}</p>}
 
-      <div className="mb-6">
-        <h2 className="font-semibold mb-2 text-sm">Current Settings</h2>
+      <section className="mb-6" aria-labelledby="current-settings-heading">
+        <h2 id="current-settings-heading" className="mb-2 text-sm font-semibold text-ink">Current Settings</h2>
         {!loading && settings.length === 0 ? (
-          <p className="text-gray-400 text-sm">No runtime settings configured.</p>
+          <p className="text-sm text-ink-soft">No runtime settings configured.</p>
         ) : (
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border px-3 py-2 text-left">Key</th>
-                <th className="border px-3 py-2 text-left">Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {settings.map(item => (
-                <tr key={item.key}>
-                  <td className="border px-3 py-2 font-mono">{item.key}</td>
-                  <td className="border px-3 py-2">{String(item.value ?? '')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="table-clean">
+              <thead>
+                <tr><th>Key</th><th>Value</th></tr>
+              </thead>
+              <tbody>
+                {settings.map(item => (
+                  <tr key={item.key}>
+                    <td className="font-mono">{item.key}</td>
+                    <td>{String(item.value ?? '')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
-      </div>
+      </section>
 
-      <form onSubmit={save} className="flex flex-col gap-3">
-        <h2 className="font-semibold text-sm">Add / Update Setting</h2>
-        <label htmlFor="setting-key" className="text-sm font-medium">Setting key</label>
-        <input id="setting-key" className="border rounded px-3 py-2 text-sm" placeholder="clinic_name" value={key} onChange={e => setKey(e.target.value)} required disabled={saving} />
-        <label htmlFor="setting-value" className="text-sm font-medium">Setting value</label>
-        <input id="setting-value" className="border rounded px-3 py-2 text-sm" placeholder="Value" value={val} onChange={e => setVal(e.target.value)} required disabled={saving} />
-        <button type="submit" disabled={saving} className="px-5 py-2 bg-blue-700 text-white rounded font-medium hover:bg-blue-800 disabled:opacity-50 self-start">
-          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+      <form onSubmit={save} className="card flex flex-col gap-3">
+        <h2 className="text-sm font-semibold text-ink">Add / Update Setting</h2>
+        <label htmlFor="setting-key" className="label">Setting key</label>
+        <input id="setting-key" className="input" placeholder="clinic_name" value={key} onChange={e => setKey(e.target.value)} required disabled={saving} />
+        <label htmlFor="setting-value" className="label">Setting value</label>
+        <input id="setting-value" className="input" placeholder="Value" value={val} onChange={e => setVal(e.target.value)} required disabled={saving} />
+        <button type="submit" disabled={saving} className="btn-primary self-start">
+          {saving && <Spinner />}
+          {saving ? 'Saving…' : saved ? 'Saved' : 'Save'}
         </button>
       </form>
     </div>
