@@ -152,7 +152,11 @@ def _parse_json(raw: str | None, fallback: Any):
         return fallback
 
 
-def _upload_out(upload: Upload) -> UploadOut:
+def _preview_rows(df: pd.DataFrame) -> list[dict[str, Any]]:
+    return json.loads(df.head(5).to_json(orient="records", date_format="iso"))
+
+
+def _upload_out(upload: Upload, preview_rows: list[dict[str, Any]] | None = None) -> UploadOut:
     return UploadOut(
         id=upload.id,
         project_id=upload.project_id,
@@ -167,6 +171,7 @@ def _upload_out(upload: Upload) -> UploadOut:
         quality_flags=_parse_json(upload.quality_flags, []),
         acknowledged_flags=_parse_json(upload.acknowledged_flags, None),
         status=upload.status,
+        preview_rows=preview_rows or [],
     )
 
 
@@ -242,7 +247,7 @@ async def upload_file(
     db.commit()
     db.refresh(upload)
     log_action(db, project_id, "upload_created", {"upload_id": upload.id, "file_type": upload.file_type, "size_bytes": upload.size_bytes})
-    return {"upload_id": upload.id, "row_count": len(df), "col_summary": col_summary, "col_types": col_types, "quality_flags": flags, "missing_pct": missing_pct}
+    return {"upload_id": upload.id, "row_count": len(df), "col_summary": col_summary, "col_types": col_types, "quality_flags": flags, "missing_pct": missing_pct, "preview_rows": _preview_rows(df)}
 
 
 @router.patch("/{upload_id}/acknowledged-flags")
@@ -282,7 +287,7 @@ async def replace_upload(
     db.commit()
     db.refresh(new_upload)
     log_action(db, project_id, "upload_replaced", {"old_upload_id": old_upload.id, "upload_id": new_upload.id, "file_type": new_upload.file_type, "size_bytes": new_upload.size_bytes})
-    return _upload_out(new_upload)
+    return _upload_out(new_upload, _preview_rows(df))
 
 
 @router.delete("/{upload_id}")

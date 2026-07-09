@@ -44,6 +44,7 @@ class UploadOut(BaseModel):
     quality_flags: list[dict[str, Any]]
     acknowledged_flags: Optional[list[dict[str, Any]]]
     status: str
+    preview_rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AnalysisRunOut(BaseModel):

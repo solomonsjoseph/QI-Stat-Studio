@@ -75,6 +75,9 @@ export default function Upload() {
 
   const isExcelUpload = /\.xlsx?$/i.test(file?.name || '')
   const detectedColumnCount = uploadResult ? Object.keys(uploadResult.col_types || {}).length : 0
+  const previewRows = uploadResult?.preview_rows || []
+  const previewColumns = previewRows.length ? Object.keys(previewRows[0] || {}) : []
+
 
   if (uploadResult) {
     return (
@@ -86,6 +89,29 @@ export default function Upload() {
           <div className="alert-info mb-4">
             We read your Excel file "{file.name}" and converted it automatically — {uploadResult.row_count ?? 0} rows and {detectedColumnCount} columns from the first sheet. Review the detected types below.
           </div>
+        )}
+        {previewRows.length > 0 && (
+          <section className="card mb-6" aria-labelledby="data-preview-heading">
+            <h2 id="data-preview-heading" className="mb-3 font-medium text-ink">Data preview (first 5 rows)</h2>
+            <div className="overflow-x-auto">
+              <table className="table-clean">
+                <thead>
+                  <tr>
+                    {previewColumns.map(col => <th key={col}>{col}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.map((row, idx) => (
+                    <tr key={idx}>
+                      {previewColumns.map(col => (
+                        <td key={col}>{row[col] === null || row[col] === undefined || row[col] === '' ? '—' : String(row[col])}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
         <form onSubmit={confirmTypes}>
           <div className="mb-6 overflow-x-auto">

@@ -63,6 +63,20 @@ def test_upload_persists_safe_metadata_and_column_mapping(auth_client):
         assert json.loads(upload.column_map) == {"value_col": "value"}
 
 
+
+def test_upload_response_includes_first_five_preview_rows(auth_client):
+    project_id = _project(auth_client)
+    raw = Path("tests/fixtures/diabetes_care_qi_full.csv").read_bytes()
+
+    response = _upload_csv(auth_client, project_id, raw, filename="diabetes.csv")
+
+    assert response.status_code == 200, response.text
+    preview_rows = response.json()["preview_rows"]
+    assert len(preview_rows) == 5
+    assert preview_rows[0]["encounter_date"].startswith("202")
+    assert preview_rows[0]["encounter_id"]
+    assert preview_rows[0]["fib4_score"] is None
+
 def test_upload_rejects_bad_project_type_size_parser_and_shape(auth_client, monkeypatch):
     missing_project = _upload_csv(auth_client, 999999, b"a\n1\n")
     assert missing_project.status_code == 404
