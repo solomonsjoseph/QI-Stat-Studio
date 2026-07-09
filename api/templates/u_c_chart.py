@@ -18,28 +18,35 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     df = df.copy()
     df[date_col] = pd.to_datetime(df[date_col])
     df[count_col] = pd.to_numeric(df[count_col], errors="coerce")
+    stable_denominator = False
 
-    if chart_type == "u":
+    if denominator_col:
         df[denominator_col] = pd.to_numeric(df[denominator_col], errors="coerce")
         agg = df.set_index(date_col).resample(freq).agg(
             cnt=(count_col, "sum"), denom=(denominator_col, "sum")
         ).dropna().reset_index()
+        stable_denominator = agg["denom"].nunique() <= 1
+        chart_type = "c" if stable_denominator else "u"
+    else:
+        agg = df.set_index(date_col).resample(freq)[count_col].sum().dropna().reset_index()
+        agg = agg.rename(columns={count_col: "cnt"})
+
+    if chart_type == "u":
         y = agg["cnt"] / agg["denom"]
         ubar = float(agg["cnt"].sum() / agg["denom"].sum())
         sigma = np.sqrt(ubar / agg["denom"])
         ucl = ubar + 3 * sigma
         lcl = (ubar - 3 * sigma).clip(lower=0.0)
-        plot_dates = agg[date_col]
         ylabel = "Rate"
     else:
-        agg = df.set_index(date_col).resample(freq)[count_col].sum().dropna().reset_index()
-        cbar = float(agg[count_col].mean())
+        cbar = float(agg["cnt"].mean())
         ucl = pd.Series(cbar + 3 * np.sqrt(cbar), index=agg.index)
         lcl = pd.Series(max(0.0, cbar - 3 * np.sqrt(cbar)), index=agg.index)
         ubar = cbar
-        y = agg[count_col]
-        plot_dates = agg[date_col]
+        y = agg["cnt"]
         ylabel = "Count"
+
+    plot_dates = agg[date_col]
 
     out_of_control = int(((y > ucl) | (y < lcl)).sum())
 
@@ -59,11 +66,12 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     plt.close(fig)
     fig_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    limit_note = (
-        "Control limits were set at 3 standard deviations using each period's denominator."
-        if chart_type == "u"
-        else "Control limits were set at 3 standard deviations."
-    )
+    if chart_type == "u":
+        limit_note = "Control limits were set at 3 standard deviations using each period's denominator."
+    elif stable_denominator:
+        limit_note = "The denominator is stable across periods, so a c-chart was used. Control limits were set at 3 standard deviations."
+    else:
+        limit_note = "Control limits were set at 3 standard deviations."
     methods = (f"A {'u' if chart_type == 'u' else 'c'}-chart was constructed for {count_col} "
                f"across {len(agg)} time points. {limit_note} "
                f"{out_of_control} point(s) fell outside control limits.")
@@ -79,5 +87,6 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "table": [], "figure_base64": fig_b64, "methods": methods,
         "result_summary": f"Mean={ubar:.3f}. {out_of_control} out-of-control point(s).",
         "interpretation": interpretation,
+        "chart_type": chart_type,
         "ucl": [round(float(value), 4) for value in ucl], "lcl": [round(float(value), 4) for value in lcl],
     }

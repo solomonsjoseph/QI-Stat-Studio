@@ -183,6 +183,24 @@ class TestUCChart:
         })
         assert result["figure_base64"] is not None
         assert max(result["ucl"]) > 0
+        assert result["chart_type"] == "u"
+
+    def test_constant_denominator_uses_c_chart(self):
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-01", "2024-02-01", "2024-03-01"],
+            "events": [3, 4, 5],
+            "eligible": [100, 100, 100],
+        })
+        result = run_u_c_chart(df, {
+            "date_col": "encounter_date",
+            "count_col": "events",
+            "denominator_col": "eligible",
+        })
+
+        assert result["chart_type"] == "c"
+        assert max(result["ucl"]) == min(result["ucl"])
+        assert max(result["lcl"]) == min(result["lcl"])
+        assert "denominator is stable across periods" in result["methods"]
 
     def test_lcl_non_negative(self):
         df = _monthly_df()
