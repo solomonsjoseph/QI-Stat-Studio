@@ -35,8 +35,35 @@ def _require_upload_access(upload_id: int, db: Session, user: User) -> Upload:
     return upload
 
 
+def _object_like(series: pd.Series) -> bool:
+    return pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)
+
+
+def _parse_ratio(parsed: pd.Series, total: int) -> float:
+    if total == 0:
+        return 0.0
+    return float(parsed.notna().sum() / total)
+
+
+def _coerce_datetime(series: pd.Series) -> pd.Series:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return pd.to_datetime(series, errors="coerce")
+
+
+def _looks_like_text_date(series: pd.Series) -> bool:
+    non_null = series.dropna().head(200)
+    if len(non_null) == 0:
+        return False
+    if _parse_ratio(pd.to_numeric(non_null, errors="coerce"), len(non_null)) >= 0.9:
+        return False
+    return _parse_ratio(_coerce_datetime(non_null), len(non_null)) >= 0.9
+
+
 def detect_col_type(col_name: str, series: pd.Series) -> str:
     if pd.api.types.is_datetime64_any_dtype(series):
+        return "Date"
+    if _object_like(series) and _looks_like_text_date(series):
         return "Date"
     if any(k in col_name.lower() for k in ["id", "mrn", "patient", "encounter"]):
         return "ID"
@@ -52,19 +79,6 @@ def detect_col_type(col_name: str, series: pd.Series) -> str:
 
 def run_data_quality(df: pd.DataFrame, col_types: dict[str, str]) -> List[Dict[str, Any]]:
     flags = []
-
-    def _object_like(series: pd.Series) -> bool:
-        return pd.api.types.is_object_dtype(series) or pd.api.types.is_string_dtype(series)
-
-    def _parse_ratio(parsed: pd.Series, total: int) -> float:
-        if total == 0:
-            return 0.0
-        return float(parsed.notna().sum() / total)
-
-    def _coerce_datetime(series: pd.Series) -> pd.Series:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            return pd.to_datetime(series, errors="coerce")
 
     for col in df.columns:
         if col_types.get(col) == "Category":

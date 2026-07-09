@@ -40,6 +40,20 @@ def test_detects_date():
     s = pd.to_datetime(pd.Series(["2024-01-15", "2024-02-20"]))
     assert detect_col_type("encounter_date", s) == "Date"
 
+def test_detects_object_iso_string_dates():
+    s = pd.Series(["2024-01-05", "2024-02-05"])
+    assert detect_col_type("encounter_date", s) == "Date"
+
+
+def test_sample_csv_encounter_date_is_date():
+    df = pd.read_csv("tests/fixtures/diabetes_care_qi_full.csv")
+    assert detect_col_type("encounter_date", df["encounter_date"]) == "Date"
+
+
+def test_numeric_string_id_stays_id():
+    s = pd.Series(["1001", "1002", "1003"])
+    assert detect_col_type("visit_id", s) == "ID"
+
 
 def test_sample_csv_patient_id_is_id():
     """Integration check: actual CSV column names produce correct types."""
