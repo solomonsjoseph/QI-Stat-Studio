@@ -337,6 +337,27 @@ def test_report_limitations_use_acknowledged_flags_instead_of_all_quality_flags(
     assert "egfr has outliers" not in text
 
 
+def test_report_limitations_are_empty_when_acknowledged_flags_never_set(client):
+    _register(client, "admin@example.com")
+    all_flags = [
+        {"col": "hba1c", "rule": "check_missing", "severity": "WARNING", "msg": "hba1c is 15% missing"},
+        {"col": "egfr", "rule": "outlier_count", "severity": "WARNING", "msg": "egfr has outliers"},
+    ]
+    seeded = _seed_report_run(dq_flags=all_flags)
+
+    with SessionLocal() as db:
+        upload = db.get(Upload, seeded["analysis_upload_id"])
+        assert upload.acknowledged_flags is None
+
+    response = client.get(f"/report/{seeded['run_id']}/docx")
+    assert response.status_code == 200, response.text
+    text = _docx_text(response.content)
+
+    assert "hba1c is 15% missing" not in text
+    assert "egfr has outliers" not in text
+    assert "No data quality issues were flagged for this dataset." in text
+
+
 def test_project_edit_endpoint_persists_original_text_for_report_audit(client):
     _register(client, "admin@example.com")
     project = _create_project_via_api(client)

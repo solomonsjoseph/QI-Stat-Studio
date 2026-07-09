@@ -76,10 +76,10 @@ def _build_context(run: AnalysisRun, db: Session) -> dict[str, Any]:
     upload = _run_upload(run, db)
     result = _safe_json(run.result_json, {})
     params = _safe_json(run.parameters, {})
-    if upload and upload.acknowledged_flags is not None:
+    if upload is not None:
         flags = _safe_json(upload.acknowledged_flags, [])
     else:
-        flags = _safe_json(upload.quality_flags if upload else "[]", [])
+        flags = []
 
     edits = _latest_edits(run.project_id, db)
     title_edit = edits.get("title")
