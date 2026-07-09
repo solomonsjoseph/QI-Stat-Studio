@@ -14,6 +14,28 @@ def _freq_bucket(freq: str | None) -> str:
         return "year"
     return "month"
 
+def _r_date_bucket_fmt(freq: str | None) -> str:
+    bucket = _freq_bucket(freq)
+    return {"day": "%Y-%m-%d", "week": "%Y-%U", "year": "%Y"}.get(bucket, "%Y-%m")
+
+
+def _r_intervention_layer(params: dict) -> str:
+    intervention_date = params.get("intervention_date")
+    if not intervention_date:
+        return ""
+    return f" +\n  geom_vline(xintercept=as.Date('{intervention_date}'), linetype='dotted', color='blue')"
+
+
+def _spss_intervention_comment(params: dict) -> str:
+    intervention_date = params.get("intervention_date")
+    return f"* Intervention began {intervention_date}; mark it on the chart.\n" if intervention_date else ""
+
+
+def _sas_intervention_comment(params: dict) -> str:
+    intervention_date = params.get("intervention_date")
+    return f"/* Intervention began {intervention_date} */\n" if intervention_date else ""
+
+
 
 def _spss_date_bucket(params: dict) -> str:
     dc = params.get("date_col", "encounter_date")
@@ -94,56 +116,79 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         vc = params.get("value_col", "value")
+        fmt = _r_date_bucket_fmt(params.get("freq"))
         return (
+            f"library(dplyr)\n"
             f"library(ggplot2)\n"
             f"df${dc} <- as.Date(df${dc})\n"
-            f"med <- median(df${vc}, na.rm=TRUE)\n"
-            f"ties <- sum(df${vc} == med, na.rm=TRUE)  # exclude median ties from run counts\n"
-            f"# Trend signal: check for >=6 consecutive increases or decreases.\n"
-            f"ggplot(df, aes(x={dc}, y={vc})) + geom_line() + geom_point() +\n"
+            f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% summarise(val=mean({vc}, na.rm=TRUE), .groups='drop')\n"
+            f"med <- median(agg$val, na.rm=TRUE)\n"
+            f"v <- agg$val[agg$val != med]\n"
+            f"runs <- rle(v > med)\n"
+            f"max_run <- ifelse(length(runs$lengths), max(runs$lengths), 0)  # signal if >= 8 same side of median\n"
+            f"ggplot(agg, aes(x=bucket, y=val, group=1)) + geom_line() + geom_point() +\n"
             f"  geom_hline(yintercept=med, color='red', linetype='dashed')"
+            f"{_r_intervention_layer(params)}"
         )
 
     if template == "p_chart":
         dc = params.get("date_col", "encounter_date")
         nc = params.get("numerator_col", "outcome")
         denom = params.get("denominator_col")
+        fmt = _r_date_bucket_fmt(params.get("freq"))
         if denom:
-            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE))"
+            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), .groups='drop')"
         else:
-            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n())"
+            aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n(), .groups='drop')"
         return (
             f"library(dplyr)\n"
+            f"library(ggplot2)\n"
             f"df${dc} <- as.Date(df${dc})\n"
-            f"monthly <- df %>% group_by(month=format({dc}, '%Y-%m')) %>% {aggregate}\n"
-            f"monthly$p <- monthly$num / monthly$denom\n"
-            f"pbar <- sum(monthly$num, na.rm=TRUE) / sum(monthly$denom, na.rm=TRUE)\n"
-            f"monthly$ucl <- pbar + 3*sqrt(pbar*(1-pbar)/monthly$denom)\n"
-            f"monthly$lcl <- pmax(0, pbar - 3*sqrt(pbar*(1-pbar)/monthly$denom))"
+            f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% {aggregate}\n"
+            f"agg$p <- agg$num / agg$denom\n"
+            f"pbar <- sum(agg$num, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
+            f"agg$ucl <- pbar + 3*sqrt(pbar*(1-pbar)/agg$denom)\n"
+            f"agg$lcl <- pmax(0, pbar - 3*sqrt(pbar*(1-pbar)/agg$denom))\n"
+            f"ggplot(agg, aes(x=bucket, y=p, group=1)) + geom_line() + geom_point() +\n"
+            f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+            f"{_r_intervention_layer(params)}"
         )
 
     if template == "u_c_chart":
         dc = params.get("date_col", "encounter_date")
         cc = params.get("count_col", "count")
         denom = params.get("denominator_col")
+        fmt = _r_date_bucket_fmt(params.get("freq"))
+        runtime_chart_type = (result or {}).get("chart_type")
         if denom:
+            aggregate = f"summarise(cnt=sum({cc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), .groups='drop')"
+        else:
+            aggregate = f"summarise(cnt=sum({cc}, na.rm=TRUE), .groups='drop')"
+        prefix = (
+            f"library(dplyr)\n"
+            f"library(ggplot2)\n"
+            f"df${dc} <- as.Date(df${dc})\n"
+            f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% {aggregate}\n"
+        )
+        if denom and runtime_chart_type != "c":
             return (
-                f"library(dplyr)\n"
-                f"df${dc} <- as.Date(df${dc})\n"
-                f"monthly <- df %>% group_by(month=format({dc}, '%Y-%m')) %>% "
-                f"summarise(cnt=sum({cc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE))\n"
-                f"monthly$rate <- monthly$cnt / monthly$denom\n"
-                f"ubar <- sum(monthly$cnt, na.rm=TRUE) / sum(monthly$denom, na.rm=TRUE)\n"
-                f"monthly$ucl <- ubar + 3*sqrt(ubar/monthly$denom)\n"
-                f"monthly$lcl <- pmax(0, ubar - 3*sqrt(ubar/monthly$denom))"
+                prefix
+                + f"agg$rate <- agg$cnt / agg$denom\n"
+                + f"ubar <- sum(agg$cnt, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
+                + f"agg$ucl <- ubar + 3*sqrt(ubar/agg$denom)\n"
+                + f"agg$lcl <- pmax(0, ubar - 3*sqrt(ubar/agg$denom))\n"
+                + f"ggplot(agg, aes(x=bucket, y=rate, group=1)) + geom_line() + geom_point() +\n"
+                + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+                + _r_intervention_layer(params)
             )
         return (
-            f"library(dplyr)\n"
-            f"df${dc} <- as.Date(df${dc})\n"
-            f"monthly <- df %>% group_by(month=format({dc}, '%Y-%m')) %>% summarise(cnt=sum({cc}, na.rm=TRUE))\n"
-            f"cbar <- mean(monthly$cnt, na.rm=TRUE)\n"
-            f"monthly$ucl <- cbar + 3*sqrt(cbar)\n"
-            f"monthly$lcl <- pmax(0, cbar - 3*sqrt(cbar))"
+            prefix
+            + f"cbar <- mean(agg$cnt, na.rm=TRUE)\n"
+            + f"agg$ucl <- cbar + 3*sqrt(cbar)\n"
+            + f"agg$lcl <- pmax(0, cbar - 3*sqrt(cbar))\n"
+            + f"ggplot(agg, aes(x=bucket, y=cnt, group=1)) + geom_line() + geom_point() +\n"
+            + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+            + _r_intervention_layer(params)
         )
 
     return f'# R code for template "{template}" not yet implemented.'
@@ -174,7 +219,7 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         vc = params.get("value_col", "value")
-        return f"SORT CASES BY {dc}.\n* Median ties are excluded from run counts; trend signal is >=6 increases/decreases.\nGRAPH /LINE(SIMPLE)=VALUE({vc}) BY {dc}."
+        return f"{_spss_intervention_comment(params)}SORT CASES BY {dc}.\n* Median ties are excluded from run counts; signal is >=8 same side of median.\nGRAPH /LINE(SIMPLE)=VALUE({vc}) BY {dc}."
 
     if template == "p_chart":
         nc = params.get("numerator_col", "outcome")
@@ -182,7 +227,7 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
         bucket = _spss_date_bucket(params)
         denom_expr = f"SUM({denom})" if denom else "N"
         return (
-            f"{bucket}\n"
+            f"{_spss_intervention_comment(params)}{bucket}\n"
             f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /num=SUM({nc}) /denom={denom_expr}.\n"
             f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK= /num_total=SUM(num) /denom_total=SUM(denom).\n"
             f"COMPUTE p=num/denom.\n"
@@ -198,7 +243,7 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
         bucket = _spss_date_bucket(params)
         if denom:
             return (
-                f"{bucket}\n"
+                f"{_spss_intervention_comment(params)}{bucket}\n"
                 f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}) /denom=SUM({denom}).\n"
                 f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK= /cnt_total=SUM(cnt) /denom_total=SUM(denom).\n"
                 f"COMPUTE rate=cnt/denom.\n"
@@ -207,7 +252,7 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
                 f"COMPUTE lcl=MAX(0, ubar - 3*SQRT(ubar/denom)).\n"
                 f"EXECUTE."
             )
-        return f"{bucket}\nAGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}).\nCOMPUTE cbar=MEAN(cnt).\n* Compute c-chart UCL/LCL from cbar.\nEXECUTE."
+        return f"{_spss_intervention_comment(params)}{bucket}\nAGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /cnt=SUM({cc}).\nCOMPUTE cbar=MEAN(cnt).\n* Compute c-chart UCL/LCL from cbar.\nEXECUTE."
 
     return f'* SPSS code for template "{template}" not yet implemented.'
 
@@ -236,7 +281,7 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         vc = params.get("value_col", "value")
-        return f"PROC SGPLOT DATA=df;\nSERIES X={dc} Y={vc};\nREFLINE median / AXIS=y;\n/* Exclude median ties from runs; trend is >=6 increases/decreases. */\nRUN;"
+        return f"{_sas_intervention_comment(params)}PROC SGPLOT DATA=df;\nSERIES X={dc} Y={vc};\nREFLINE median / AXIS=y;\n/* Exclude median ties from runs; signal is >=8 same side of median. */\nRUN;"
 
     if template == "p_chart":
         nc = params.get("numerator_col", "outcome")
@@ -244,7 +289,7 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         denom_expr = f"sum({denom})" if denom else "count(*)"
         bucket = _sas_date_bucket(params)
         return (
-            f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, {denom_expr} AS denom "
+            f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, {denom_expr} AS denom "
             f"FROM df GROUP BY date_bucket; "
             f"SELECT sum(num)/sum(denom) INTO :pbar FROM monthly; QUIT;\n"
             f"DATA monthly; SET monthly; p=num/denom; pbar=&pbar.; "
@@ -258,13 +303,13 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         bucket = _sas_date_bucket(params)
         if denom:
             return (
-                f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt, sum({denom}) AS denom "
+                f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt, sum({denom}) AS denom "
                 f"FROM df GROUP BY date_bucket; "
                 f"SELECT sum(cnt)/sum(denom) INTO :ubar FROM monthly; QUIT;\n"
                 f"DATA monthly; SET monthly; rate=cnt/denom; ubar=&ubar.; "
                 f"ucl=ubar + 3*sqrt(ubar/denom); "
                 f"lcl=max(0, ubar - 3*sqrt(ubar/denom)); RUN;"
             )
-        return f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; cbar=mean(cnt); /* c-chart */ RUN;"
+        return f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; cbar=mean(cnt); /* c-chart */ RUN;"
 
     return f'/* SAS code for template "{template}" not yet implemented. */'

@@ -70,8 +70,46 @@ def test_p_chart_denominator_code_paths():
 def test_u_c_chart_denominator_selects_u_chart_otherwise_c_chart():
     with_denom = generate_r_code("u_c_chart", {"date_col": "date", "count_col": "cnt", "denominator_col": "denom"})
     without_denom = generate_r_code("u_c_chart", {"date_col": "date", "count_col": "cnt"})
-    assert "rate <- monthly$cnt / monthly$denom" in with_denom
-    assert "cbar <- mean(monthly$cnt" in without_denom
+    assert "rate <- agg$cnt / agg$denom" in with_denom
+    assert "cbar <- mean(agg$cnt" in without_denom
+
+
+def test_run_chart_r_mirrors_runtime_aggregation_and_signal_rule():
+    code = generate_r_code("run_chart", {"date_col": "date", "value_col": "value"})
+    assert "group_by(bucket=format(date" in code
+    assert "median(agg$val" in code
+    assert "median(df$" not in code
+    assert ">= 8" in code
+    assert ">=6" not in code
+
+
+def test_p_chart_r_uses_requested_frequency_bucket():
+    code = generate_r_code("p_chart", {"date_col": "date", "numerator_col": "num", "freq": "W"})
+    assert "%Y-%U" in code
+    assert "'%Y-%m'" not in code
+
+
+def test_time_series_r_outputs_plot_and_intervention_line():
+    params_by_template = {
+        "run_chart": {"date_col": "date", "value_col": "value", "intervention_date": "2025-01-01"},
+        "p_chart": {"date_col": "date", "numerator_col": "num", "intervention_date": "2025-01-01"},
+        "u_c_chart": {"date_col": "date", "count_col": "cnt", "intervention_date": "2025-01-01"},
+    }
+    for template, params in params_by_template.items():
+        code = generate_r_code(template, params)
+        assert "ggplot(agg" in code
+        assert "geom_vline" in code
+        assert "2025-01-01" in code
+
+
+def test_u_c_chart_r_uses_runtime_c_chart_decision_with_denominator():
+    code = generate_r_code(
+        "u_c_chart",
+        {"date_col": "date", "count_col": "cnt", "denominator_col": "denom"},
+        {"chart_type": "c"},
+    )
+    assert "cbar <- mean(agg$cnt" in code
+    assert "rate <- agg$cnt / agg$denom" not in code
 
 
 def test_unknown_template_returns_fallback():
@@ -178,3 +216,9 @@ def test_sas_p_and_u_charts_derive_date_bucket_from_params_date_col():
     assert "intnx('week', event_date" in u_code
     assert "GROUP BY date_bucket" in p_code
     assert "GROUP BY date_bucket" in u_code
+
+
+def test_spss_sas_time_series_include_intervention_comment():
+    params = {"date_col": "date", "count_col": "cnt", "intervention_date": "2025-01-01"}
+    assert "* Intervention began 2025-01-01; mark it on the chart." in generate_spss_code("u_c_chart", params)
+    assert "/* Intervention began 2025-01-01 */" in generate_sas_code("u_c_chart", params)
