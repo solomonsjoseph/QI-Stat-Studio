@@ -81,3 +81,16 @@ describe('IntakeQuestions Q7 unsure date', () => {
     expect(saved.q7).not.toHaveProperty('date')
   })
 })
+
+describe('IntakeQuestions PHI banner', () => {
+  it('shows the prefill PHI banner only when text was de-identified before AI prefill', () => {
+    const banner = 'Some text was automatically de-identified before being sent to the AI. No PHI left this server.'
+
+    renderScreen()
+    expect(screen.queryByText(banner)).not.toBeInTheDocument()
+    cleanup()
+
+    renderScreen({ prefillPhiRedacted: true })
+    expect(screen.getByText(banner)).toBeInTheDocument()
+  })
+})

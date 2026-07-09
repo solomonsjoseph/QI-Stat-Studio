@@ -95,6 +95,11 @@ export default function IntakeQuestions() {
   return (
     <div className="screen">
       <PageIntro step="intake" title="Intake Questions" />
+      {ctx.prefillPhiRedacted && (
+        <div className="alert-warn mb-4">
+          Some text was automatically de-identified before being sent to the AI. No PHI left this server.
+        </div>
+      )}
       <div className="mb-6">
         <div className="mb-2 h-1 rounded-lg bg-line" aria-hidden="true">
           <div className="h-1 rounded-lg bg-brand transition-all duration-200" style={{ width: progressPct }} />

@@ -31,7 +31,7 @@ export default function ProjectDescription() {
 
       try {
         const prefill = await api.prefillIntake(ctx.projectId, desc)
-        update({ aiSuggestions: prefill.answers || {} })
+        update({ aiSuggestions: prefill.answers || {}, prefillPhiRedacted: !!prefill.phi_redacted })
       } catch {
         // AI unavailable — proceed without suggestions.
       }
