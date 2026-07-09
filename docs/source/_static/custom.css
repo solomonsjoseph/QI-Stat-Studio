@@ -1,0 +1,8 @@
+/* Minor readability tweaks on top of the furo theme defaults. */
+.sd-card {
+  height: 100%;
+}
+table.docutils td,
+table.docutils th {
+  padding: 0.4em 0.8em;
+}
