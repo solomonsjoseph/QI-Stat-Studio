@@ -85,7 +85,7 @@ def run_data_quality(df: pd.DataFrame, col_types: dict[str, str]) -> List[Dict[s
             raw = df[col].dropna().astype(str)
             normalized = raw.str.strip().str.lower()
             if not raw.equals(normalized):
-                flags.append({"col": col, "rule": "case_inconsistent", "severity": "WARNING", "msg": f"Mixed case in '{col}' column. Normalized automatically."})
+                flags.append({"col": col, "rule": "case_inconsistent", "severity": "WARNING", "msg": f"Mixed case in '{col}' column. These will be normalized automatically during analysis."})
 
     for col in df.columns:
         pct = df[col].isna().mean() * 100

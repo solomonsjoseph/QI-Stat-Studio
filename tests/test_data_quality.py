@@ -26,6 +26,7 @@ def test_detects_case_inconsistency_for_non_period_category_column():
     flags = quality_flags(df)
     phase_flags = [f for f in flags if f["col"] == "phase" and f["rule"] == "case_inconsistent"]
     assert len(phase_flags) == 1
+    assert "These will be normalized automatically during analysis." in phase_flags[0]["msg"]
 
 
 def test_detects_missing_a1c():
