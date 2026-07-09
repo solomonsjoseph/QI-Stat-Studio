@@ -43,7 +43,7 @@ def test_save_and_get_answers(client):
     assert data["intervention_date"] == "2025-01-01"
 
 
-def test_q10_email_does_not_auto_create_share_and_deadline_is_saved(client):
+def test_q10_email_auto_creates_share_and_deadline_is_saved(client):
     _register(client)
     pid = _make_project(client)
 
@@ -54,10 +54,27 @@ def test_q10_email_does_not_auto_create_share_and_deadline_is_saved(client):
     assert resp.status_code == 200, resp.text
 
     with SessionLocal() as db:
-        share = db.query(MentorShare).filter_by(project_id=pid).first()
+        shares = db.query(MentorShare).filter_by(project_id=pid).all()
         project = db.get(Project, pid)
-        assert share is None
+        assert len(shares) == 1
+        assert shares[0].mentor_email == "mentor@hospital.edu"
+        assert shares[0].token
         assert project.deadline == "2026-09-01"
+
+
+def test_q10_email_save_is_idempotent_and_does_not_duplicate_share(client):
+    _register(client)
+    pid = _make_project(client)
+    payload = {"answers": {"q10": {"email": "mentor@hospital.edu", "deadline": "2026-09-01"}}}
+
+    resp = client.post(f"/intake/{pid}", json=payload)
+    assert resp.status_code == 200, resp.text
+    resp = client.post(f"/intake/{pid}", json=payload)
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        shares = db.query(MentorShare).filter_by(project_id=pid).all()
+        assert len(shares) == 1
 
 
 def test_q10_sets_deadline_without_mentor_email(client):

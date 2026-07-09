@@ -1,6 +1,7 @@
+import json
 from api.database import SessionLocal
 from api.intake_schema import validate_answers
-from api.models_db import IntakeAnswer
+from api.models_db import AuditLog, IntakeAnswer
 
 
 def _register(client, email="owner@example.com"):
@@ -13,6 +14,19 @@ def _project(client):
     response = client.post("/projects", json={"title": "Intake", "description": ""})
     assert response.status_code == 200, response.text
     return response.json()
+
+def test_intake_save_records_question_keys_audit_log(client):
+    _register(client)
+    project = _project(client)
+    answers = {"q2": "percent", "q6": 12}
+
+    response = client.post(f"/intake/{project['id']}", json={"answers": answers})
+
+    assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        rows = db.query(AuditLog).filter_by(project_id=project["id"], action="intake_answers_saved").all()
+        assert len(rows) == 1
+        assert json.loads(rows[0].metadata_json)["question_keys"] == sorted(answers.keys())
 
 
 def test_intake_rejects_unknown_keys_and_invalid_options(client):

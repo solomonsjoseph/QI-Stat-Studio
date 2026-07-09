@@ -28,7 +28,7 @@ def send_share_invite(email: str, project_title: str, share_url: str, deadline: 
         f"Project: {project_title}\n"
         f"Review link: {share_url}"
         f"{deadline_line}\n\n"
-        "Use the link above to view the analysis package, download reports, and leave mentor feedback."
+        "Use the link above to view the analysis package and leave mentor feedback. Reports are view-only in this link and cannot be downloaded."
     )
     _send_email(email, f"Mentor review requested: {project_title}", body)
 
