@@ -30,12 +30,17 @@ def _set_runtime_setting(key, value):
         db.commit()
 
 
+def _set_openrouter_provider():
+    _set_runtime_setting("ai_provider", "openrouter")
+
+
 def _ai_usage_rows():
     with SessionLocal() as db:
         return db.query(AIUsageEvent).order_by(AIUsageEvent.id.asc()).all()
 
 
 def test_chat_scrubs_phi_and_records_usage(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
@@ -63,6 +68,7 @@ def test_chat_scrubs_phi_and_records_usage(client, monkeypatch):
 
 
 def test_chat_uses_runtime_model_when_request_model_omitted(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     _set_runtime_setting("openrouter_model", "runtime/model")
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
@@ -79,6 +85,7 @@ def test_chat_uses_runtime_model_when_request_model_omitted(client, monkeypatch)
 
 
 def test_chat_request_model_overrides_runtime_model(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     _set_runtime_setting("openrouter_model", "runtime/model")
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
@@ -138,6 +145,7 @@ def test_chat_uses_local_provider_without_requiring_api_key(client, monkeypatch)
 
 
 def test_chat_rate_limit_uses_db_events(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     _set_runtime_setting("ai_rate_limit_per_hour", "1")
     with SessionLocal() as db:
@@ -166,6 +174,7 @@ def test_chat_rate_limit_uses_db_events(client, monkeypatch):
 
 
 def test_chat_requests_retries_and_timeout_from_litellm(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
@@ -183,6 +192,7 @@ def test_chat_requests_retries_and_timeout_from_litellm(client, monkeypatch):
 
 
 def test_chat_rejects_user_content_over_4000_chars(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
@@ -197,6 +207,7 @@ def test_chat_rejects_user_content_over_4000_chars(client, monkeypatch):
 
 
 def test_chat_no_api_key_records_not_configured_usage(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "")
 
@@ -212,6 +223,7 @@ def test_chat_no_api_key_records_not_configured_usage(client, monkeypatch):
 
 
 def test_chat_transport_exception_records_error_usage_and_returns_safe_502(client, monkeypatch):
+    _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
 
