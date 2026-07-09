@@ -100,7 +100,6 @@ def upgrade() -> None:
     op.execute("UPDATE uploads SET status = 'active' WHERE status IS NULL")
     op.execute("UPDATE uploads SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
     op.execute("UPDATE uploads SET file_type = CASE WHEN lower(filename) LIKE '%.csv' THEN 'csv' WHEN lower(filename) LIKE '%.xlsx' THEN 'xlsx' WHEN lower(filename) LIKE '%.xls' THEN 'xls' ELSE 'unknown' END WHERE file_type IS NULL")
-
     op.add_column("analysis_runs", sa.Column("upload_id", sa.Integer(), nullable=True))
     op.add_column("analysis_runs", sa.Column("created_at", sa.DateTime(), nullable=True))
     op.execute("UPDATE analysis_runs SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
