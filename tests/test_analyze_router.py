@@ -11,7 +11,7 @@ os.environ.setdefault("FERNET_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 from api.config import settings
 from api.database import SessionLocal
-from api.models_db import AnalysisRun, IntakeAnswer, Project, Upload
+from api.models_db import AnalysisRun, FailureLog, IntakeAnswer, Project, Upload
 
 
 def _project(client, title="Analyze Test"):
@@ -103,6 +103,37 @@ def test_run_run_chart_returns_figure(auth_client):
     assert data["figure_base64"] is not None
     assert "result_summary" in data
 
+
+
+def test_template_execution_failure_records_failure_log(auth_client, monkeypatch):
+    from api.templates import registry
+
+    pid, uid = _make_encrypted_csv(auth_client)
+
+    def fail_template(df, params):
+        raise RuntimeError("synthetic analysis failure")
+
+    monkeypatch.setitem(registry.TEMPLATE_REGISTRY, "run_chart", fail_template)
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    with TestClient(app, raise_server_exceptions=False) as no_raise_client:
+        no_raise_client.cookies.update(auth_client.cookies)
+        resp = no_raise_client.post("/analyze/run", json={
+            "project_id": pid,
+            "upload_id": uid,
+            "template": "run_chart",
+            "parameters": {"date_col": "encounter_date", "value_col": "hba1c"},
+        })
+
+    assert resp.status_code == 500
+    with SessionLocal() as db:
+        assert db.query(FailureLog).count() == 1
+        row = db.query(FailureLog).filter_by(project_id=pid, upload_id=uid).one()
+        assert row.template == "run_chart"
+        assert row.error_type == "RuntimeError"
+        assert row.action == "analysis_run"
+        assert row.message == "Analysis failed"
 
 def test_run_before_after_mean(auth_client):
     pid, uid = _make_encrypted_csv(auth_client)

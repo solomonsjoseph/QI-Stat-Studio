@@ -255,8 +255,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         type(exc).__name__,
         extra={"request_id": request_id},
     )
-    ids = await _sanitized_request_ids(request)
-    _record_failure(request, exc, request_id, ids)
+    if not getattr(request.state, "failure_logged", False):
+        ids = await _sanitized_request_ids(request)
+        _record_failure(request, exc, request_id, ids)
     return _error_response(500, "INTERNAL_ERROR", "Internal server error", request_id)
 
 

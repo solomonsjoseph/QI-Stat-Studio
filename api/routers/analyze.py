@@ -5,10 +5,10 @@ import math
 from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from api.audit import log_action
+from api.audit import log_action, safe_diagnostic_message
 from api.analysis_schemas import validate_template_parameters
 from api.analysis_validation import validate_analysis_inputs
 from api.auth import get_current_user, require_project_owner
@@ -118,8 +118,8 @@ def _json_safe(value: Any) -> Any:
 
 
 @router.post("/run")
-def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    from api.models_db import AnalysisRun, IntakeAnswer, Upload
+def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from api.models_db import AnalysisRun, FailureLog, IntakeAnswer, Upload
     from api.templates.registry import TEMPLATE_REGISTRY
 
     upload = db.get(Upload, body.upload_id)
@@ -199,6 +199,16 @@ def run_analysis(body: AnalysisRequest, db: Session = Depends(get_db), user: Use
         return {**result, "run_id": run.id}
     except HTTPException:
         raise
-    except Exception:
+    except Exception as exc:
         db.rollback()
+        db.add(FailureLog(
+            project_id=body.project_id,
+            upload_id=body.upload_id,
+            error_type=type(exc).__name__,
+            template=body.template,
+            message=safe_diagnostic_message("analysis_failed"),
+            action="analysis_run",
+        ))
+        db.commit()
+        request.state.failure_logged = True
         raise
