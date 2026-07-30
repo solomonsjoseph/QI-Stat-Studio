@@ -1,0 +1,9 @@
+# Documentation build dependencies. Not part of the application runtime
+# (requirements.txt at the repo root). Install with:
+#   pip install -r docs/requirements.txt
+sphinx==7.4.7
+myst-parser==3.0.1
+furo==2025.12.19
+sphinx-copybutton==0.5.2
+sphinx-design==0.6.1
+sphinxcontrib-mermaid==1.2.3
