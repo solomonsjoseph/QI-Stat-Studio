@@ -60,7 +60,7 @@ def _extract_json_object(content: str) -> dict[str, Any]:
 
 _MODEL_PREFIXES = {
     "openrouter": "openrouter/",
-    "openai": "",
+    "openai": "openai/",
     "local": "ollama_chat/",
 }
 

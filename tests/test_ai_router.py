@@ -146,7 +146,7 @@ def test_chat_uses_openai_provider_when_configured(client, monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json()["content"] == "From OpenAI"
     kwargs = mocked_completion.call_args.kwargs
-    assert kwargs["model"] == "gpt-4o-mini"
+    assert kwargs["model"] == "openai/gpt-4o-mini"
     assert kwargs["api_key"] == "sk-fake-openai"
     assert "api_base" not in kwargs
 
