@@ -5,6 +5,7 @@ import io
 import json
 from datetime import datetime
 from typing import Any
+from xml.sax.saxutils import escape as _xml_escape
 
 from docx import Document
 from docx.shared import Inches
@@ -25,6 +26,13 @@ from api.routers.intake import _load_answers
 
 router = APIRouter(prefix="/report", tags=["report"])
 _REPORT_EDIT_FIELDS = {"title", "caption", "interpretation"}
+
+
+def _esc(text: Any) -> str:
+    """Escape text before handing it to ReportLab's Paragraph, which parses a small XML
+    markup subset — unescaped resident text (e.g. containing '<b>' or '&') can otherwise
+    raise a ValueError and break PDF generation."""
+    return _xml_escape(str(text))
 
 
 def _safe_json(raw: str | None, fallback: Any):
@@ -282,15 +290,15 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
     story = []
 
     story.append(Paragraph("QI Stat Studio Report", styles["Title"]))
-    story.append(Paragraph(context["report_title"], styles["Heading1"]))
+    story.append(Paragraph(_esc(context["report_title"]), styles["Heading1"]))
     story.append(Spacer(1, 12))
 
     story.append(Paragraph("Methods", styles["Heading2"]))
-    story.append(Paragraph(result.get("methods", ""), styles["Normal"]))
+    story.append(Paragraph(_esc(result.get("methods", "")), styles["Normal"]))
     story.append(Spacer(1, 8))
 
     story.append(Paragraph("Results", styles["Heading2"]))
-    story.append(Paragraph(result.get("result_summary", ""), styles["Normal"]))
+    story.append(Paragraph(_esc(result.get("result_summary", "")), styles["Normal"]))
     story.append(Spacer(1, 8))
 
     tbl_data = result.get("table", [])
@@ -312,32 +320,32 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
         story.append(RLImage(io.BytesIO(img_data), width=400, height=200))
         story.append(Spacer(1, 4))
         if context["caption"]:
-            story.append(Paragraph(context["caption"], styles["Normal"]))
+            story.append(Paragraph(_esc(context["caption"]), styles["Normal"]))
             story.append(Spacer(1, 8))
 
     story.append(Paragraph("Interpretation", styles["Heading2"]))
-    story.append(Paragraph(context["interpretation"] or "[Resident interpretation pending]", styles["Normal"]))
+    story.append(Paragraph(_esc(context["interpretation"] or "[Resident interpretation pending]"), styles["Normal"]))
     story.append(Spacer(1, 8))
 
     story.append(Paragraph("Limitations", styles["Heading2"]))
     if flags:
         for f in flags:
-            story.append(Paragraph(f"• {f.get('msg') or f.get('message') or str(f)}", styles["Normal"]))
+            story.append(Paragraph(f"• {_esc(f.get('msg') or f.get('message') or str(f))}", styles["Normal"]))
     else:
         story.append(Paragraph("No data quality issues flagged.", styles["Normal"]))
     story.append(Spacer(1, 8))
 
     if run.code_r:
         story.append(Paragraph("Statistical Code Supplement (R)", styles["Heading2"]))
-        story.append(Paragraph(run.code_r, code_style))
+        story.append(Paragraph(_esc(run.code_r), code_style))
         story.append(Spacer(1, 8))
     if run.code_spss:
         story.append(Paragraph("Statistical Code Supplement (SPSS)", styles["Heading2"]))
-        story.append(Paragraph(run.code_spss, code_style))
+        story.append(Paragraph(_esc(run.code_spss), code_style))
         story.append(Spacer(1, 8))
     if run.code_sas:
         story.append(Paragraph("Statistical Code Supplement (SAS)", styles["Heading2"]))
-        story.append(Paragraph(run.code_sas, code_style))
+        story.append(Paragraph(_esc(run.code_sas), code_style))
         story.append(Spacer(1, 8))
 
     comments = _mentor_comments(run.project_id, db, share_id=share_id)
@@ -346,8 +354,8 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
         for comment in comments:
             when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
             author = comment.author_name or "Mentor"
-            email = f" &lt;{comment.author_email}&gt;" if comment.author_email else ""
-            story.append(Paragraph(f"{when} — {author}{email}: {comment.text}", styles["Normal"]))
+            email = f" <{comment.author_email}>" if comment.author_email else ""
+            story.append(Paragraph(_esc(f"{when} — {author}{email}: {comment.text}"), styles["Normal"]))
         story.append(Spacer(1, 8))
 
     story.append(Paragraph("Audit Trail", styles["Heading2"]))

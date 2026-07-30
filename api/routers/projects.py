@@ -33,6 +33,7 @@ from api.models_db import (
     Upload,
     User,
 )
+from api.routers.share import _active_filter
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -211,15 +212,13 @@ def resume_project(project: Project = Depends(require_project_owner), db: Sessio
         .order_by(Upload.created_at.desc(), Upload.id.desc())
         .first()
     )
-    latest_run = (
-        db.query(AnalysisRun)
-        .filter(AnalysisRun.project_id == project.id)
-        .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
-        .first()
-    )
+    run_query = db.query(AnalysisRun).filter(AnalysisRun.project_id == project.id)
+    if latest_upload:
+        run_query = run_query.filter(AnalysisRun.upload_id == latest_upload.id)
+    latest_run = run_query.order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc()).first()
     latest_share = (
         db.query(MentorShare)
-        .filter(MentorShare.project_id == project.id, MentorShare.revoked_at.is_(None))
+        .filter(MentorShare.project_id == project.id, *_active_filter(datetime.utcnow()))
         .order_by(MentorShare.created_at.desc(), MentorShare.id.desc())
         .first()
     )

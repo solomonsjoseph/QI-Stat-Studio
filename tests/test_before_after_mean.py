@@ -48,3 +48,19 @@ def test_returns_table_with_pre_post():
     groups = [row["group"] for row in result["table"]]
     assert "pre" in groups
     assert "post" in groups
+
+
+def test_coerces_text_numeric_value_column():
+    """A value column stored as text (e.g. from Excel) must be coerced to numeric
+    before the stats run, not compared/averaged as strings."""
+    df = pd.DataFrame(
+        {
+            "period": ["pre"] * 6 + ["post"] * 6,
+            "current_a1c": ["7.1", "7.4", "7.0", "7.3", "7.2", "7.5", "6.5", "6.6", "6.4", "6.7", "6.3", "6.8"],
+        }
+    )
+    result = run_before_after_mean(df, PARAMS)
+    assert 0.0 <= result["p_value"] <= 1.0
+    pre_row = next(row for row in result["table"] if row["group"] == "pre")
+    post_row = next(row for row in result["table"] if row["group"] == "post")
+    assert pre_row["mean"] > post_row["mean"]

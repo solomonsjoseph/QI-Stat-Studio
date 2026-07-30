@@ -13,7 +13,7 @@ built with Sphinx. See **Documentation** below to build and browse it.
 
 ## Quick start
 
-**Prerequisites:** Python 3.10+ (3.11 recommended), Node.js 18+.
+**Prerequisites:** Python 3.10+ (3.11 recommended), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
 
 ```bash
 # 1. Install backend dependencies

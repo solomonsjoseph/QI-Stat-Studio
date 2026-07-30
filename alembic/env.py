@@ -15,8 +15,8 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# Allow DB_URL env var to override alembic.ini (required for Postgres at Hub deployment)
-db_url = os.getenv("DB_URL")
+# Allow DB_URL/DATABASE_URL env vars to override alembic.ini (required for Postgres at Hub deployment)
+db_url = os.getenv("DB_URL") or os.getenv("DATABASE_URL")
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
 

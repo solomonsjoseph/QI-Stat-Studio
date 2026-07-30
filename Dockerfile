@@ -8,8 +8,7 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    DB_URL=sqlite:///./qi_stat_studio.db
+    PYTHONUNBUFFERED=1
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && python -m spacy download en_core_web_sm

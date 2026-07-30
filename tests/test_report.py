@@ -290,6 +290,32 @@ def test_pdf_report_renders_latest_edits_upload_lineage_audit_log_and_visible_me
     assert "Deleted mentor feedback must not render." not in text
 
 
+
+def test_pdf_report_escapes_tag_like_text_instead_of_crashing(client):
+    """Resident-controlled text containing ReportLab markup characters (e.g. '<b>')
+    must render as literal text, not be parsed as XML and crash PDF generation."""
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(result={
+        "methods": "Compared groups where value <b>3</b> & threshold.",
+        "result_summary": "Rate < 8% & trending down.",
+        "interpretation": "A1c <target> improved & <b>stayed</b> stable.",
+        "figure_base64": None,
+        "table": [],
+    })
+    title_response = client.patch(
+        f"/projects/{seeded['project_id']}",
+        json={"title": "A1c <b>Goal</b> & Safety Project"},
+    )
+    assert title_response.status_code == 200, title_response.text
+
+    response = client.get(f"/report/{seeded['run_id']}/pdf")
+    assert response.status_code == 200, response.text
+    text = _pdf_text(response.content)
+
+    assert "A1c <b>Goal</b> & Safety Project" in text
+    assert "value <b>3</b> & threshold" in text
+    assert "A1c <target> improved & <b>stayed</b> stable." in text
+
 def test_report_without_analysis_upload_id_uses_legacy_upload_and_marks_missing_lineage(client):
     _register(client, "admin@example.com")
     seeded = _seed_report_run(use_run_upload=False, result={

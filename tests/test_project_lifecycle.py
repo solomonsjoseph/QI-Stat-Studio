@@ -1,10 +1,11 @@
 import json
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 
 from api.database import SessionLocal
 from api.main import app
-from api.models_db import AnalysisRun, EditHistory, Project, Upload
+from api.models_db import AnalysisRun, EditHistory, MentorShare, Project, Upload
 
 
 def _register(client, email):
@@ -191,6 +192,101 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
         db.commit()
 
     assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "download"
+
+
+def test_project_resume_scopes_latest_run_to_the_active_upload(client):
+    _register(client, "owner@example.com")
+    project = _create_project(client, "Resume Rescope", "")
+    project_id = project["id"]
+
+    answers = {
+        "q1": "Improve follow-up",
+        "q2": "percentage",
+        "q3": "No — I'm just describing one time period",
+        "q4": "Tracking over time (months, weeks, days)",
+        "q5": "Monthly",
+        "q6": "12",
+        "q7": {},
+        "q8": "Same unit pre vs. post",
+        "q9": "R",
+        "q10": {},
+    }
+    saved = client.post(f"/intake/{project_id}", json={"answers": answers})
+    assert saved.status_code == 200, saved.text
+
+    with SessionLocal() as db:
+        old_upload = Upload(
+            project_id=project_id,
+            filename="old.csv",
+            original_filename="old.csv",
+            encrypted_path="uploads_enc/old.enc",
+            status="active",
+        )
+        db.add(old_upload)
+        db.commit()
+        db.refresh(old_upload)
+        old_upload_id = old_upload.id
+        db.add(AnalysisRun(project_id=project_id, upload_id=old_upload_id, template="run_chart", parameters="{}", result_json="{\"interpretation\":\"ok\"}"))
+        db.commit()
+
+    resumed = client.get(f"/projects/{project_id}/resume").json()
+    assert resumed["current_screen"] == "edit"
+    assert resumed["latest_run"]["upload_id"] == old_upload_id
+
+    with SessionLocal() as db:
+        old_upload = db.get(Upload, old_upload_id)
+        old_upload.status = "replaced"
+        new_upload = Upload(
+            project_id=project_id,
+            filename="new.csv",
+            original_filename="new.csv",
+            encrypted_path="uploads_enc/new.enc",
+            status="active",
+        )
+        db.add(new_upload)
+        db.commit()
+        db.refresh(new_upload)
+        new_upload_id = new_upload.id
+
+    resumed = client.get(f"/projects/{project_id}/resume").json()
+    assert resumed["latest_upload"]["id"] == new_upload_id
+    assert resumed["latest_run"] is None
+    assert resumed["current_screen"] == "analysis"
+
+
+def test_project_resume_excludes_expired_mentor_shares(client):
+    _register(client, "owner@example.com")
+    project = _create_project(client, "Resume Share Expiry", "")
+    project_id = project["id"]
+    now = datetime.utcnow()
+
+    with SessionLocal() as db:
+        db.add(
+            MentorShare(
+                project_id=project_id,
+                token="expired-token",
+                created_at=now - timedelta(days=40),
+                expires_at=now - timedelta(days=10),
+            )
+        )
+        db.commit()
+
+    resumed = client.get(f"/projects/{project_id}/resume").json()
+    assert resumed["latest_share"] is None
+
+    with SessionLocal() as db:
+        db.add(
+            MentorShare(
+                project_id=project_id,
+                token="active-token",
+                created_at=now,
+                expires_at=now + timedelta(days=30),
+            )
+        )
+        db.commit()
+
+    resumed = client.get(f"/projects/{project_id}/resume").json()
+    assert resumed["latest_share"]["token"] == "active-token"
 
 
 def test_project_purge_removes_project_and_encrypted_upload_file(client, tmp_path):

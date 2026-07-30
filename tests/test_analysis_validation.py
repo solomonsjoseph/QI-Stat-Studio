@@ -175,6 +175,78 @@ def test_u_chart_rejects_non_numeric_count_before_template_execution(auth_client
     assert response.status_code == 400
     assert "Count column 'count' contains non-numeric values: bad" in response.json()["error"]["message"]
 
+
+def test_p_chart_rejects_non_binary_numerator_without_denominator(auth_client):
+    project_id = _project(auth_client)
+    rows = "date,outcome\n" + "".join(f"2024-{month:02d}-01,{2 if month == 3 else month % 2}\n" for month in range(1, 13))
+    uploaded = _upload_csv(auth_client, project_id, rows.encode())
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "p_chart",
+        {"date_col": "date", "numerator_col": "outcome", "freq": "MS"},
+    )
+
+    assert response.status_code == 400
+    assert "only 0/1 values when no denominator column is supplied" in response.json()["error"]["message"]
+
+
+def test_p_chart_rejects_numerator_exceeding_denominator(auth_client):
+    project_id = _project(auth_client)
+    rows = "date,num,denom\n" + "".join(f"2024-{month:02d}-01,{15 if month == 3 else 1},10\n" for month in range(1, 13))
+    uploaded = _upload_csv(auth_client, project_id, rows.encode())
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "p_chart",
+        {"date_col": "date", "numerator_col": "num", "denominator_col": "denom", "freq": "MS"},
+    )
+
+    assert response.status_code == 400
+    assert "must not exceed the denominator column 'denom'" in response.json()["error"]["message"]
+
+
+def test_p_chart_rejects_negative_numerator(auth_client):
+    project_id = _project(auth_client)
+    rows = "date,num,denom\n" + "".join(f"2024-{month:02d}-01,{-1 if month == 3 else 1},10\n" for month in range(1, 13))
+    uploaded = _upload_csv(auth_client, project_id, rows.encode())
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "p_chart",
+        {"date_col": "date", "numerator_col": "num", "denominator_col": "denom", "freq": "MS"},
+    )
+
+    assert response.status_code == 400
+    assert "Numerator column 'num' must not contain negative values" in response.json()["error"]["message"]
+
+
+def test_u_c_chart_rejects_negative_count(auth_client):
+    project_id = _project(auth_client)
+    rows = "date,count\n" + "".join(f"2024-{month:02d}-01,{-2 if month == 3 else 1}\n" for month in range(1, 13))
+    uploaded = _upload_csv(auth_client, project_id, rows.encode())
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "u_c_chart",
+        {"date_col": "date", "count_col": "count", "freq": "MS"},
+    )
+
+    assert response.status_code == 400
+    assert "Count column 'count' must not contain negative values" in response.json()["error"]["message"]
+
 def test_before_after_mean_requires_both_groups_with_two_values(auth_client):
     project_id = _project(auth_client)
     uploaded = _upload_csv(auth_client, project_id, b"period,value\npre,1\npre,2\npre,3\npost,4\n")

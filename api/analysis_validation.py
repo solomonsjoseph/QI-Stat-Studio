@@ -83,6 +83,26 @@ def _validate_denominator(df: pd.DataFrame, denominator_col: str | None) -> list
         return [f"Denominator column '{denominator_col}' must contain only positive values"]
     return []
 
+def _validate_p_chart_numerator(df: pd.DataFrame, numerator_col: str, denominator_col: str | None) -> list[str]:
+    numerator = pd.to_numeric(df[numerator_col], errors="coerce")
+    if denominator_col:
+        denominator = pd.to_numeric(df[denominator_col], errors="coerce")
+        mask = numerator.notna() & denominator.notna()
+        if (numerator[mask] > denominator[mask]).any():
+            return [f"Numerator column '{numerator_col}' must not exceed the denominator column '{denominator_col}' in any row"]
+        return []
+    present = numerator.dropna()
+    if not present.isin([0, 1]).all():
+        return [f"Numerator column '{numerator_col}' must contain only 0/1 values when no denominator column is supplied"]
+    return []
+
+
+def _validate_non_negative(df: pd.DataFrame, col: str, label: str) -> list[str]:
+    values = pd.to_numeric(df[col], errors="coerce").dropna()
+    if (values < 0).any():
+        return [f"{label} '{col}' must not contain negative values"]
+    return []
+
 
 def validate_analysis_inputs(template: str, df: pd.DataFrame, params: dict) -> list[str]:
     errors: list[str] = []
@@ -152,6 +172,8 @@ def validate_analysis_inputs(template: str, df: pd.DataFrame, params: dict) -> l
         errors.extend(_date_parse_errors(df, params["date_col"]))
         errors.extend(_numeric_parse_errors(df, params["numerator_col"], "Numerator column"))
         errors.extend(_validate_denominator(df, params.get("denominator_col")))
+        errors.extend(_validate_non_negative(df, params["numerator_col"], "Numerator column"))
+        errors.extend(_validate_p_chart_numerator(df, params["numerator_col"], params.get("denominator_col")))
         if errors:
             return errors
         points = _control_chart_points(df, params, "numerator_col")
@@ -163,6 +185,7 @@ def validate_analysis_inputs(template: str, df: pd.DataFrame, params: dict) -> l
         errors.extend(_date_parse_errors(df, params["date_col"]))
         errors.extend(_numeric_parse_errors(df, params["count_col"], "Count column"))
         errors.extend(_validate_denominator(df, params.get("denominator_col")))
+        errors.extend(_validate_non_negative(df, params["count_col"], "Count column"))
         if errors:
             return errors
         points = _control_chart_points(df, params, "count_col")

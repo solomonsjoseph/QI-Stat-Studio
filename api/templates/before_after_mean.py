@@ -24,6 +24,7 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     label = params.get("intervention_label", "Intervention")
 
     df = df.copy()
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
     df, pre_val = _norm_group(df, group_col, pre_val)
     _, post_val = _norm_group(df, group_col, post_val)
     pre = df[df[group_col] == pre_val][value_col].dropna()
