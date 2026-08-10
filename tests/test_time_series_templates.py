@@ -175,6 +175,20 @@ class TestPChart:
         assert len(result["ucl"]) == 2
         assert "2 time points" in result["methods"]
 
+    def test_blank_numerator_row_excluded_not_charted_as_zero(self):
+        """A row with a real denominator but a blank numerator must be
+        dropped entirely, not summed in as a confirmed zero-event reading."""
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-15", "2024-02-15", "2024-03-15"],
+            "events": [2, None, 3],
+            "eligible": [300, 310, 295],
+        })
+        result = run_p_chart(df, {
+            "date_col": "encounter_date", "numerator_col": "events", "denominator_col": "eligible",
+        })
+        assert "2 time points" in result["methods"]
+        assert result["pbar"] == round((2 + 3) / (300 + 295), 4)
+
 
 # ── u_c_chart ────────────────────────────────────────────────────────────────
 
@@ -249,3 +263,18 @@ class TestUCChart:
         })
         assert len(result["ucl"]) == 2
         assert "2 time points" in result["methods"]
+
+    def test_blank_count_row_excluded_not_charted_as_zero(self):
+        """A row with a real denominator but a blank count must be dropped
+        entirely, not summed in as a confirmed zero-event reading."""
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-15", "2024-02-15", "2024-03-15"],
+            "events": [2, None, 3],
+            "eligible": [300, 310, 295],
+        })
+        result = run_u_c_chart(df, {
+            "date_col": "encounter_date", "count_col": "events", "denominator_col": "eligible",
+        })
+        assert "2 time points" in result["methods"]
+        expected_ubar = (2 + 3) / (300 + 295)
+        assert abs(result["ucl"][-1] - (expected_ubar + 3 * (expected_ubar / 295) ** 0.5)) < 1e-4

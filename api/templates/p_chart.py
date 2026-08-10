@@ -20,6 +20,11 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
 
     if denominator_col:
         df[denominator_col] = pd.to_numeric(df[denominator_col], errors="coerce")
+        # A row with a real denominator but a blank/unparseable numerator must
+        # not be charted as a confirmed zero: drop it before summing rather
+        # than letting the denominator sum include it while the numerator sum
+        # silently skips it.
+        df = df.dropna(subset=[numerator_col, denominator_col])
         agg = df.set_index(date_col).resample(freq).agg(
             num=(numerator_col, "sum"), denom=(denominator_col, "sum"), n=(numerator_col, "count")
         ).dropna()
