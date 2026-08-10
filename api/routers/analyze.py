@@ -184,12 +184,12 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
         result = _json_safe(result)
         from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
 
-        code_r = generate_r_code(template, params, result)
         q9_row = db.query(IntakeAnswer).filter(IntakeAnswer.project_id == body.project_id, IntakeAnswer.question_key == "q9").first()
-        q9 = (q9_row.answer or "").lower() if q9_row else "r"
-        unsure = "not sure" in q9
-        code_spss = generate_spss_code(template, params, result) if "spss" in q9 or "all" in q9 or unsure else ""
-        code_sas = generate_sas_code(template, params, result) if "sas" in q9 or "all" in q9 or unsure else ""
+        q9 = (q9_row.answer or "").strip().lower() if q9_row else "r"
+        include_all = q9 in ("", "i'm not sure") or "all" in q9
+        code_r = generate_r_code(template, params, result) if include_all or q9 == "r" else ""
+        code_spss = generate_spss_code(template, params, result) if include_all or q9 == "spss" else ""
+        code_sas = generate_sas_code(template, params, result) if include_all or q9 == "sas" else ""
         run = AnalysisRun(
             project_id=body.project_id,
             upload_id=body.upload_id,
