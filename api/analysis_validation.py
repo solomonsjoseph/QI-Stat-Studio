@@ -75,10 +75,6 @@ def aggregate_control_chart_frame(df: pd.DataFrame, params: dict, numerator_fiel
     return work.dropna().set_index(date_col).resample(freq).agg(**agg_spec).dropna().reset_index()
 
 
-def _control_chart_points(df: pd.DataFrame, params: dict, numerator_field: str) -> int:
-    return int(len(aggregate_control_chart_frame(df, params, numerator_field)))
-
-
 def _validate_denominator(df: pd.DataFrame, denominator_col: str | None) -> list[str]:
     if not denominator_col:
         return []
@@ -149,6 +145,9 @@ def validate_analysis_inputs(template: str, df: pd.DataFrame, params: dict) -> l
             errors.append(f"Pre group '{params['pre_val']}' is not present in column '{group_col}'")
         if post_val not in present:
             errors.append(f"Post group '{params['post_val']}' is not present in column '{group_col}'")
+        if pre_val == post_val:
+            errors.append(f"Pre group and post group must be different (both were '{params['pre_val']}')")
+            return errors
         try:
             values = _coerce_binary_outcome(df[outcome_col], outcome_col)
         except ValueError as exc:

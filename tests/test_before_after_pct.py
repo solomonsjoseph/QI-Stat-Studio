@@ -121,3 +121,25 @@ def test_odds_ratio_orientation_matches_fisher_when_chi_square_fires():
     })
     assert result["test_used"] == "Chi-square test"
     assert result["odds_ratio"] > 1.0
+
+
+def test_interpretation_uses_signed_difference_matching_ci_direction():
+    """When the proportion decreases, the interpretation sentence must report
+    a signed (negative) point estimate, not abs(rd*100), so it doesn't sit
+    outside its own wholly-negative confidence interval."""
+    df = pd.DataFrame({
+        "period": ["pre"] * 100 + ["post"] * 100,
+        "outcome": [1] * 40 + [0] * 60 + [1] * 25 + [0] * 75,
+    })
+    result = run_before_after_pct(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post",
+        "outcome_col": "outcome",
+    })
+    assert result["risk_difference_pct_points"] < 0
+    match = re.search(
+        r"absolute difference of ([+-]?\d+\.\d) percentage points",
+        result["interpretation"],
+    )
+    assert match is not None
+    assert match.group(1).startswith("-"), result["interpretation"]
+    assert float(match.group(1)) == result["risk_difference_pct_points"]

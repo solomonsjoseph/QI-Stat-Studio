@@ -323,3 +323,24 @@ def test_run_chart_returns_trend_and_median_tie_fields(auth_client):
         persisted = json.loads(db.query(AnalysisRun).one().result_json)
         assert persisted["figure_base64"]
         assert persisted["trend_signal_detected"] is True
+
+
+def test_before_after_pct_rejects_identical_pre_and_post_group(auth_client):
+    project_id = _project(auth_client)
+    uploaded = _upload_csv(
+        auth_client,
+        project_id,
+        b"period,outcome\nbaseline,1\nbaseline,0\nbaseline,1\nbaseline,0\n",
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "before_after_pct",
+        {"group_col": "period", "outcome_col": "outcome", "pre_val": "baseline", "post_val": "baseline"},
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Pre group and post group must be different (both were 'baseline')" in response.json()["error"]["message"]

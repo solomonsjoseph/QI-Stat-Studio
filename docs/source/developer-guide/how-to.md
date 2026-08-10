@@ -41,7 +41,7 @@ six existing templates in `api/templates/` as your model:
    file's actual columns.
 4. **Data validation** (`api/analysis_validation.py`): add a branch in
    `validate_analysis_inputs` for your template id, using the shared
-   `_date_parse_errors` / `_numeric_parse_errors` / `_control_chart_points` /
+   `_date_parse_errors` / `_numeric_parse_errors` /
    `_time_series_points` helpers as appropriate, and pick a minimum-data-size
    threshold that produces a clear error rather than a confusing statistical
    failure.

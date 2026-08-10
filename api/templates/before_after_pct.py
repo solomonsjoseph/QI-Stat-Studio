@@ -134,7 +134,7 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     interpretation = (
         f"The proportion of {outcome_col} {direction} from {pre_pct:.1f}% before to {post_pct:.1f}% after the intervention. "
         f"This difference was {sig} ({test_used}: p={p_value:.4f}). "
-        f"That is an absolute difference of {abs(rd*100):.1f} percentage points "
+        f"That is an absolute difference of {rd*100:+.1f} percentage points "
         f"(95% CI {rd_lo*100:.1f} to {rd_hi*100:.1f}). "
         f"[Edit this paragraph to describe what this finding means for your QI project and patients.]"
     )
