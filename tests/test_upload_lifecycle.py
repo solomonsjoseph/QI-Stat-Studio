@@ -123,6 +123,18 @@ def test_numeric_period_values_warn_without_crashing(auth_client):
     assert any(flag["rule"] == "unexpected_period_values" for flag in flags)
 
 
+def test_leading_zero_columns_are_not_coerced_to_numbers(auth_client):
+    project_id = _project(auth_client)
+    raw = b"encounter_id,zip\n1,02139\n2,10001\n3,00501\n"
+
+    response = _upload_csv(auth_client, project_id, raw, filename="zips.csv")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["col_summary"]["zip"]["dtype"] == "object"
+    assert [row["zip"] for row in body["preview_rows"]] == ["02139", "10001", "00501"]
+
+
 def test_replace_delete_and_analysis_require_active_uploads(auth_client):
     project_id = _project(auth_client)
     first = _upload_csv(auth_client, project_id, b"value\n1\n2\n3\n", filename="first.csv")

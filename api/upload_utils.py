@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 from typing import Literal
 from uuid import uuid4
@@ -27,11 +28,30 @@ def _short_reason(exc: Exception) -> str:
     return reason[:200]
 
 
+_LEADING_ZERO_RE = re.compile(r"0\d+")
+
+
+def _leading_zero_columns(raw: bytes) -> set[str]:
+    """Columns whose CSV text has values like '02139' that pd.read_csv's
+    default int coercion would silently strip the leading zero(s) from."""
+    try:
+        text_df = pd.read_csv(io.BytesIO(raw), dtype=str)
+    except Exception:
+        return set()
+    return {
+        col
+        for col in text_df.columns
+        if text_df[col].dropna().str.fullmatch(_LEADING_ZERO_RE).any()
+    }
+
+
 def _read_dataframe(raw: bytes, file_type: str) -> pd.DataFrame:
     normalized = (file_type or "").lower()
     try:
         if normalized == "csv":
-            return pd.read_csv(io.BytesIO(raw))
+            preserve = _leading_zero_columns(raw)
+            dtype = {col: str for col in preserve} if preserve else None
+            return pd.read_csv(io.BytesIO(raw), dtype=dtype)
         if normalized in {"xlsx", "xls"}:
             return pd.read_excel(io.BytesIO(raw))
     except Exception as exc:
