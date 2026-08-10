@@ -16,9 +16,11 @@ _PATTERNS = [
     r"\bMRN[:\s#]*\d{5,10}\b",
     r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
     r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b",  # phone
+    r"\(\d{3}\)\s*\d{3}[-.\s]?\d{4}\b",  # phone, parenthesized area code
     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",  # email
     r"\bDOB[:\s]*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b",
     r"\b\d{1,2}/\d{1,2}/\d{4}\b",  # standalone MM/DD/YYYY date
+    r"\b\d{1,2}/\d{1,2}/\d{2}\b",  # standalone MM/DD/YY date
     r"\b\d{4}-\d{2}-\d{2}\b",  # standalone YYYY-MM-DD date
     r"\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,4}\s+"
     r"(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl)\b",
