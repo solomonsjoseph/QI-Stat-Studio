@@ -21,7 +21,7 @@ function SkeletonRows() {
 }
 
 export default function Landing() {
-  const { update, goTo, user, resumeProject, resetProgress } = useApp()
+  const { goTo, user, resumeProject, resetProject } = useApp()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -48,8 +48,7 @@ export default function Landing() {
     setError('')
     try {
       const project = await api.createProject({ title: 'New QI Project', description: '' })
-      update({ projectId: project.id, projectTitle: project.title, projectDesc: project.description || '' })
-      resetProgress()
+      resetProject({ projectId: project.id, projectTitle: project.title, projectDesc: project.description || '' })
       goTo('description')
     } catch (err) {
       setError(formatError(err))

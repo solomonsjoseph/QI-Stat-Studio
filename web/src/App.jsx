@@ -198,6 +198,11 @@ export default function App() {
       window.localStorage.setItem('qiss:lastProjectId', String(ctx.projectId))
     }
   }
+  const resetProject = (patch) => {
+    setCtx(patch)
+    setMaxStepIdx(0)
+    if (patch.projectId) window.localStorage.setItem('qiss:lastProjectId', String(patch.projectId))
+  }
   const next = () => {
     const idx = SCREENS.indexOf(screen)
     if (idx < SCREENS.length - 1) goTo(SCREENS[idx + 1])
@@ -310,7 +315,7 @@ export default function App() {
   const Screen = COMPONENTS[screen] || Landing
 
   return (
-    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, resumeProject, resetProgress: () => setMaxStepIdx(0) }}>
+    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, resumeProject, resetProject }}>
       <div className="min-h-screen bg-canvas">
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
