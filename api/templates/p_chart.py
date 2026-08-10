@@ -20,13 +20,21 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
 
     if denominator_col:
         df[denominator_col] = pd.to_numeric(df[denominator_col], errors="coerce")
+        # A row with a real denominator but a blank/unparseable numerator must
+        # not be charted as a confirmed zero: drop it before summing rather
+        # than letting the denominator sum include it while the numerator sum
+        # silently skips it.
+        df = df.dropna(subset=[numerator_col, denominator_col])
         agg = df.set_index(date_col).resample(freq).agg(
-            num=(numerator_col, "sum"), denom=(denominator_col, "sum")
-        ).dropna().reset_index()
+            num=(numerator_col, "sum"), denom=(denominator_col, "sum"), n=(numerator_col, "count")
+        ).dropna()
     else:
         agg = df.set_index(date_col).resample(freq).agg(
-            num=(numerator_col, "sum"), denom=(numerator_col, "count")
-        ).dropna().reset_index()
+            num=(numerator_col, "sum"), denom=(numerator_col, "count"), n=(numerator_col, "count")
+        ).dropna()
+    # Drop calendar periods with no uploaded rows (resample fills gaps with a
+    # 0/0 bucket rather than NaN) instead of charting a gap as a measured zero.
+    agg = agg[agg["n"] > 0].drop(columns="n").reset_index()
 
     p = agg["num"] / agg["denom"]
     pbar = float(agg["num"].sum() / agg["denom"].sum())

@@ -10,8 +10,9 @@ function errorMessage(err) {
 }
 
 function codeSupplementNote(q9Answer) {
-  const answer = String(q9Answer || 'R').toLowerCase()
-  if (answer.includes('all') || answer.includes('not sure')) return 'Includes R, SPSS, and SAS code supplements.'
+  if (q9Answer == null) return 'Includes an R code supplement.'
+  const answer = String(q9Answer).trim().toLowerCase()
+  if (answer === '' || answer === "i'm not sure" || answer.includes('all')) return 'Includes R, SPSS, and SAS code supplements.'
   if (answer.includes('spss')) return 'Includes an SPSS code supplement.'
   if (answer.includes('sas')) return 'Includes a SAS code supplement.'
   return 'Includes an R code supplement.'

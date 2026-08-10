@@ -66,13 +66,19 @@ def aggregate_control_chart_frame(df: pd.DataFrame, params: dict, numerator_fiel
             value_col: pd.to_numeric(df[value_col], errors="coerce"),
         }
     )
-    agg_spec = {"num": (value_col, "sum")}
+    # "n" counts real contributing rows per resampled period. resample() fills
+    # calendar gaps with empty buckets whose sum/count aggregations are 0, not
+    # NaN, so a plain .dropna() keeps those phantom zero-data periods; filtering
+    # on n > 0 drops periods with no uploaded rows instead of charting them as a
+    # measured zero.
+    agg_spec = {"num": (value_col, "sum"), "n": (value_col, "count")}
     if denominator_col:
         work[denominator_col] = pd.to_numeric(df[denominator_col], errors="coerce")
         agg_spec["denom"] = (denominator_col, "sum")
     else:
         agg_spec["denom"] = (value_col, "count")
-    return work.dropna().set_index(date_col).resample(freq).agg(**agg_spec).dropna().reset_index()
+    aggregated = work.dropna().set_index(date_col).resample(freq).agg(**agg_spec).dropna()
+    return aggregated[aggregated["n"] > 0].drop(columns="n").reset_index()
 
 
 def _validate_denominator(df: pd.DataFrame, denominator_col: str | None) -> list[str]:

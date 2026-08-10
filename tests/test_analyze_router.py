@@ -91,6 +91,46 @@ def test_q9_unsure_generates_all_code_supplements(auth_client):
         assert run.code_sas
 
 
+def test_q9_spss_only_excludes_r_and_sas(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    with SessionLocal() as db:
+        db.add(IntakeAnswer(project_id=pid, question_key="q9", answer="SPSS"))
+        db.commit()
+
+    resp = auth_client.post("/analyze/run", json={
+        "project_id": pid, "upload_id": uid,
+        "template": "descriptive_summary",
+        "parameters": {"value_cols": ["hba1c"], "group_col": "period"},
+    })
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter_by(project_id=pid).order_by(AnalysisRun.id.desc()).first()
+        assert not run.code_r
+        assert run.code_spss
+        assert not run.code_sas
+
+
+def test_q9_r_only_excludes_spss_and_sas(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    with SessionLocal() as db:
+        db.add(IntakeAnswer(project_id=pid, question_key="q9", answer="R"))
+        db.commit()
+
+    resp = auth_client.post("/analyze/run", json={
+        "project_id": pid, "upload_id": uid,
+        "template": "descriptive_summary",
+        "parameters": {"value_cols": ["hba1c"], "group_col": "period"},
+    })
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter_by(project_id=pid).order_by(AnalysisRun.id.desc()).first()
+        assert run.code_r
+        assert not run.code_spss
+        assert not run.code_sas
+
+
 def test_run_run_chart_returns_figure(auth_client):
     pid, uid = _make_encrypted_csv(auth_client)
     resp = auth_client.post("/analyze/run", json={

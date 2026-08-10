@@ -67,4 +67,28 @@ describe('DownloadShare', () => {
     expect(screen.getByRole('link', { name: /download word/i })).toHaveAttribute('href', '/api/report/42/docx')
     expect(screen.getByRole('link', { name: /download pdf/i })).toHaveAttribute('href', '/api/report/42/pdf')
   })
+
+  it('shows the all-three code note when Q9 was left blank, matching the backend include_all fallback', async () => {
+    useAppMock.mockReturnValue({
+      ctx: {
+        projectId: 7,
+        runId: 42,
+        results: {
+          methods: 'Run chart methods text for the preview.',
+          result_summary: 'Median wait time fell after the intervention.',
+          table: [{ period: 'Baseline', median: 10 }],
+          figure_base64: 'iVBORw0KGgo=',
+        },
+        acknowledgedFlags: [],
+        answers: { q9: '' },
+      },
+      update: vi.fn(),
+    })
+
+    const user = userEvent.setup()
+    render(<DownloadShare />)
+    await user.click(screen.getByRole('button', { name: 'Generate report' }))
+
+    expect(screen.getByText('Includes R, SPSS, and SAS code supplements. The downloaded report also contains the full audit trail.')).toBeInTheDocument()
+  })
 })

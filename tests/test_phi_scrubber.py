@@ -32,6 +32,18 @@ def test_redacts_ssn():
     assert count >= 1
 
 
+def test_redacts_two_digit_year_date():
+    result, count = scrub_text("Seen on 3/4/24 at the clinic")
+    assert "3/4/24" not in result
+    assert count >= 1
+
+
+def test_redacts_parenthesized_phone():
+    result, count = scrub_text("Reached patient at (908) 555-0199 to schedule")
+    assert "(908) 555-0199" not in result
+    assert count >= 1
+
+
 def test_redacts_email():
     result, count = scrub_text("Contact patient@hospital.org")
     assert "patient@hospital.org" not in result

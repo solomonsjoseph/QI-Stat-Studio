@@ -53,3 +53,37 @@ def test_single_value_group_has_no_ci_at_all():
     assert row["mean_ci_high"] is None
     assert row["median_ci_low"] is None
     assert row["median_ci_high"] is None
+
+
+def test_group_labels_preserve_original_casing():
+    """Grouping normalizes case internally to merge 'ICU'/'icu' typos, but the
+    displayed label must show the resident's actual data, not the lowercased
+    grouping key."""
+    df = pd.DataFrame({
+        "unit": ["ICU", "ICU", "ICU", "Ward", "Ward", "Ward"],
+        "los": [5, 6, 7, 2, 3, 4],
+    })
+    result = run_descriptive(df, {"group_col": "unit", "value_cols": ["los"]})
+    groups = {row["group"] for row in result["table"]}
+    assert groups == {"ICU", "Ward"}
+
+def test_string_dtype_numeric_column_does_not_crash():
+    """A value_col is not guaranteed to already be numeric dtype (e.g. a
+    zero-padded numeric measure preserved as text on upload so a real
+    identifier column elsewhere in the file keeps its leading zeros).
+    .mean()/.std() on a raw string Series must not raise."""
+    df = pd.DataFrame({"score": ["01", "02", "03"]}, dtype=object)
+    result = run_descriptive(df, {"value_cols": ["score"]})
+    row = result["table"][0]
+    assert row["n"] == 3
+    assert row["mean"] == 2.0
+
+
+def test_string_dtype_numeric_column_with_group_does_not_crash():
+    df = pd.DataFrame({
+        "unit": ["ICU", "ICU", "Ward", "Ward"],
+        "score": ["01", "02", "03", "04"],
+    })
+    result = run_descriptive(df, {"group_col": "unit", "value_cols": ["score"]})
+    means = {row["group"]: row["mean"] for row in result["table"]}
+    assert means == {"ICU": 1.5, "Ward": 3.5}
