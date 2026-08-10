@@ -166,3 +166,39 @@ def test_downgraded_p_chart_without_denominator_sas_codegen_divides_by_row_count
 
     assert "count(*) AS denom" in code
     assert "val=num/denom;" in code
+
+
+def test_aggregate_control_chart_frame_excludes_calendar_gaps_not_measured_zeros():
+    """A reporting gap (no uploaded rows that period) must not be charted as a
+    measured zero. Two real months eleven months apart span 12 calendar
+    buckets under monthly resampling; only the 2 real ones should count."""
+    from api.analysis_validation import aggregate_control_chart_frame
+
+    df = pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-05", "2024-12-10"]),
+        "outcome": [3, 5],
+        "encounters": [100, 120],
+    })
+    params = {"date_col": "date", "numerator_col": "outcome", "denominator_col": "encounters", "freq": "MS"}
+
+    agg = aggregate_control_chart_frame(df, params, "numerator_col")
+
+    assert len(agg) == 2
+    assert list(agg["num"]) == [3, 5]
+    assert list(agg["denom"]) == [100, 120]
+
+
+def test_aggregate_control_chart_frame_excludes_calendar_gaps_without_denominator():
+    from api.analysis_validation import aggregate_control_chart_frame
+
+    df = pd.DataFrame({
+        "date": pd.to_datetime(["2024-01-05", "2024-12-10"]),
+        "falls": [2, 1],
+    })
+    params = {"date_col": "date", "count_col": "falls", "freq": "MS"}
+
+    agg = aggregate_control_chart_frame(df, params, "count_col")
+
+    assert len(agg) == 2
+    assert list(agg["num"]) == [2, 1]
+    assert list(agg["denom"]) == [1, 1]

@@ -160,6 +160,21 @@ class TestPChart:
         })
         assert result["figure_base64"] is not None
 
+    def test_calendar_gap_not_charted_as_measured_zero(self):
+        """Two real months eleven months apart span 12 monthly buckets on
+        resample; only the 2 real ones should appear, not 12 with 10 phantom
+        0/0 points."""
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-05", "2024-12-10"],
+            "events": [3, 5],
+            "eligible": [100, 120],
+        })
+        result = run_p_chart(df, {
+            "date_col": "encounter_date", "numerator_col": "events", "denominator_col": "eligible",
+        })
+        assert len(result["ucl"]) == 2
+        assert "2 time points" in result["methods"]
+
 
 # ── u_c_chart ────────────────────────────────────────────────────────────────
 
@@ -219,3 +234,18 @@ class TestUCChart:
             "intervention_date": "2024-01-01",
         })
         assert result["figure_base64"] is not None
+
+    def test_calendar_gap_not_charted_as_measured_zero(self):
+        """Two real months eleven months apart span 12 monthly buckets on
+        resample; only the 2 real ones should appear, not 12 with 10 phantom
+        0/0 points."""
+        df = pd.DataFrame({
+            "encounter_date": ["2024-01-05", "2024-12-10"],
+            "events": [3, 5],
+            "eligible": [100, 120],
+        })
+        result = run_u_c_chart(df, {
+            "date_col": "encounter_date", "count_col": "events", "denominator_col": "eligible",
+        })
+        assert len(result["ucl"]) == 2
+        assert "2 time points" in result["methods"]

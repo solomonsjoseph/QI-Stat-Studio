@@ -23,13 +23,18 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     if denominator_col:
         df[denominator_col] = pd.to_numeric(df[denominator_col], errors="coerce")
         agg = df.set_index(date_col).resample(freq).agg(
-            cnt=(count_col, "sum"), denom=(denominator_col, "sum")
-        ).dropna().reset_index()
+            cnt=(count_col, "sum"), denom=(denominator_col, "sum"), n=(count_col, "count")
+        ).dropna()
+        # Drop calendar periods with no uploaded rows (resample fills gaps with
+        # a 0/0 bucket rather than NaN) instead of charting a gap as a measured zero.
+        agg = agg[agg["n"] > 0].drop(columns="n").reset_index()
         stable_denominator = agg["denom"].nunique() <= 1
         chart_type = "c" if stable_denominator else "u"
     else:
-        agg = df.set_index(date_col).resample(freq)[count_col].sum().dropna().reset_index()
-        agg = agg.rename(columns={count_col: "cnt"})
+        agg = df.set_index(date_col).resample(freq).agg(
+            cnt=(count_col, "sum"), n=(count_col, "count")
+        ).dropna()
+        agg = agg[agg["n"] > 0].drop(columns="n").reset_index()
 
     if chart_type == "u":
         y = agg["cnt"] / agg["denom"]
