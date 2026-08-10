@@ -77,7 +77,7 @@ def detect_col_type(col_name: str, series: pd.Series) -> str:
     return "Category"
 
 
-def run_data_quality(df: pd.DataFrame, col_types: dict[str, str]) -> List[Dict[str, Any]]:
+def run_data_quality(df: pd.DataFrame, col_types: dict[str, str], preserved_cols: set[str] = frozenset()) -> List[Dict[str, Any]]:
     flags = []
 
     for col in df.columns:
@@ -122,7 +122,7 @@ def run_data_quality(df: pd.DataFrame, col_types: dict[str, str]) -> List[Dict[s
 
     for col in df.columns:
         series = df[col]
-        if col_types.get(col) == "Date" or not _object_like(series):
+        if col_types.get(col) == "Date" or not _object_like(series) or col in preserved_cols:
             continue
         non_null = series.dropna()
         numeric_ratio = _parse_ratio(pd.to_numeric(non_null, errors="coerce"), len(non_null))
@@ -175,13 +175,13 @@ def _upload_out(upload: Upload, preview_rows: list[dict[str, Any]] | None = None
     )
 
 
-def _store_upload(db: Session, project_id: int, original_filename: str, raw: bytes, df: pd.DataFrame) -> tuple[Upload, dict, dict, list, dict]:
+def _store_upload(db: Session, project_id: int, original_filename: str, raw: bytes, df: pd.DataFrame, preserved_cols: set[str]) -> tuple[Upload, dict, dict, list, dict]:
     file_type = _allowed_suffix(original_filename)
     storage_key = _safe_storage_key(project_id, original_filename, raw)
     enc_path = UPLOAD_DIR / storage_key
     col_summary = {col: {"dtype": str(df[col].dtype), "missing_pct": round(df[col].isna().mean() * 100, 1)} for col in df.columns}
     col_types = {col: detect_col_type(col, df[col]) for col in df.columns}
-    flags = run_data_quality(df, col_types)
+    flags = run_data_quality(df, col_types, preserved_cols)
     enc_path.write_bytes(settings.fernet.encrypt(raw))
     upload = Upload(
         project_id=project_id,
@@ -202,7 +202,7 @@ def _store_upload(db: Session, project_id: int, original_filename: str, raw: byt
     return upload, col_summary, col_types, flags, {col: col_summary[col]["missing_pct"] for col in col_summary}
 
 
-async def _read_validated_upload_file(file: UploadFile) -> tuple[str, str, bytes, pd.DataFrame]:
+async def _read_validated_upload_file(file: UploadFile) -> tuple[str, str, bytes, pd.DataFrame, set[str]]:
     original_filename = file.filename or "upload"
     file_type = _allowed_suffix(original_filename)
     if file.size and file.size > MAX_BYTES:
@@ -210,9 +210,9 @@ async def _read_validated_upload_file(file: UploadFile) -> tuple[str, str, bytes
     raw = await file.read()
     if len(raw) > MAX_BYTES:
         raise HTTPException(400, "File exceeds 50 MB limit")
-    df = _read_dataframe(raw, file_type)
+    df, restored_cols = _read_dataframe(raw, file_type)
     _validate_dataset_shape(df)
-    return original_filename, file_type, raw, df
+    return original_filename, file_type, raw, df, restored_cols
 
 
 @router.get("/project/{project_id}", response_model=list[UploadOut])
@@ -242,8 +242,8 @@ async def upload_file(
     db: Session = Depends(get_db),
     project: Project = Depends(require_project_owner),
 ):
-    original_filename, _file_type, raw, df = await _read_validated_upload_file(file)
-    upload, col_summary, col_types, flags, missing_pct = _store_upload(db, project_id, original_filename, raw, df)
+    original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
+    upload, col_summary, col_types, flags, missing_pct = _store_upload(db, project_id, original_filename, raw, df, restored_cols)
     db.commit()
     db.refresh(upload)
     log_action(db, project_id, "upload_created", {"upload_id": upload.id, "file_type": upload.file_type, "size_bytes": upload.size_bytes})
@@ -281,9 +281,9 @@ async def replace_upload(
         raise HTTPException(status_code=404, detail="Upload not found")
     if old_upload.status != "active":
         raise HTTPException(status_code=400, detail="Only active uploads can be replaced")
-    original_filename, _file_type, raw, df = await _read_validated_upload_file(file)
+    original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
     old_upload.status = "replaced"
-    new_upload, _col_summary, _col_types, _flags, _missing_pct = _store_upload(db, project_id, original_filename, raw, df)
+    new_upload, _col_summary, _col_types, _flags, _missing_pct = _store_upload(db, project_id, original_filename, raw, df, restored_cols)
     db.commit()
     db.refresh(new_upload)
     log_action(db, project_id, "upload_replaced", {"old_upload_id": old_upload.id, "upload_id": new_upload.id, "file_type": new_upload.file_type, "size_bytes": new_upload.size_bytes})

@@ -133,6 +133,37 @@ def test_leading_zero_columns_are_not_coerced_to_numbers(auth_client):
     body = response.json()
     assert body["col_summary"]["zip"]["dtype"] == "object"
     assert [row["zip"] for row in body["preview_rows"]] == ["02139", "10001", "00501"]
+    # A column intentionally preserved as text to keep its leading zero must
+    # not also be flagged as though it were mistakenly stored as text.
+    assert not any(f["col"] == "zip" and f["rule"] == "numeric_stored_as_text" for f in body["quality_flags"])
+
+
+def test_restore_leading_zero_columns_only_rereads_int_inferred_columns():
+    """The leading-zero fix must not force a second full-file text parse: it
+    should only re-read (via usecols) the specific columns pandas already
+    inferred as int64, and leave every other column's dtype/values alone."""
+    from api import upload_utils
+
+    raw = b"encounter_id,zip,note\n1,02139,fine\n2,10001,ok\n3,00501,good\n"
+    df, restored = upload_utils._read_dataframe(raw, "csv")
+
+    assert restored == {"zip"}
+    assert list(df["zip"]) == ["02139", "10001", "00501"]
+    assert df["note"].dtype == object
+    assert list(df["note"]) == ["fine", "ok", "good"]
+
+
+def test_restore_leading_zero_columns_leaves_ordinary_numeric_columns_untouched():
+    """A column with no leading-zero-shaped values must stay a genuine
+    numeric dtype, not be swept into string preservation."""
+    import pandas as pd
+    from api import upload_utils
+
+    raw = b"encounter_id,age\n1,45\n2,50\n3,60\n"
+    df, restored = upload_utils._read_dataframe(raw, "csv")
+
+    assert restored == set()
+    assert pd.api.types.is_integer_dtype(df["age"])
 
 
 def test_replace_delete_and_analysis_require_active_uploads(auth_client):

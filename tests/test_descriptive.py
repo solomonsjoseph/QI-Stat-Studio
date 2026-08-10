@@ -66,3 +66,24 @@ def test_group_labels_preserve_original_casing():
     result = run_descriptive(df, {"group_col": "unit", "value_cols": ["los"]})
     groups = {row["group"] for row in result["table"]}
     assert groups == {"ICU", "Ward"}
+
+def test_string_dtype_numeric_column_does_not_crash():
+    """A value_col is not guaranteed to already be numeric dtype (e.g. a
+    zero-padded numeric measure preserved as text on upload so a real
+    identifier column elsewhere in the file keeps its leading zeros).
+    .mean()/.std() on a raw string Series must not raise."""
+    df = pd.DataFrame({"score": ["01", "02", "03"]}, dtype=object)
+    result = run_descriptive(df, {"value_cols": ["score"]})
+    row = result["table"][0]
+    assert row["n"] == 3
+    assert row["mean"] == 2.0
+
+
+def test_string_dtype_numeric_column_with_group_does_not_crash():
+    df = pd.DataFrame({
+        "unit": ["ICU", "ICU", "Ward", "Ward"],
+        "score": ["01", "02", "03", "04"],
+    })
+    result = run_descriptive(df, {"group_col": "unit", "value_cols": ["score"]})
+    means = {row["group"]: row["mean"] for row in result["table"]}
+    assert means == {"ICU": 1.5, "Ward": 3.5}

@@ -105,6 +105,20 @@ def test_numeric_stored_as_text_requires_ninety_percent_parseable_values():
     )
 
 
+def test_preserved_leading_zero_columns_do_not_warn_numeric_stored_as_text():
+    """A column intentionally kept as text on upload to preserve a leading
+    zero (e.g. a zip code) is not a data-quality problem; it must not be
+    reported as though the resident mislabeled a numeric column."""
+    df = pd.DataFrame({"zip": ["02139", "10001", "00501"]})
+    col_types = {col: detect_col_type(col, df[col]) for col in df.columns}
+
+    flags = run_data_quality(df, col_types, {"zip"})
+    assert not any(f["col"] == "zip" and f["rule"] == "numeric_stored_as_text" for f in flags)
+
+    unmarked_flags = run_data_quality(df, col_types)
+    assert any(f["col"] == "zip" and f["rule"] == "numeric_stored_as_text" for f in unmarked_flags)
+
+
 def test_duplicate_id_is_error():
     df = load()
     # Duplicate the first row to force a duplicate encounter_id

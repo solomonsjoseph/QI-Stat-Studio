@@ -12,32 +12,39 @@ def run_descriptive(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     for col in value_cols:
         if col not in df.columns:
             continue
-        pct_miss = df[col].isna().mean() * 100
+        # A selected value_col is not guaranteed to already be numeric
+        # dtype (e.g. a zip-code-shaped numeric measure preserved as text
+        # on upload to protect a real identifier column elsewhere in the
+        # same file); .mean()/.std() on a string Series raises instead of
+        # producing a result, so coerce defensively before using it.
+        col_series = pd.to_numeric(df[col], errors="coerce")
+        pct_miss = col_series.isna().mean() * 100
         if pct_miss > 0:
             missing_notes.append(f"{col} ({pct_miss:.1f}% missing)")
         if group_col and group_col in df.columns:
             grp_col = df[group_col].str.strip().str.lower() if df[group_col].dtype == object else df[group_col]
             for grp, sub in df.groupby(grp_col):
+                sub_vals = col_series.loc[sub.index]
                 display_group = str(sub[group_col].iloc[0]) if df[group_col].dtype == object else str(grp)
-                mean_lo, mean_hi = mean_ci(sub[col])
-                median_lo, median_hi = median_ci(sub[col])
+                mean_lo, mean_hi = mean_ci(sub_vals)
+                median_lo, median_hi = median_ci(sub_vals)
                 table.append({"group": display_group, "variable": col,
-                               "n": int(sub[col].notna().sum()),
-                               "mean": round(sub[col].mean(), 2),
-                               "sd": round(sub[col].std(), 2),
-                               "median": round(sub[col].median(), 2),
+                               "n": int(sub_vals.notna().sum()),
+                               "mean": round(sub_vals.mean(), 2),
+                               "sd": round(sub_vals.std(), 2),
+                               "median": round(sub_vals.median(), 2),
                                "mean_ci_low": round(mean_lo, 2) if mean_lo is not None else None,
                                "mean_ci_high": round(mean_hi, 2) if mean_hi is not None else None,
                                "median_ci_low": round(median_lo, 2) if median_lo is not None else None,
                                "median_ci_high": round(median_hi, 2) if median_hi is not None else None})
         else:
-            mean_lo, mean_hi = mean_ci(df[col])
-            median_lo, median_hi = median_ci(df[col])
+            mean_lo, mean_hi = mean_ci(col_series)
+            median_lo, median_hi = median_ci(col_series)
             table.append({"group": "All", "variable": col,
-                           "n": int(df[col].notna().sum()),
-                           "mean": round(df[col].mean(), 2),
-                           "sd": round(df[col].std(), 2),
-                           "median": round(df[col].median(), 2),
+                           "n": int(col_series.notna().sum()),
+                           "mean": round(col_series.mean(), 2),
+                           "sd": round(col_series.std(), 2),
+                           "median": round(col_series.median(), 2),
                            "mean_ci_low": round(mean_lo, 2) if mean_lo is not None else None,
                            "mean_ci_high": round(mean_hi, 2) if mean_hi is not None else None,
                            "median_ci_low": round(median_lo, 2) if median_lo is not None else None,

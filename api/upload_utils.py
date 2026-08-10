@@ -31,29 +31,34 @@ def _short_reason(exc: Exception) -> str:
 _LEADING_ZERO_RE = re.compile(r"0\d+")
 
 
-def _leading_zero_columns(raw: bytes) -> set[str]:
-    """Columns whose CSV text has values like '02139' that pd.read_csv's
-    default int coercion would silently strip the leading zero(s) from."""
-    try:
-        text_df = pd.read_csv(io.BytesIO(raw), dtype=str)
-    except Exception:
+def _restore_leading_zero_columns(df: pd.DataFrame, raw: bytes) -> set[str]:
+    """pandas' default int coercion silently drops the leading zero(s) from
+    an all-digit column like a zip code ('02139' -> 2139). Only a column
+    pandas inferred as int64 can lose data this way, so re-read as text --
+    via usecols, not a second full-file parse -- just the handful of columns
+    pandas coerced to int, and restore whichever of those were actually
+    zero-padded in the original text. Returns the set of restored columns so
+    callers can treat them as intentionally-preserved identifiers rather than
+    a text-vs-numeric data quality problem."""
+    int_cols = [col for col in df.columns if pd.api.types.is_integer_dtype(df[col])]
+    if not int_cols:
         return set()
-    return {
-        col
-        for col in text_df.columns
-        if text_df[col].dropna().str.fullmatch(_LEADING_ZERO_RE).any()
-    }
+    text_cols = pd.read_csv(io.BytesIO(raw), usecols=int_cols, dtype=str)
+    restored = {col for col in int_cols if text_cols[col].dropna().str.fullmatch(_LEADING_ZERO_RE).any()}
+    for col in restored:
+        df[col] = text_cols[col]
+    return restored
 
 
-def _read_dataframe(raw: bytes, file_type: str) -> pd.DataFrame:
+def _read_dataframe(raw: bytes, file_type: str) -> tuple[pd.DataFrame, set[str]]:
     normalized = (file_type or "").lower()
     try:
         if normalized == "csv":
-            preserve = _leading_zero_columns(raw)
-            dtype = {col: str for col in preserve} if preserve else None
-            return pd.read_csv(io.BytesIO(raw), dtype=dtype)
+            df = pd.read_csv(io.BytesIO(raw))
+            restored = _restore_leading_zero_columns(df, raw)
+            return df, restored
         if normalized in {"xlsx", "xls"}:
-            return pd.read_excel(io.BytesIO(raw))
+            return pd.read_excel(io.BytesIO(raw)), set()
     except Exception as exc:
         raise HTTPException(
             status_code=400,
@@ -93,6 +98,6 @@ def load_upload_dataframe(upload) -> pd.DataFrame:
         raise HTTPException(status_code=400, detail="Could not decrypt uploaded file") from exc
     except OSError as exc:
         raise HTTPException(status_code=400, detail="Uploaded file is missing from storage") from exc
-    df = _read_dataframe(raw, getattr(upload, "file_type", None) or "csv")
+    df, _restored = _read_dataframe(raw, getattr(upload, "file_type", None) or "csv")
     _validate_dataset_shape(df)
     return df
