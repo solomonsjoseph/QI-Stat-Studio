@@ -32,6 +32,7 @@ export default function Results() {
         setAiText(fallbackInterpretation)
         update({
           runId: r.run_id || r.id,
+          template: r.template || ctx.template,
           resultSummary: r.result_summary,
           results: r,
           ...(fallbackInterpretation ? { aiInterpretation: fallbackInterpretation } : {}),
@@ -41,7 +42,7 @@ export default function Results() {
         try {
           const chatResp = await api.chat(ctx.projectId, [{
             role: 'user',
-            content: `Write a 2-sentence plain-language interpretation of this QI result for a medical resident: ${r.result_summary}. Template: ${ctx.template}.`,
+            content: `Write a 2-sentence plain-language interpretation of this QI result for a medical resident: ${r.result_summary}. Template: ${r.template || ctx.template}.`,
           }])
           if (cancelled) return
           setAiText(chatResp.content)
@@ -90,7 +91,6 @@ export default function Results() {
     )
   }
 
-  const hasInterpretation = Boolean((aiText || result.interpretation || '').trim())
   const continueToEdit = () => {
     const fallbackInterpretation = aiText || result.interpretation || ''
     if (fallbackInterpretation && fallbackInterpretation !== ctx.aiInterpretation) {
@@ -117,8 +117,29 @@ export default function Results() {
       {result.table && result.table.length > 0 && (
         <div className="mb-4 overflow-x-auto">
           <table className="table-clean">
-            <thead><tr>{Object.keys(result.table[0]).map(k => <th key={k} className="capitalize">{k}</th>)}</tr></thead>
-            <tbody>{result.table.map((row, i) => <tr key={i}>{Object.values(row).map((v, j) => <td key={j}>{String(v)}</td>)}</tr>)}</tbody>
+            <thead>
+              <tr>
+                {Object.keys(result.table[0]).map(k => (
+                  <th key={k} className="capitalize">
+                    {({
+                      mean_ci_low: 'Mean CI low',
+                      mean_ci_high: 'Mean CI high',
+                      median_ci_low: 'Median CI low',
+                      median_ci_high: 'Median CI high',
+                    })[k] || k}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.table.map((row, i) => (
+                <tr key={i}>
+                  {Object.values(row).map((v, j) => (
+                    <td key={j}>{v == null ? '—' : String(v)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
           </table>
         </div>
       )}

@@ -35,6 +35,13 @@ def _esc(text: Any) -> str:
     return _xml_escape(str(text))
 
 
+def _cell_text(value: Any) -> str:
+    """Render a result-table cell value for DOCX/PDF export. Statistics such as
+    confidence intervals are legitimately omitted (None) for small groups; show an
+    em dash instead of the literal string 'None' in the resident's report."""
+    return "—" if value is None else str(value)
+
+
 def _safe_json(raw: str | None, fallback: Any):
     if raw in (None, ""):
         return fallback
@@ -203,7 +210,7 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
             rt.rows[0].cells[j].text = h.capitalize()
         for i, row in enumerate(tbl_data, 1):
             for j, h in enumerate(headers):
-                rt.rows[i].cells[j].text = str(row.get(h, ""))
+                rt.rows[i].cells[j].text = _cell_text(row.get(h, ""))
 
     fig_b64 = result.get("figure_base64")
     if fig_b64:
@@ -304,7 +311,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
     tbl_data = result.get("table", [])
     if tbl_data:
         headers = list(tbl_data[0].keys())
-        rows = [[h.capitalize() for h in headers]] + [[str(r.get(h, "")) for h in headers] for r in tbl_data]
+        rows = [[h.capitalize() for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
         col_w = 470 / len(headers)
         pt = Table(rows, colWidths=[col_w] * len(headers))
         pt.setStyle(TableStyle([
