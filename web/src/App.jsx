@@ -164,7 +164,7 @@ export default function App() {
     const nextCtx = ctxFromResume(resume)
     const fallbackScreen = ROUTE_SCREENS.has(resume.current_screen) ? resume.current_screen : 'description'
     const targetScreen = ROUTE_SCREENS.has(requestedScreen) ? requestedScreen : fallbackScreen
-    setCtx(c => ({ ...c, ...nextCtx }))
+    setCtx(nextCtx)
     const serverIdx = SCREENS.indexOf(resume.current_screen)
     const targetIdx = SCREENS.indexOf(targetScreen)
     setMaxStepIdx(Math.max(serverIdx >= 0 ? serverIdx : 0, targetIdx >= 0 ? targetIdx : 0))
