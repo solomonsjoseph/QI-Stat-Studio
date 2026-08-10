@@ -166,6 +166,33 @@ def test_restore_leading_zero_columns_leaves_ordinary_numeric_columns_untouched(
     assert pd.api.types.is_integer_dtype(df["age"])
 
 
+def test_restore_leading_zero_columns_handles_a_blank_cell():
+    """A blank cell in an all-digit column forces pandas to infer float64
+    instead of int64 (a 'column with a hole' can't stay integer), which must
+    not defeat the leading-zero restoration -- the exact bug this whole fix
+    exists for, just triggered by a missing value instead of a clean column."""
+    from api import upload_utils
+
+    raw = b"encounter_id,zip\n1,02139\n2,\n3,00501\n"
+    df, restored = upload_utils._read_dataframe(raw, "csv")
+
+    assert restored == {"zip"}
+    assert df["zip"].tolist()[0] == "02139"
+    assert df["zip"].tolist()[2] == "00501"
+    assert df["zip"].isna().tolist() == [False, True, False]
+
+
+def test_restore_leading_zero_columns_skips_genuinely_fractional_float_columns():
+    """A float column that is genuinely fractional (not just int-with-a-hole)
+    was never int-like text and must not be swept into text preservation."""
+    from api import upload_utils
+
+    raw = b"encounter_id,bmi\n1,24.5\n2,\n3,30.1\n"
+    df, restored = upload_utils._read_dataframe(raw, "csv")
+
+    assert restored == set()
+
+
 def test_replace_delete_and_analysis_require_active_uploads(auth_client):
     project_id = _project(auth_client)
     first = _upload_csv(auth_client, project_id, b"value\n1\n2\n3\n", filename="first.csv")

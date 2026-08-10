@@ -33,18 +33,26 @@ _LEADING_ZERO_RE = re.compile(r"0\d+")
 
 def _restore_leading_zero_columns(df: pd.DataFrame, raw: bytes) -> set[str]:
     """pandas' default int coercion silently drops the leading zero(s) from
-    an all-digit column like a zip code ('02139' -> 2139). Only a column
-    pandas inferred as int64 can lose data this way, so re-read as text --
-    via usecols, not a second full-file parse -- just the handful of columns
-    pandas coerced to int, and restore whichever of those were actually
-    zero-padded in the original text. Returns the set of restored columns so
-    callers can treat them as intentionally-preserved identifiers rather than
-    a text-vs-numeric data quality problem."""
-    int_cols = [col for col in df.columns if pd.api.types.is_integer_dtype(df[col])]
-    if not int_cols:
+    an all-digit column like a zip code ('02139' -> 2139). This can land the
+    column as int64 dtype, or as float64 if any cell in it is blank (a
+    missing zip is still NaN, but pandas can only represent "int column with
+    a hole" as float64), so both dtypes are candidates -- a float64 column
+    is only a candidate when every non-null value is a whole number, since a
+    genuinely fractional column was never int-like text to begin with. Only
+    those candidate columns are re-read as text (via usecols, not a second
+    full-file parse), and restored where their original text was actually
+    zero-padded. Returns the set of restored columns so callers can treat
+    them as intentionally-preserved identifiers rather than a text-vs-numeric
+    data quality problem."""
+    candidate_cols = [
+        col for col in df.columns
+        if pd.api.types.is_integer_dtype(df[col])
+        or (pd.api.types.is_float_dtype(df[col]) and (df[col].dropna() % 1 == 0).all())
+    ]
+    if not candidate_cols:
         return set()
-    text_cols = pd.read_csv(io.BytesIO(raw), usecols=int_cols, dtype=str)
-    restored = {col for col in int_cols if text_cols[col].dropna().str.fullmatch(_LEADING_ZERO_RE).any()}
+    text_cols = pd.read_csv(io.BytesIO(raw), usecols=candidate_cols, dtype=str)
+    restored = {col for col in candidate_cols if text_cols[col].dropna().str.fullmatch(_LEADING_ZERO_RE).any()}
     for col in restored:
         df[col] = text_cols[col]
     return restored
