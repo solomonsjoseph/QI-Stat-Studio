@@ -58,14 +58,14 @@ def maybe_downgrade_control_chart(
         return template, df, params, None
 
     date_col = params["date_col"]
+    denominator_col = params.get("denominator_col")
     if template == "p_chart":
         numerator_col = params["numerator_col"]
-        value_col = f"{numerator_col} proportion"
+        value_col = f"{numerator_col}_proportion"
         agg[value_col] = agg["num"] / agg["denom"]
     else:
         count_col = params["count_col"]
-        denominator_col = params.get("denominator_col")
-        value_col = f"{count_col} rate" if denominator_col else count_col
+        value_col = f"{count_col}_rate" if denominator_col else count_col
         agg[value_col] = agg["num"] / agg["denom"] if denominator_col else agg["num"]
 
     new_df = agg[[date_col, value_col]]
@@ -74,6 +74,12 @@ def maybe_downgrade_control_chart(
         "value_col": value_col,
         "design_note": downgrade_note(len(agg)),
     }
+    if template == "p_chart":
+        new_params["source_numerator_col"] = numerator_col
+    else:
+        new_params["source_count_col"] = count_col
+    if denominator_col is not None:
+        new_params["source_denominator_col"] = denominator_col
     if params.get("intervention_date") is not None:
         new_params["intervention_date"] = params["intervention_date"]
     if params.get("freq") is not None:

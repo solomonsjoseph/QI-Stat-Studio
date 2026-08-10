@@ -120,13 +120,33 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
 
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
-        vc = params.get("value_col", "value")
         fmt = _r_date_bucket_fmt(params.get("freq"))
+        source_num = params.get("source_numerator_col")
+        source_count = params.get("source_count_col")
+        if source_num or source_count:
+            nc = source_num or source_count
+            denom = params.get("source_denominator_col")
+            if denom:
+                aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
+                val_line = f"agg$val <- agg$num / agg$denom\n"
+            elif source_num:
+                aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n(), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
+                val_line = f"agg$val <- agg$num / agg$denom\n"
+            else:
+                aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
+                val_line = f"agg$val <- agg$num\n"
+            agg_setup = (
+                f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% {aggregate}\n"
+                f"{val_line}"
+            )
+        else:
+            vc = params.get("value_col", "value")
+            agg_setup = f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% summarise(val=mean({vc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')\n"
         return (
             f"library(dplyr)\n"
             f"library(ggplot2)\n"
             f"df${dc} <- as.Date(df${dc})\n"
-            f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% summarise(val=mean({vc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')\n"
+            f"{agg_setup}"
             f"med <- median(agg$val, na.rm=TRUE)\n"
             f"v <- agg$val[agg$val != med]\n"
             f"runs <- rle(v > med)\n"
@@ -223,6 +243,30 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
 
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
+        source_num = params.get("source_numerator_col")
+        source_count = params.get("source_count_col")
+        if source_num or source_count:
+            nc = source_num or source_count
+            denom = params.get("source_denominator_col")
+            bucket = _spss_date_bucket(params)
+            if denom:
+                agg_lines = (
+                    f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /num=SUM({nc}) /denom=SUM({denom}).\n"
+                    f"COMPUTE val=num/denom.\n"
+                )
+            elif source_num:
+                agg_lines = (
+                    f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /num=SUM({nc}) /denom=N.\n"
+                    f"COMPUTE val=num/denom.\n"
+                )
+            else:
+                agg_lines = f"AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=date_bucket /val=SUM({nc}).\n"
+            return (
+                f"{_spss_intervention_comment(params)}{bucket}\n"
+                f"{agg_lines}"
+                f"* Median ties are excluded from run counts; signal is >=8 same side of median.\n"
+                f"GRAPH /LINE(SIMPLE)=VALUE(val) BY date_bucket."
+            )
         vc = params.get("value_col", "value")
         return f"{_spss_intervention_comment(params)}SORT CASES BY {dc}.\n* Median ties are excluded from run counts; signal is >=8 same side of median.\nGRAPH /LINE(SIMPLE)=VALUE({vc}) BY {dc}."
 
@@ -286,6 +330,31 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
 
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
+        source_num = params.get("source_numerator_col")
+        source_count = params.get("source_count_col")
+        if source_num or source_count:
+            nc = source_num or source_count
+            denom = params.get("source_denominator_col")
+            bucket = _sas_date_bucket(params)
+            if denom:
+                sql = (
+                    f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, sum({denom}) AS denom "
+                    f"FROM df GROUP BY date_bucket; QUIT;\n"
+                    f"DATA monthly; SET monthly; val=num/denom; RUN;\n"
+                )
+            elif source_num:
+                sql = (
+                    f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, count(*) AS denom "
+                    f"FROM df GROUP BY date_bucket; QUIT;\n"
+                    f"DATA monthly; SET monthly; val=num/denom; RUN;\n"
+                )
+            else:
+                sql = f"PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS val FROM df GROUP BY date_bucket; QUIT;\n"
+            return (
+                f"{_sas_intervention_comment(params)}{sql}"
+                f"PROC SGPLOT DATA=monthly;\nSERIES X=date_bucket Y=val;\nREFLINE median / AXIS=y;\n"
+                f"/* Exclude median ties from runs; signal is >=8 same side of median. */\nRUN;"
+            )
         vc = params.get("value_col", "value")
         return f"{_sas_intervention_comment(params)}PROC SGPLOT DATA=df;\nSERIES X={dc} Y={vc};\nREFLINE median / AXIS=y;\n/* Exclude median ties from runs; signal is >=8 same side of median. */\nRUN;"
 
