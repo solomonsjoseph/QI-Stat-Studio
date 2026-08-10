@@ -1,4 +1,5 @@
 """RED: These tests fail until api/templates/before_after_mean.py is implemented."""
+import numpy as np
 import pandas as pd
 import pytest
 from api.templates.before_after_mean import run_before_after_mean
@@ -64,3 +65,38 @@ def test_coerces_text_numeric_value_column():
     pre_row = next(row for row in result["table"] if row["group"] == "pre")
     post_row = next(row for row in result["table"] if row["group"] == "post")
     assert pre_row["mean"] > post_row["mean"]
+
+
+
+def test_normal_branch_reports_pooled_variance_t_interval():
+    rng = np.random.RandomState(0)
+    pre = rng.normal(10, 2, 200)
+    post = rng.normal(12, 2, 200)
+    df = pd.DataFrame({
+        "period": ["pre"] * 200 + ["post"] * 200,
+        "value": np.concatenate([pre, post]),
+    })
+    result = run_before_after_mean(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post", "value_col": "value",
+    })
+    assert result["test_used"] == "Two-sample t-test"
+    assert result["ci_method"] == "Pooled-variance t interval"
+    assert result["effect_label"] == "difference in means"
+    assert result["effect_ci"][0] <= result["effect_estimate"] <= result["effect_ci"][1]
+
+
+def test_skewed_branch_reports_hodges_lehmann_with_moses_interval():
+    rng = np.random.RandomState(0)
+    pre = rng.exponential(2, 200)
+    post = rng.exponential(2, 200) + 5
+    df = pd.DataFrame({
+        "period": ["pre"] * 200 + ["post"] * 200,
+        "value": np.concatenate([pre, post]),
+    })
+    result = run_before_after_mean(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post", "value_col": "value",
+    })
+    assert result["test_used"] == "Wilcoxon rank-sum test"
+    assert result["ci_method"] == "Hodges-Lehmann with Moses interval"
+    assert "Hodges-Lehmann" in result["effect_label"]
+    assert result["effect_ci"][0] <= result["effect_estimate"] <= result["effect_ci"][1]

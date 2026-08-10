@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy import stats
+from api.stats_intervals import HL_SUBSAMPLE_PER_GROUP, hodges_lehmann_ci, mean_diff_ci
 
 
 def _norm_group(df: pd.DataFrame, col: str, val: str) -> Tuple[pd.DataFrame, str]:
@@ -39,9 +40,14 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     if normal and p_levene > 0.05:
         _, p_value = stats.ttest_ind(pre, post)
         test_used = "Two-sample t-test"
+        effect, eff_lo, eff_hi = mean_diff_ci(pre, post)
+        effect_label, subsampled = "difference in means", False
     else:
         _, p_value = stats.mannwhitneyu(pre, post, alternative="two-sided")
         test_used = "Wilcoxon rank-sum test"
+        effect, eff_lo, eff_hi, subsampled = hodges_lehmann_ci(pre, post)
+        effect_label = "median difference (Hodges-Lehmann)"
+    effect_label_sentence_case = effect_label[0].upper() + effect_label[1:]
 
     # Boxplot
     fig, ax = plt.subplots(figsize=(5, 4))
@@ -59,16 +65,21 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         f"Normality was assessed using the Shapiro-Wilk test "
         f"(pre p={p_shapiro_pre:.3f}, post p={p_shapiro_post:.3f}); "
         f"variance equality was assessed using Levene's test (p={p_levene:.3f})."
+        f" The {effect_label} (post minus pre) is reported with a 95% confidence interval."
+        + (f" The interval was computed from a systematic sample of {HL_SUBSAMPLE_PER_GROUP} values per "
+           f"period because the full pairwise comparison exceeded the computation limit." if subsampled else "")
     )
     direction = "decreased" if post.mean() < pre.mean() else "increased"
     result_summary = (
         f"{value_col} {direction} from {pre.mean():.2f} (pre) to {post.mean():.2f} (post). "
+        f"{effect_label_sentence_case} {effect:+.2f} (95% CI {eff_lo:.2f} to {eff_hi:.2f}). "
         f"{test_used}: p={p_value:.4f}."
     )
 
     sig = "statistically significant" if float(p_value) < 0.05 else "not statistically significant"
     interpretation = (
         f"{value_col} {direction} from {pre.mean():.2f} before the intervention to {post.mean():.2f} after. "
+        f"The {effect_label} is {effect:+.2f} (95% CI {eff_lo:.2f} to {eff_hi:.2f}). "
         f"This difference was {sig} ({test_used}: p={float(p_value):.4f}). "
         f"[Edit this paragraph to describe what this finding means for your QI project and patients.]"
     )
@@ -83,4 +94,8 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "interpretation": interpretation,
         "p_value": round(float(p_value), 4),
         "test_used": test_used,
+        "effect_estimate": round(float(effect), 4),
+        "effect_ci": [round(float(eff_lo), 4), round(float(eff_hi), 4)],
+        "effect_label": effect_label,
+        "ci_method": "Pooled-variance t interval" if test_used == "Two-sample t-test" else "Hodges-Lehmann with Moses interval",
     }

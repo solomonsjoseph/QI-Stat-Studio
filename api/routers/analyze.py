@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from api.audit import log_action, safe_diagnostic_message
 from api.analysis_schemas import validate_template_parameters
 from api.analysis_validation import validate_analysis_inputs
+from api.analysis_downgrade import maybe_downgrade_control_chart
 from api.auth import get_current_user, require_project_owner
 from api.database import get_db
 from api.models_api import AnalysisRequest
@@ -165,26 +166,31 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
                     400,
                     f"Column '{col}' is {pct_missing:.1f}% missing. Analysis requires <=30% missing in the selected outcome column. Choose a different outcome column or upload corrected data; warning acknowledgement does not override this safety check.",
                 )
+    template, df, params, downgraded_from_points = maybe_downgrade_control_chart(body.template, df, params)
+    if downgraded_from_points is not None:
+        params, field_errors = validate_template_parameters(template, params, df.columns)
+        if field_errors:
+            raise _bad_analysis_request("Invalid analysis parameters", field_errors)
 
-    precondition_errors = validate_analysis_inputs(body.template, df, params)
+    precondition_errors = validate_analysis_inputs(template, df, params)
     if precondition_errors:
         raise _bad_analysis_request(precondition_errors[0], {"parameters": precondition_errors})
 
     try:
-        result = TEMPLATE_REGISTRY[body.template](df, params)
+        result = TEMPLATE_REGISTRY[template](df, params)
         result = _json_safe(result)
         from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
 
-        code_r = generate_r_code(body.template, params, result)
+        code_r = generate_r_code(template, params, result)
         q9_row = db.query(IntakeAnswer).filter(IntakeAnswer.project_id == body.project_id, IntakeAnswer.question_key == "q9").first()
         q9 = (q9_row.answer or "").lower() if q9_row else "r"
         unsure = "not sure" in q9
-        code_spss = generate_spss_code(body.template, params, result) if "spss" in q9 or "all" in q9 or unsure else ""
-        code_sas = generate_sas_code(body.template, params, result) if "sas" in q9 or "all" in q9 or unsure else ""
+        code_spss = generate_spss_code(template, params, result) if "spss" in q9 or "all" in q9 or unsure else ""
+        code_sas = generate_sas_code(template, params, result) if "sas" in q9 or "all" in q9 or unsure else ""
         run = AnalysisRun(
             project_id=body.project_id,
             upload_id=body.upload_id,
-            template=body.template,
+            template=template,
             parameters=json.dumps(params),
             result_json=json.dumps(result),
             created_at=datetime.utcnow(),
@@ -195,7 +201,7 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
         db.add(run)
         db.commit()
         db.refresh(run)
-        log_action(db, body.project_id, "analysis_run_created", {"run_id": run.id, "upload_id": body.upload_id, "template": body.template})
+        log_action(db, body.project_id, "analysis_run_created", {"run_id": run.id, "upload_id": body.upload_id, "template": template})
         return {**result, "run_id": run.id}
     except HTTPException:
         raise

@@ -91,7 +91,6 @@ export default function Results() {
   }
 
   const hasInterpretation = Boolean((aiText || result.interpretation || '').trim())
-  const editDisabled = interpretationLoading && !hasInterpretation
   const continueToEdit = () => {
     const fallbackInterpretation = aiText || result.interpretation || ''
     if (fallbackInterpretation && fallbackInterpretation !== ctx.aiInterpretation) {
@@ -149,7 +148,7 @@ export default function Results() {
 
       <div className="mb-6 text-sm text-ink-soft"><p>{result.methods}</p></div>
 
-      <button type="button" onClick={continueToEdit} disabled={editDisabled} className="btn-primary">{editDisabled ? 'Preparing interpretation…' : 'Edit & Review'}</button>
+      <button type="button" onClick={continueToEdit} className="btn-primary">Edit & Review</button>
     </div>
   )
 }

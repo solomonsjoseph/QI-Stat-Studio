@@ -1,4 +1,5 @@
 """RED: These tests fail until api/templates/before_after_pct.py is implemented."""
+import re
 import pandas as pd
 import pytest
 from api.templates.before_after_pct import run_before_after_pct
@@ -86,3 +87,37 @@ def test_non_binary_outcome_is_rejected_clearly():
             "group_col": "period", "pre_val": "pre", "post_val": "post",
             "outcome_col": "stage",
         })
+
+
+
+def test_risk_difference_reports_ci_and_newcombe_method():
+    df = pd.DataFrame({
+        "period": ["pre"] * 100 + ["post"] * 100,
+        "outcome": [1] * 10 + [0] * 90 + [1] * 30 + [0] * 70,
+    })
+    result = run_before_after_pct(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post",
+        "outcome_col": "outcome",
+    })
+    assert re.search(
+        r"Risk difference \+20\.0 percentage points \(95% CI \d+\.\d to \d+\.\d\)",
+        result["result_summary"],
+    )
+    assert "Newcombe's hybrid score method" in result["methods"]
+    assert result["risk_difference_pct_points"] == 20.0
+
+
+def test_odds_ratio_orientation_matches_fisher_when_chi_square_fires():
+    """The chi-square branch must report the same odds-ratio orientation as
+    Fisher's exact test: greater than 1 when the outcome is more common
+    post than pre. This branch previously reported the reciprocal."""
+    df = pd.DataFrame({
+        "period": ["pre"] * 100 + ["post"] * 100,
+        "outcome": [1] * 20 + [0] * 80 + [1] * 50 + [0] * 50,
+    })
+    result = run_before_after_pct(df, {
+        "group_col": "period", "pre_val": "pre", "post_val": "post",
+        "outcome_col": "outcome",
+    })
+    assert result["test_used"] == "Chi-square test"
+    assert result["odds_ratio"] > 1.0

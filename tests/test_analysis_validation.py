@@ -96,7 +96,7 @@ def test_upload_project_mismatch_is_rejected(auth_client):
     assert response.json()["error"]["message"] == "Upload does not belong to project"
 
 
-def test_p_chart_requires_12_time_points_and_recommends_run_chart(auth_client):
+def test_p_chart_below_12_points_downgrades_to_run_chart(auth_client):
     project_id = _project(auth_client)
     rows = "date,outcome\n" + "".join(f"2024-{month:02d}-01,{month % 2}\n" for month in range(1, 7))
     uploaded = _upload_csv(auth_client, project_id, rows.encode())
@@ -110,10 +110,36 @@ def test_p_chart_requires_12_time_points_and_recommends_run_chart(auth_client):
         {"date_col": "date", "numerator_col": "outcome", "freq": "MS"},
     )
 
-    assert response.status_code == 400
-    message = response.json()["error"]["message"]
-    assert "at least 12 time points" in message
-    assert "run_chart" in message
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["methods"].startswith(
+        "A run chart was used rather than a control chart because six time points were available"
+    )
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter(AnalysisRun.id == result["run_id"]).one()
+        assert run.template == "run_chart"
+
+
+def test_p_chart_with_12_or_more_points_has_no_downgrade(auth_client):
+    project_id = _project(auth_client)
+    rows = "date,outcome\n" + "".join(f"2024-{month:02d}-01,{month % 2}\n" for month in range(1, 13))
+    uploaded = _upload_csv(auth_client, project_id, rows.encode())
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "p_chart",
+        {"date_col": "date", "numerator_col": "outcome", "freq": "MS"},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert "run chart was used" not in result["methods"]
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter(AnalysisRun.id == result["run_id"]).one()
+        assert run.template == "p_chart"
 
 
 def test_denominator_columns_must_be_positive(auth_client):

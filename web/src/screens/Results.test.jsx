@@ -27,7 +27,7 @@ afterEach(() => {
 })
 
 describe('Results', () => {
-  it('blocks Edit & Review while AI interpretation is loading without a backend fallback and surfaces chat errors with request id', async () => {
+  it('never blocks Edit & Review on AI interpretation loading, and surfaces chat errors with request id', async () => {
     const update = vi.fn()
     const next = vi.fn()
     let rejectChat
@@ -50,8 +50,8 @@ describe('Results', () => {
 
     render(<Results />)
 
-    const pendingButton = await screen.findByRole('button', { name: /preparing interpretation/i })
-    expect(pendingButton).toBeDisabled()
+    const editButton = await screen.findByRole('button', { name: /edit & review/i })
+    expect(editButton).not.toBeDisabled()
     expect(next).not.toHaveBeenCalled()
 
     await act(async () => {
@@ -59,7 +59,7 @@ describe('Results', () => {
     })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('OpenRouter unavailable (Request ID: req-ai-7)')
-    await waitFor(() => expect(screen.getByRole('button', { name: /edit & review/i })).not.toBeDisabled())
+    expect(screen.getByRole('button', { name: /edit & review/i })).not.toBeDisabled()
   })
 
   it('uses a resumed result interpretation as the edit fallback when no AI interpretation is in context', async () => {
