@@ -18,9 +18,10 @@ def run_descriptive(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         if group_col and group_col in df.columns:
             grp_col = df[group_col].str.strip().str.lower() if df[group_col].dtype == object else df[group_col]
             for grp, sub in df.groupby(grp_col):
+                display_group = str(sub[group_col].iloc[0]) if df[group_col].dtype == object else str(grp)
                 mean_lo, mean_hi = mean_ci(sub[col])
                 median_lo, median_hi = median_ci(sub[col])
-                table.append({"group": str(grp), "variable": col,
+                table.append({"group": display_group, "variable": col,
                                "n": int(sub[col].notna().sum()),
                                "mean": round(sub[col].mean(), 2),
                                "sd": round(sub[col].std(), 2),

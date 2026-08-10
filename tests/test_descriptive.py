@@ -53,3 +53,16 @@ def test_single_value_group_has_no_ci_at_all():
     assert row["mean_ci_high"] is None
     assert row["median_ci_low"] is None
     assert row["median_ci_high"] is None
+
+
+def test_group_labels_preserve_original_casing():
+    """Grouping normalizes case internally to merge 'ICU'/'icu' typos, but the
+    displayed label must show the resident's actual data, not the lowercased
+    grouping key."""
+    df = pd.DataFrame({
+        "unit": ["ICU", "ICU", "ICU", "Ward", "Ward", "Ward"],
+        "los": [5, 6, 7, 2, 3, 4],
+    })
+    result = run_descriptive(df, {"group_col": "unit", "value_cols": ["los"]})
+    groups = {row["group"] for row in result["table"]}
+    assert groups == {"ICU", "Ward"}
