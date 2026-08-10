@@ -199,3 +199,56 @@ and the app's actual computed result can, in principle, drift if a template
 runner changes without its matching `codegen.py` branch being updated in the
 same change. `tests/test_codegen.py` exists specifically to catch that
 drift for the six shipped templates.
+
+## ADR-011: Control charts downgrade to run charts instead of failing
+
+**Status:** Accepted
+
+**Context:** A control chart (p-chart/u-chart) requested below 12 time
+points returned HTTP 400 and a dead end, while most residents' datasets
+have four to six points at the time they run the analysis.
+
+**Decision:** The analysis runs a run chart with a median line instead, and
+states the reason in the Methods paragraph. `api/analysis_downgrade.py`
+aggregates the requested control chart's data the same way the control
+chart validator does, so the point count and the downgraded frame cannot
+disagree, then substitutes `run_chart` for the executed template, the
+generated code, and the persisted `AnalysisRun` row.
+
+**Consequences:** The two `points < 12` errors in `validate_analysis_inputs`
+are gone; `run_chart` cannot be requested with fewer than 12 points anymore,
+it is produced by substitution instead. `RunChartParams.design_note` carries
+the downgrade sentence, which `run_chart.py` prepends to its Methods
+paragraph. This does not change ADR-007: `select_template` still uses a
+single 12-point threshold, and no second Q6 threshold was added. What
+changed is the outcome below that boundary (a working run chart instead of
+an error), not the number of thresholds.
+
+## ADR-012: Effect estimates ship with confidence intervals
+
+**Status:** Accepted
+
+**Context:** Every comparison template reported a p-value and a raw
+percentage or mean, but no effect estimate with an interval, which is what
+a QI poster or abstract needs to convey a magnitude of change, not just
+whether it was "significant."
+
+**Decision:** Every comparison reports an effect estimate with a 95%
+confidence interval, computed by the shared helpers in
+`api/stats_intervals.py`. Before/after proportion reports a risk difference
+using Newcombe's hybrid score method rather than the Wald interval, because
+QI cell counts are often small and Wald misbehaves near 0 and 100 percent.
+Before/after mean reports a pooled-variance t interval on the difference in
+means when the t-test runs, matching the equal-variance test actually used,
+or a Hodges-Lehmann shift with a Moses order-statistic interval when the
+Wilcoxon rank-sum test runs, because it is deterministic and needs no
+bootstrap or new dependency. The descriptive summary reports a t-based
+interval on each mean and a distribution-free order-statistic interval on
+each median.
+
+**Consequences:** `result_summary`, `methods`, and `interpretation` on all
+three templates now include the effect size and its interval, which is what
+reaches the Results screen, the DOCX/PDF report, and the mentor view with no
+`report.py` change. `before_after_pct`'s previously inverted odds ratio in
+the chi-square branch was corrected to match `fisher_exact`'s orientation in
+the same change.

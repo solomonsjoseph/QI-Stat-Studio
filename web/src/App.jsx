@@ -164,7 +164,7 @@ export default function App() {
     const nextCtx = ctxFromResume(resume)
     const fallbackScreen = ROUTE_SCREENS.has(resume.current_screen) ? resume.current_screen : 'description'
     const targetScreen = ROUTE_SCREENS.has(requestedScreen) ? requestedScreen : fallbackScreen
-    setCtx(c => ({ ...c, ...nextCtx }))
+    setCtx(nextCtx)
     const serverIdx = SCREENS.indexOf(resume.current_screen)
     const targetIdx = SCREENS.indexOf(targetScreen)
     setMaxStepIdx(Math.max(serverIdx >= 0 ? serverIdx : 0, targetIdx >= 0 ? targetIdx : 0))
@@ -197,6 +197,11 @@ export default function App() {
       window.history.pushState({}, '', `/app/${ctx.projectId}/${s}`)
       window.localStorage.setItem('qiss:lastProjectId', String(ctx.projectId))
     }
+  }
+  const resetProject = (patch) => {
+    setCtx(patch)
+    setMaxStepIdx(0)
+    if (patch.projectId) window.localStorage.setItem('qiss:lastProjectId', String(patch.projectId))
   }
   const next = () => {
     const idx = SCREENS.indexOf(screen)
@@ -310,7 +315,7 @@ export default function App() {
   const Screen = COMPONENTS[screen] || Landing
 
   return (
-    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, resumeProject, resetProgress: () => setMaxStepIdx(0) }}>
+    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, resumeProject, resetProject }}>
       <div className="min-h-screen bg-canvas">
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">

@@ -34,6 +34,10 @@ class RunChartParams(AnalysisParamsBase):
     value_col: str
     intervention_date: Optional[str] = None
     freq: Optional[str] = None
+    design_note: Optional[str] = None
+    source_numerator_col: Optional[str] = None
+    source_count_col: Optional[str] = None
+    source_denominator_col: Optional[str] = None
 
 
 class PChartParams(AnalysisParamsBase):

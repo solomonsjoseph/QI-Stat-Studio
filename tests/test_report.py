@@ -271,6 +271,41 @@ def test_docx_report_appends_q7_intervention_to_figure_caption(client):
     assert "Intervention: Started standing orders (2025-01-01)" in text
 
 
+def test_report_shows_em_dash_not_none_literal_for_omitted_confidence_intervals(client):
+    """Descriptive-summary rows legitimately carry mean_ci_low/high and median_ci_low/high
+    as None when a group is too small to support the interval. Exported reports must not
+    render that as the literal text 'None'."""
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(result={
+        "methods": "Descriptive statistics were calculated for 1 variable(s).",
+        "result_summary": "Descriptive summary of 1 variable(s) across 1 group(s).",
+        "interpretation": "Small group descriptive summary.",
+        "figure_base64": None,
+        "table": [
+            {
+                "group": "All",
+                "variable": "val",
+                "n": 4,
+                "mean": 2.5,
+                "sd": 1.29,
+                "median": 2.5,
+                "mean_ci_low": 0.44,
+                "mean_ci_high": 4.56,
+                "median_ci_low": None,
+                "median_ci_high": None,
+            }
+        ],
+    })
+
+    docx_response = client.get(f"/report/{seeded['run_id']}/docx")
+    assert docx_response.status_code == 200, docx_response.text
+    assert "None" not in _docx_text(docx_response.content)
+
+    pdf_response = client.get(f"/report/{seeded['run_id']}/pdf")
+    assert pdf_response.status_code == 200, pdf_response.text
+    assert "None" not in _pdf_text(pdf_response.content)
+
+
 
 def test_pdf_report_renders_latest_edits_upload_lineage_audit_log_and_visible_mentor_comments(client):
     _register(client, "admin@example.com")

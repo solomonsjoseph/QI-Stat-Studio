@@ -75,6 +75,9 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
                f"{'was' if signal else 'was not'} detected. "
                f"A trend signal (≥6 consecutive increases or decreases) "
                f"{'was' if trend_signal else 'was not'} detected.")
+    design_note = params.get("design_note")
+    if design_note:
+        methods = f"{design_note} {methods}"
     interpretation = (
         f"The run chart shows {value_col} over time with a median of {median:.2f}. "
         f"{'A run signal was detected (longest run = ' + str(max_run) + ' consecutive points on the same side of the median), suggesting a non-random shift in the process.' if signal else 'No run signal was detected (longest run = ' + str(max_run) + '), suggesting the process remained stable during the observation period.'} "

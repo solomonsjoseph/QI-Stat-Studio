@@ -27,7 +27,7 @@ afterEach(() => {
 })
 
 describe('Results', () => {
-  it('blocks Edit & Review while AI interpretation is loading without a backend fallback and surfaces chat errors with request id', async () => {
+  it('never blocks Edit & Review on AI interpretation loading, and surfaces chat errors with request id', async () => {
     const update = vi.fn()
     const next = vi.fn()
     let rejectChat
@@ -50,8 +50,8 @@ describe('Results', () => {
 
     render(<Results />)
 
-    const pendingButton = await screen.findByRole('button', { name: /preparing interpretation/i })
-    expect(pendingButton).toBeDisabled()
+    const editButton = await screen.findByRole('button', { name: /edit & review/i })
+    expect(editButton).not.toBeDisabled()
     expect(next).not.toHaveBeenCalled()
 
     await act(async () => {
@@ -59,7 +59,7 @@ describe('Results', () => {
     })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('OpenRouter unavailable (Request ID: req-ai-7)')
-    await waitFor(() => expect(screen.getByRole('button', { name: /edit & review/i })).not.toBeDisabled())
+    expect(screen.getByRole('button', { name: /edit & review/i })).not.toBeDisabled()
   })
 
   it('uses a resumed result interpretation as the edit fallback when no AI interpretation is in context', async () => {
@@ -127,5 +127,43 @@ describe('Results', () => {
 
     await waitFor(() => expect(apiMock.runAnalysis).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('Falls decreased from 12 to 7 per month after the intervention.')).toBeInTheDocument()
+  })
+
+  it('renders an em dash instead of the literal "null" for an omitted confidence interval cell', async () => {
+    useAppMock.mockReturnValue({
+      ctx: {
+        projectId: 3,
+        uploadId: 4,
+        template: 'descriptive',
+        params: {},
+        results: {
+          result_summary: 'Descriptive summary of 1 variable(s) across 1 group(s).',
+          methods: 'Descriptive methods.',
+          table: [
+            {
+              group: 'All',
+              variable: 'val',
+              n: 4,
+              mean: 2.5,
+              sd: 1.29,
+              median: 2.5,
+              mean_ci_low: 0.44,
+              mean_ci_high: 4.56,
+              median_ci_low: null,
+              median_ci_high: null,
+            },
+          ],
+        },
+      },
+      update: vi.fn(),
+      next: vi.fn(),
+    })
+
+    render(<Results />)
+
+    const table = await screen.findByRole('table')
+    expect(table).toHaveTextContent('Median CI low')
+    expect(table.textContent).not.toMatch(/\bnull\b/i)
+    expect(table.textContent).toContain('—')
   })
 })

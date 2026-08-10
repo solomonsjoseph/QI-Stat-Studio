@@ -96,7 +96,7 @@ def test_upload_project_mismatch_is_rejected(auth_client):
     assert response.json()["error"]["message"] == "Upload does not belong to project"
 
 
-def test_p_chart_requires_12_time_points_and_recommends_run_chart(auth_client):
+def test_p_chart_below_12_points_downgrades_to_run_chart(auth_client):
     project_id = _project(auth_client)
     rows = "date,outcome\n" + "".join(f"2024-{month:02d}-01,{month % 2}\n" for month in range(1, 7))
     uploaded = _upload_csv(auth_client, project_id, rows.encode())
@@ -110,10 +110,36 @@ def test_p_chart_requires_12_time_points_and_recommends_run_chart(auth_client):
         {"date_col": "date", "numerator_col": "outcome", "freq": "MS"},
     )
 
-    assert response.status_code == 400
-    message = response.json()["error"]["message"]
-    assert "at least 12 time points" in message
-    assert "run_chart" in message
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["methods"].startswith(
+        "A run chart was used rather than a control chart because six time points were available"
+    )
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter(AnalysisRun.id == result["run_id"]).one()
+        assert run.template == "run_chart"
+
+
+def test_p_chart_with_12_or_more_points_has_no_downgrade(auth_client):
+    project_id = _project(auth_client)
+    rows = "date,outcome\n" + "".join(f"2024-{month:02d}-01,{month % 2}\n" for month in range(1, 13))
+    uploaded = _upload_csv(auth_client, project_id, rows.encode())
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "p_chart",
+        {"date_col": "date", "numerator_col": "outcome", "freq": "MS"},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert "run chart was used" not in result["methods"]
+    with SessionLocal() as db:
+        run = db.query(AnalysisRun).filter(AnalysisRun.id == result["run_id"]).one()
+        assert run.template == "p_chart"
 
 
 def test_denominator_columns_must_be_positive(auth_client):
@@ -297,3 +323,24 @@ def test_run_chart_returns_trend_and_median_tie_fields(auth_client):
         persisted = json.loads(db.query(AnalysisRun).one().result_json)
         assert persisted["figure_base64"]
         assert persisted["trend_signal_detected"] is True
+
+
+def test_before_after_pct_rejects_identical_pre_and_post_group(auth_client):
+    project_id = _project(auth_client)
+    uploaded = _upload_csv(
+        auth_client,
+        project_id,
+        b"period,outcome\nbaseline,1\nbaseline,0\nbaseline,1\nbaseline,0\n",
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    response = _run(
+        auth_client,
+        project_id,
+        uploaded.json()["upload_id"],
+        "before_after_pct",
+        {"group_col": "period", "outcome_col": "outcome", "pre_val": "baseline", "post_val": "baseline"},
+    )
+
+    assert response.status_code == 400, response.text
+    assert "Pre group and post group must be different (both were 'baseline')" in response.json()["error"]["message"]

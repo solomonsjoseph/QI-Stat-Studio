@@ -11,6 +11,8 @@ const { apiMock } = vi.hoisted(() => ({
     listProjects: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
+    saveProjectEdit: vi.fn(),
+    updateProject: vi.fn(),
   },
 }))
 
@@ -45,6 +47,8 @@ beforeEach(() => {
   apiMock.listProjects.mockResolvedValue([])
   apiMock.createProject.mockReset()
   apiMock.deleteProject.mockReset()
+  apiMock.saveProjectEdit.mockReset().mockResolvedValue({})
+  apiMock.updateProject.mockReset().mockResolvedValue({})
   window.localStorage.clear()
   window.history.pushState({}, '', '/')
 })
@@ -141,5 +145,36 @@ describe('App resume hydration', () => {
     expect(await screen.findByRole('heading', { name: 'Sepsis huddle follow-up' })).toBeInTheDocument()
     expect(apiMock.listProjects).toHaveBeenCalledTimes(2)
     expect(apiMock.listProjects).toHaveBeenLastCalledWith({ limit: 25, order: 'created_desc' })
+  })
+
+  it('does not leak a prior project\'s locally-edited fields into a resumed project through applyResume', async () => {
+    window.localStorage.setItem('qiss:lastProjectId', '44')
+    apiMock.resumeProject
+      .mockResolvedValueOnce(resumePayload({ id: 44, currentScreen: 'edit' }))
+      .mockResolvedValueOnce(resumePayload({ id: 55, currentScreen: 'edit' }))
+    apiMock.listProjects.mockResolvedValue([{ id: 55, title: 'Project 55', description: '', status: 'draft' }])
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    // Project 44 hydrates into Edit & Review with the server interpretation, then
+    // the resident edits it locally (ctx.editedInterp), a field ctxFromResume never sets.
+    expect(await screen.findByRole('heading', { name: 'Edit & Review' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/interpretation/i)).toHaveValue('Server interpretation.')
+    await user.clear(screen.getByLabelText(/interpretation/i))
+    await user.type(screen.getByLabelText(/interpretation/i), 'Project 44 local edit that must not leak.')
+    await user.click(screen.getByRole('button', { name: /save & continue/i }))
+    expect(await screen.findByRole('heading', { name: 'Screen download' })).toBeInTheDocument()
+
+    // Navigate to landing and resume a different project (55) through applyResume.
+    await user.click(screen.getByRole('button', { name: 'QI Stat Studio' }))
+    await user.click(await screen.findByRole('button', { name: /resume/i }))
+
+    // Project 55's Edit & Review must show its own server interpretation, not project
+    // 44's leftover ctx.editedInterp: applyResume must fully replace ctx, not merge onto it.
+    expect(await screen.findByRole('heading', { name: 'Edit & Review' })).toBeInTheDocument()
+    const interpField = screen.getByLabelText(/interpretation/i)
+    expect(interpField).toHaveValue('Server interpretation.')
+    expect(interpField).not.toHaveValue('Project 44 local edit that must not leak.')
   })
 })
