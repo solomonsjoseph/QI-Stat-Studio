@@ -166,15 +166,18 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
                     400,
                     f"Column '{col}' is {pct_missing:.1f}% missing. Analysis requires <=30% missing in the selected outcome column. Choose a different outcome column or upload corrected data; warning acknowledgement does not override this safety check.",
                 )
+    precondition_errors = validate_analysis_inputs(body.template, df, params)
+    if precondition_errors:
+        raise _bad_analysis_request(precondition_errors[0], {"parameters": precondition_errors})
+
     template, df, params, downgraded_from_points = maybe_downgrade_control_chart(body.template, df, params)
     if downgraded_from_points is not None:
         params, field_errors = validate_template_parameters(template, params, df.columns)
         if field_errors:
             raise _bad_analysis_request("Invalid analysis parameters", field_errors)
-
-    precondition_errors = validate_analysis_inputs(template, df, params)
-    if precondition_errors:
-        raise _bad_analysis_request(precondition_errors[0], {"parameters": precondition_errors})
+        precondition_errors = validate_analysis_inputs(template, df, params)
+        if precondition_errors:
+            raise _bad_analysis_request(precondition_errors[0], {"parameters": precondition_errors})
 
     try:
         result = TEMPLATE_REGISTRY[template](df, params)
@@ -202,7 +205,7 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
         db.commit()
         db.refresh(run)
         log_action(db, body.project_id, "analysis_run_created", {"run_id": run.id, "upload_id": body.upload_id, "template": template})
-        return {**result, "run_id": run.id}
+        return {**result, "run_id": run.id, "template": template}
     except HTTPException:
         raise
     except Exception as exc:
