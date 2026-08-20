@@ -19,6 +19,7 @@ const { apiMock } = vi.hoisted(() => ({
 vi.mock('./api', () => ({ api: apiMock }))
 vi.mock('./screens/Auth', () => ({ default: () => <h1>Auth screen</h1> }))
 vi.mock('./screens/ProjectIntake', () => ({ default: () => <h1>Screen description</h1> }))
+vi.mock('./screens/ClarificationStage', () => ({ default: () => <h1>Screen clarify</h1> }))
 vi.mock('./screens/IntakeQuestions', () => ({ default: () => <h1>Screen intake</h1> }))
 vi.mock('./screens/DataReview', () => ({ default: () => <h1>Screen review</h1> }))
 vi.mock('./screens/AnalysisSelection', () => ({ default: () => <h1>Screen analysis</h1> }))

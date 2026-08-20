@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import Auth from './screens/Auth'
 import Landing from './screens/Landing'
 import ProjectIntake from './screens/ProjectIntake'
+import ClarificationStage from './screens/ClarificationStage'
 import IntakeQuestions from './screens/IntakeQuestions'
 import DataReview from './screens/DataReview'
 import AnalysisSelection from './screens/AnalysisSelection'
@@ -18,7 +19,7 @@ export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
 
 export const SCREENS = [
-  'landing', 'description', 'intake', 'review',
+  'landing', 'description', 'clarify', 'intake', 'review',
   'analysis', 'params', 'results', 'edit', 'download',
 ]
 
@@ -27,6 +28,7 @@ const ROUTE_SCREENS = new Set([...SCREENS, 'settings'])
 const COMPONENTS = {
   landing: Landing,
   description: ProjectIntake,
+  clarify: ClarificationStage,
   intake: IntakeQuestions,
   review: DataReview,
   analysis: AnalysisSelection,
@@ -39,6 +41,7 @@ const COMPONENTS = {
 
 export const STEP_LABELS = {
   description: 'Project Intake',
+  clarify: 'AI Clarification',
   intake: 'Intake',
   review: 'Review',
   analysis: 'Analysis',

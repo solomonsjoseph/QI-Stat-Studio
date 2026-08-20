@@ -150,6 +150,35 @@ class IntakePrefillResponse(BaseModel):
     redaction_count: int
 
 
+class ScrubPreviewRequest(BaseModel):
+    text: str
+
+
+class ScrubPreviewResponse(BaseModel):
+    text: str
+    redacted: bool
+    count: int
+
+
+class ClarifyRequest(BaseModel):
+    message: Optional[str] = None
+
+
+class ClarifyTurn(BaseModel):
+    role: Literal["ai", "user"]
+    content: str
+    reasoning: Optional[str] = None
+
+
+class ClarifyResponse(BaseModel):
+    message: str
+    reasoning: Optional[str] = None
+    suggested_title: Optional[str] = None
+    suggested_description: Optional[str] = None
+    confirmed: bool
+    turns: list[ClarifyTurn]
+
+
 class ColumnTypeUpdate(BaseModel):
     col_types: dict[str, str]
     column_map: dict[str, str] = Field(default_factory=dict)

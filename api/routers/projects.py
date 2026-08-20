@@ -126,6 +126,10 @@ def _derive_current_screen(db: Session, project: Project, answers: dict[str, Any
     if not (answers.get("q1") or project.description):
         return "description"
 
+    clarification_state = json.loads(project.ai_clarification_state) if project.ai_clarification_state else {}
+    if not clarification_state.get("confirmed"):
+        return "clarify"
+
     no_comparison = answers.get("q3") == "No — I'm just describing one time period"
     required = ["q2", "q3", "q4", "q5", "q6", "q9", "q10"]
     if not no_comparison:

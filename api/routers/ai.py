@@ -14,9 +14,18 @@ from api.config import settings
 from api.database import get_db
 from api.intake_schema import validate_answers
 from api.middleware.phi_scrubber import scrub_text
-from api.models_api import ChatRequest, ChatResponse, IntakePrefillRequest, IntakePrefillResponse
+from api.models_api import (
+    ChatRequest,
+    ChatResponse,
+    ClarifyRequest,
+    ClarifyResponse,
+    IntakePrefillRequest,
+    IntakePrefillResponse,
+    ScrubPreviewRequest,
+    ScrubPreviewResponse,
+)
 from api.audit import log_action, safe_diagnostic_message
-from api.models_db import AIUsageEvent, Project, User
+from api.models_db import AIUsageEvent, Project, Upload, User
 from api.settings_registry import get_runtime_setting
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -117,17 +126,21 @@ def _record_ai_usage(
     )
     db.commit()
 
+def _enforce_ai_rate_limit(db: Session, user: User) -> None:
+    limit = get_runtime_setting(db, "ai_rate_limit_per_hour") or 20
+    since = datetime.utcnow() - timedelta(hours=1)
+    used = db.query(AIUsageEvent).filter(AIUsageEvent.user_id == user.id, AIUsageEvent.created_at >= since).count()
+    if used >= int(limit):
+        raise HTTPException(status_code=429, detail="AI rate limit exceeded")
+
+
 @router.post("/chat", response_model=ChatResponse)
 def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _require_project_access(db, req.project_id, user)
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     selected_model = req.model or default_model
-    limit = get_runtime_setting(db, "ai_rate_limit_per_hour") or 20
-    since = datetime.utcnow() - timedelta(hours=1)
-    used = db.query(AIUsageEvent).filter(AIUsageEvent.user_id == user.id, AIUsageEvent.created_at >= since).count()
-    if used >= int(limit):
-        raise HTTPException(status_code=429, detail="AI rate limit exceeded")
+    _enforce_ai_rate_limit(db, user)
 
     total_user_content_chars = sum(len(str(msg.get("content", ""))) for msg in req.messages if msg.get("role") == "user")
     if total_user_content_chars > 4000:
@@ -197,3 +210,114 @@ def intake_prefill(req: IntakePrefillRequest, db: Session = Depends(get_db), use
     draft = _IntakePrefillDraft.model_validate(_extract_json_object(content)).model_dump(exclude_none=True)
     answers, _ = validate_answers(draft, drop_unmatched=True)
     return IntakePrefillResponse(answers=answers, phi_redacted=redaction_count > 0, redaction_count=redaction_count)
+
+
+@router.post("/scrub-preview", response_model=ScrubPreviewResponse)
+def scrub_preview(req: ScrubPreviewRequest, user: User = Depends(get_current_user)):
+    """Local, non-LLM PHI check for chat input: lets the frontend show a redacted
+    preview and require a second explicit send before anything reaches the AI."""
+    clean, count = scrub_text(req.text)
+    return ScrubPreviewResponse(text=clean, redacted=count > 0, count=count)
+
+
+def _latest_active_upload(db: Session, project_id: int) -> Upload | None:
+    return (
+        db.query(Upload)
+        .filter(Upload.project_id == project_id, Upload.status == "active")
+        .order_by(Upload.created_at.desc(), Upload.id.desc())
+        .first()
+    )
+
+
+_CLARIFY_SYSTEM_PROMPT = """You are helping a medical resident (not a statistician) clarify a quality-improvement (QI) project definition before analysis. You NEVER see raw patient data values -- only column names, column types, and the data dictionary text below. Do not ask the resident for patient names, MRNs, or other identifying information.
+
+Project title (current): {title}
+Project description (current): {description}
+Dataset columns and types: {col_types}
+Data dictionary: {dictionary_text}
+
+Your job this turn:
+- If the conversation is just starting, restate your understanding of the project and propose an improved, more specific title and description based on the context above.
+- Identify the aim, intervention (if any), population, primary outcome, secondary outcomes, comparison, and time structure.
+- Ask ONE targeted follow-up question at a time for anything vague or missing. Only ask about an intervention date if there is an intervention.
+- Only set "confirmed" to true once you and the resident have reached a specific, complete project definition covering at minimum the aim, primary outcome, and time structure.
+
+Respond with JSON only, no prose outside the JSON, in exactly this shape:
+{{"message": "<your reply to the resident>", "reasoning": "<one or two sentences of your reasoning for this turn>", "suggested_title": "<string or null>", "suggested_description": "<string or null>", "confirmed": <true or false>, "design": {{"aim": "...", "intervention": "... or null", "population": "...", "primary_outcome": "...", "secondary_outcomes": ["..."], "comparison": "...", "time_structure": "..."}}}}"""
+
+
+class _ClarifyDraft(BaseModel):
+    message: str = ""
+    reasoning: str | None = None
+    suggested_title: str | None = None
+    suggested_description: str | None = None
+    confirmed: bool = False
+    design: dict[str, Any] = {}
+
+    model_config = ConfigDict(extra="ignore")
+
+
+@router.post("/clarify/{project_id}", response_model=ClarifyResponse)
+def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = _require_project_access(db, project_id, user)
+    _enforce_ai_rate_limit(db, user)
+
+    provider, api_key, api_base, default_model = _provider_settings(db)
+    if not api_key and provider != "local":
+        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+
+    state = json.loads(project.ai_clarification_state) if project.ai_clarification_state else {"turns": [], "confirmed": False}
+    turns = state.get("turns", [])
+
+    clean_message = None
+    redaction_count = 0
+    if req.message:
+        clean_message, redaction_count = scrub_text(req.message)
+        if redaction_count > 0:
+            log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_clarify"})
+        turns.append({"role": "user", "content": clean_message})
+
+    upload = _latest_active_upload(db, project_id)
+    col_types = json.loads(upload.col_types) if upload and upload.col_types else {}
+    dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
+
+    system_prompt = _CLARIFY_SYSTEM_PROMPT.format(
+        title=project.title or "(untitled)",
+        description=project.description or "(no description yet)",
+        col_types=json.dumps(col_types),
+        dictionary_text=dictionary_text,
+    )
+    messages = [{"role": "system", "content": system_prompt}]
+    for turn in turns:
+        messages.append({"role": "assistant" if turn["role"] == "ai" else "user", "content": turn["content"]})
+    if not turns:
+        messages.append({"role": "user", "content": "(starting the conversation -- please open with your understanding of the project)"})
+
+    prompt_chars = sum(len(m["content"]) for m in messages)
+    try:
+        resp = _llm_completion(provider, api_key, api_base, default_model, messages)
+        content = resp.choices[0].message.content
+    except Exception:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+
+    draft = _ClarifyDraft.model_validate(_extract_json_object(content))
+    turns.append({"role": "ai", "content": draft.message, "reasoning": draft.reasoning})
+
+    project.ai_clarification_state = json.dumps({"turns": turns, "confirmed": draft.confirmed})
+    if draft.design:
+        existing_design = json.loads(project.ai_project_design) if project.ai_project_design else {}
+        existing_design.update({k: v for k, v in draft.design.items() if v not in (None, "", [])})
+        project.ai_project_design = json.dumps(existing_design)
+    db.commit()
+
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
+
+    return ClarifyResponse(
+        message=draft.message,
+        reasoning=draft.reasoning,
+        suggested_title=draft.suggested_title,
+        suggested_description=draft.suggested_description,
+        confirmed=draft.confirmed,
+        turns=turns,
+    )

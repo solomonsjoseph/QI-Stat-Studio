@@ -87,6 +87,10 @@ export const api = {
   saveAnswers: (projectId, answers) => req('POST', `/intake/${projectId}`, { answers }),
   getAnswers: (projectId) => req('GET', `/intake/${projectId}`),
 
+  // AI clarification
+  scrubPreview: (text) => req('POST', '/ai/scrub-preview', { text }),
+  clarify: (projectId, message) => req('POST', `/ai/clarify/${projectId}`, { message: message || null }),
+
   // Upload
   upload: async (projectId, file) => {
     const fd = new FormData()

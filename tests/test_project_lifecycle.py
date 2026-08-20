@@ -114,6 +114,12 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
     assert response.json()["current_screen"] == "description"
 
     client.post(f"/intake/{project_id}", json={"answers": {"q1": "Improve follow-up"}})
+    assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "clarify"
+
+    with SessionLocal() as db:
+        proj = db.get(Project, project_id)
+        proj.ai_clarification_state = json.dumps({"turns": [], "confirmed": True})
+        db.commit()
     assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "intake"
 
     answers = {
@@ -136,6 +142,10 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
 
     comparison_project = _create_project(client, "Comparison Resume", "")
     comparison_id = comparison_project["id"]
+    with SessionLocal() as db:
+        proj = db.get(Project, comparison_id)
+        proj.ai_clarification_state = json.dumps({"turns": [], "confirmed": True})
+        db.commit()
     comparison_answers = {
         "q1": "Compare pre/post process",
         "q2": "average",
@@ -198,6 +208,10 @@ def test_project_resume_scopes_latest_run_to_the_active_upload(client):
     _register(client, "owner@example.com")
     project = _create_project(client, "Resume Rescope", "")
     project_id = project["id"]
+    with SessionLocal() as db:
+        proj = db.get(Project, project_id)
+        proj.ai_clarification_state = json.dumps({"turns": [], "confirmed": True})
+        db.commit()
 
     answers = {
         "q1": "Improve follow-up",

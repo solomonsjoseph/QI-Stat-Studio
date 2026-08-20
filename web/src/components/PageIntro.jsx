@@ -2,12 +2,13 @@ import React from 'react'
 import * as AppModule from '../App'
 
 const FALLBACK_SCREENS = [
-  'landing', 'description', 'intake', 'review',
+  'landing', 'description', 'clarify', 'intake', 'review',
   'analysis', 'params', 'results', 'edit', 'download',
 ]
 
 const FALLBACK_STEP_LABELS = {
   description: 'Project Intake',
+  clarify: 'AI Clarification',
   intake: 'Intake',
   review: 'Review',
   analysis: 'Analysis',
