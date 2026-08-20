@@ -24,6 +24,8 @@ from api.models_api import (
     ChatResponse,
     ClarifyRequest,
     ClarifyResponse,
+    IntakeAnswerAIRequest,
+    IntakeAnswerAIResponse,
     IntakePrefillRequest,
     IntakePrefillResponse,
     ScrubPreviewRequest,
@@ -500,4 +502,75 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         confirmed=draft.confirmed,
         analyses=analyses,
         turns=turns,
+    )
+
+
+_INTAKE_ANSWER_TASKS = {
+    "radio": 'Pick the single option from the list above that best matches the resident\'s explanation. Set "value" to that option\'s text EXACTLY as written above (character-for-character, from the Options list). If none fit confidently, set "value" to null and "resolved" to false.',
+    "number": 'Extract the integer count implied by the explanation. Set "value" to that integer. If not determinable, set "value" to null and "resolved" to false.',
+    "date": 'Extract a single date in YYYY-MM-DD format implied by the explanation. If not determinable, set "value" to null and "resolved" to false.',
+    "intervention": 'Extract both a short intervention description and a start date. Set "value" to {"description": "...", "date": "YYYY-MM-DD" or null}. Always set a description (rephrase the resident\'s own words if needed); if no date is mentioned, set date to null but still set "resolved" to true as long as the description is clear.',
+}
+
+_INTAKE_ANSWER_SYSTEM_PROMPT = """You are helping a medical resident answer one intake question about their QI project by interpreting their free-text explanation. Never ask for or expect patient names, MRNs, or other identifying information.
+
+Question: "{question_text}"
+Question type: {question_type}
+{options_block}
+
+Resident's explanation: "{message}"
+
+Task: {task}
+
+Respond with JSON only: {{"value": <string, number, object, or null>, "message": "<one short sentence confirming what you picked, or a brief clarifying follow-up if you could not determine an answer>", "resolved": <true or false>}}"""
+
+
+class _IntakeAnswerDraft(BaseModel):
+    value: Any = None
+    message: str = ""
+    resolved: bool = False
+
+    model_config = ConfigDict(extra="ignore")
+
+
+@router.post("/intake-answer/{project_id}", response_model=IntakeAnswerAIResponse)
+def ai_intake_answer(project_id: int, req: IntakeAnswerAIRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    _require_project_access(db, project_id, user)
+    _enforce_ai_rate_limit(db, user)
+
+    provider, api_key, api_base, default_model = _provider_settings(db)
+    if not api_key and provider != "local":
+        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+
+    clean_message, redaction_count = scrub_text(req.message)
+    if redaction_count > 0:
+        log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_intake_answer"})
+
+    options_block = f"Options: {json.dumps(req.options)}" if req.options else ""
+    system_prompt = _INTAKE_ANSWER_SYSTEM_PROMPT.format(
+        question_text=req.question_text,
+        question_type=req.question_type,
+        options_block=options_block,
+        message=clean_message,
+        task=_INTAKE_ANSWER_TASKS[req.question_type],
+    )
+    messages = [{"role": "user", "content": system_prompt}]
+    prompt_chars = len(system_prompt)
+    try:
+        content = _llm_completion_nonempty(provider, api_key, api_base, default_model, messages, max_tokens=600, reasoning_effort="low")
+    except Exception:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+
+    draft = _IntakeAnswerDraft.model_validate(_extract_json_object(content))
+    value = draft.value
+    if req.question_type == "radio" and value is not None and req.options and value not in req.options:
+        value = None
+        draft.resolved = False
+
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
+    return IntakeAnswerAIResponse(
+        value=value,
+        message=draft.message or "Could you say a bit more?",
+        resolved=bool(draft.resolved and value is not None),
     )

@@ -95,6 +95,9 @@ export const api = {
   // AI analysis-plan recommendation
   recommendPlan: (projectId, message) => req('POST', `/ai/recommend-plan/${projectId}`, { message: message || null }),
 
+  // AI intake-question answering
+  intakeAnswerAI: (projectId, payload) => req('POST', `/ai/intake-answer/${projectId}`, payload),
+
   // Upload
   upload: async (projectId, file) => {
     const fd = new FormData()

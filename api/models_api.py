@@ -184,6 +184,20 @@ class AnalysisPlanRequest(BaseModel):
     message: Optional[str] = None
 
 
+class IntakeAnswerAIRequest(BaseModel):
+    question_key: str
+    question_text: str
+    question_type: Literal["radio", "number", "date", "intervention"]
+    options: Optional[list[str]] = None
+    message: str
+
+
+class IntakeAnswerAIResponse(BaseModel):
+    value: Any = None
+    message: str
+    resolved: bool
+
+
 class AnalysisPlanItem(BaseModel):
     template: str
     rationale: Optional[str] = None
