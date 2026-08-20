@@ -52,7 +52,10 @@ def test_xlsx_and_xls_uploads_can_be_reloaded_for_analysis(auth_client):
     for filename, raw, content_type in cases:
         upload = auth_client.post(
             f"/upload/{project_id}",
-            files={"file": (filename, raw, content_type)},
+            files={
+                "file": (filename, raw, content_type),
+                "dictionary": ("dictionary.txt", b"date: measurement date. value: measured outcome.", "text/plain"),
+            },
         )
         assert upload.status_code == 200, upload.text
         upload_id = upload.json()["upload_id"]

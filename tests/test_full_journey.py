@@ -56,11 +56,15 @@ def _save_full_intake(client, project_id: int) -> None:
     assert response.status_code == 200, response.text
 
 
+def _dictionary_file():
+    return ("dictionary.txt", b"patient_id: sequential study id, not linked to medical record.", "text/plain")
+
+
 def _upload_csv_fixture(client, project_id: int) -> dict:
     with FIXTURE.open("rb") as fh:
         response = client.post(
             f"/upload/{project_id}",
-            files={"file": (FIXTURE.name, fh, "text/csv")},
+            files={"file": (FIXTURE.name, fh, "text/csv"), "dictionary": _dictionary_file()},
         )
     assert response.status_code == 200, response.text
     return response.json()
@@ -180,7 +184,8 @@ def test_real_dataset_resident_journey_and_regression_guards(client):
                 "diabetes_care_qi_full.xlsx",
                 excel_raw,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+            ),
+            "dictionary": _dictionary_file(),
         },
     )
     assert excel_upload.status_code == 200, excel_upload.text

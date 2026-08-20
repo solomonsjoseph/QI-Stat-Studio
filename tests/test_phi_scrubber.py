@@ -172,6 +172,20 @@ def test_scan_flags_value_level_ssn_in_generically_named_column():
     assert result.violations[0].category == "Social Security Number"
 
 
+def test_scan_dictionary_clears_an_incidental_value_scan_match():
+    # A phone-shaped reference code in a generic column is a clearable category
+    # (Phone Number, found via value-scan, not a real-identifier column-name
+    # match) -- the dictionary can clear this one, unlike name/mrn/ssn/dob.
+    df = pd.DataFrame({"batch_ref": ["555-123-4567", "555-987-6543"]})
+    result = scan_dataframe_for_phi(df)
+    assert result.violations[0].category == "Phone Number"
+
+    cleared = scan_dataframe_for_phi(
+        df, dictionary_text="batch_ref: an internal batch code formatted like a phone number, non-identifying, not phi."
+    )
+    assert cleared.blocked is False
+
+
 def test_scan_clean_dataset_passes():
     df = pd.DataFrame({
         "id": [1, 2, 3],

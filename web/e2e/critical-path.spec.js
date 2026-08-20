@@ -27,6 +27,8 @@ test.describe('critical resident workflow', () => {
         '2025-12-01,4',
       ].join('\n'),
     )
+    const dictionaryPath = testInfo.outputPath('resident-run-chart-dictionary.txt')
+    await writeFile(dictionaryPath, 'month: calendar month of the observation.\nwait_days: median scheduling wait time in days.\n')
 
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'QI Stat Studio' })).toBeVisible()
@@ -39,10 +41,17 @@ test.describe('critical resident workflow', () => {
     await expect(page.getByRole('button', { name: 'Start New Project' })).toBeVisible()
     await page.getByRole('button', { name: 'Start New Project' }).click()
 
-    await expect(page.getByRole('heading', { name: 'Describe Your QI Project' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Tell us about your project.' })).toBeVisible()
     await page.getByLabel('Project Title').fill('Resident run chart project')
     await page.getByLabel('Project Description').fill('Track monthly median wait days after a scheduling improvement.')
+    await page.getByLabel('CSV or Excel dataset').setInputFiles(csvPath)
+    await page.getByLabel('Data dictionary file').setInputFiles(dictionaryPath)
     await page.getByRole('button', { name: 'Continue' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Confirm Column Types' })).toBeVisible()
+    await page.getByLabel('Type for month').selectOption('Date')
+    await page.getByLabel('Type for wait_days').selectOption('Number')
+    await page.getByRole('button', { name: /Confirm Types/ }).click()
 
     await expect(page.getByRole('heading', { name: 'Intake Questions' })).toBeVisible()
     await page.getByLabel('An average or median value (average LDL)').check()
@@ -65,15 +74,6 @@ test.describe('critical resident workflow', () => {
 
     await page.getByLabel('Submission deadline').fill('2026-10-15')
     await page.getByRole('button', { name: 'Continue' }).click()
-
-    await expect(page.getByRole('heading', { name: 'Upload Your Data' })).toBeVisible()
-    await page.getByLabel('CSV or Excel file').setInputFiles(csvPath)
-    await page.getByRole('button', { name: 'Upload CSV/Excel' }).click()
-
-    await expect(page.getByRole('heading', { name: 'Confirm Column Types' })).toBeVisible()
-    await page.getByLabel('Type for month').selectOption('Date')
-    await page.getByLabel('Type for wait_days').selectOption('Number')
-    await page.getByRole('button', { name: /Confirm Types/ }).click()
 
     await expect(page.getByRole('heading', { name: 'Data Review' })).toBeVisible()
     for (const checkbox of await page.getByRole('checkbox').all()) {

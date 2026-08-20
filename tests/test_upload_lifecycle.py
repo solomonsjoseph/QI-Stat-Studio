@@ -13,10 +13,14 @@ def _project(client):
     return response.json()["id"]
 
 
+def _dictionary_file():
+    return ("dictionary.txt", b"encounter_id: sequential study id. value: measured outcome.", "text/plain")
+
+
 def _upload_csv(client, project_id, content, filename="data.csv"):
     return client.post(
         f"/upload/{project_id}",
-        files={"file": (filename, content, "text/csv")},
+        files={"file": (filename, content, "text/csv"), "dictionary": _dictionary_file()},
     )
 
 
@@ -86,7 +90,7 @@ def test_upload_rejects_bad_project_type_size_parser_and_shape(auth_client, monk
 
     unsupported = auth_client.post(
         f"/upload/{project_id}",
-        files={"file": ("data.txt", b"a\n1\n", "text/plain")},
+        files={"file": ("data.txt", b"a\n1\n", "text/plain"), "dictionary": _dictionary_file()},
     )
     assert unsupported.status_code == 400
     assert unsupported.json()["error"]["message"] == "Unsupported file type: .txt"
@@ -108,7 +112,10 @@ def test_upload_rejects_bad_project_type_size_parser_and_shape(auth_client, monk
 
     bad_excel = auth_client.post(
         f"/upload/{project_id}",
-        files={"file": ("bad.xlsx", b"not an xlsx workbook", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={
+            "file": ("bad.xlsx", b"not an xlsx workbook", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            "dictionary": _dictionary_file(),
+        },
     )
     assert bad_excel.status_code == 400
     assert bad_excel.json()["error"]["message"].startswith("Could not parse uploaded xlsx file:")
@@ -203,7 +210,7 @@ def test_replace_delete_and_analysis_require_active_uploads(auth_client):
 
     replacement = auth_client.post(
         f"/upload/{project_id}/replace/{old_id}",
-        files={"file": ("second.csv", b"value\n4\n5\n6\n", "text/csv")},
+        files={"file": ("second.csv", b"value\n4\n5\n6\n", "text/csv"), "dictionary": _dictionary_file()},
     )
     assert replacement.status_code == 200, replacement.text
     new_id = replacement.json()["id"]

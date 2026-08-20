@@ -13,7 +13,10 @@ def _project(client):
 def _upload_csv(client, project_id, content, filename="data.csv"):
     return client.post(
         f"/upload/{project_id}",
-        files={"file": (filename, content, "text/csv")},
+        files={
+            "file": (filename, content, "text/csv"),
+            "dictionary": ("dictionary.txt", b"value: measured outcome.", "text/plain"),
+        },
     )
 
 

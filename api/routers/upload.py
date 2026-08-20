@@ -280,12 +280,12 @@ def get_upload(upload_id: int, db: Session = Depends(get_db), user: User = Depen
 async def upload_file(
     project_id: int,
     file: UploadFile = File(...),
-    dictionary: UploadFile | None = File(None),
+    dictionary: UploadFile = File(...),
     db: Session = Depends(get_db),
     project: Project = Depends(require_project_owner),
 ):
     original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
-    dictionary_filename, dictionary_text = (await _read_dictionary_file(dictionary)) if dictionary else (None, None)
+    dictionary_filename, dictionary_text = await _read_dictionary_file(dictionary)
     _enforce_phi_gate(df, dictionary_text)
     upload, col_summary, col_types, flags, missing_pct = _store_upload(
         db, project_id, original_filename, raw, df, restored_cols, dictionary_filename, dictionary_text
@@ -318,6 +318,7 @@ async def replace_upload(
     project_id: int,
     upload_id: int,
     file: UploadFile = File(...),
+    dictionary: UploadFile = File(...),
     db: Session = Depends(get_db),
     project: Project = Depends(require_project_owner),
     user: User = Depends(get_current_user),
@@ -328,8 +329,12 @@ async def replace_upload(
     if old_upload.status != "active":
         raise HTTPException(status_code=400, detail="Only active uploads can be replaced")
     original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
+    dictionary_filename, dictionary_text = await _read_dictionary_file(dictionary)
+    _enforce_phi_gate(df, dictionary_text)
     old_upload.status = "replaced"
-    new_upload, _col_summary, _col_types, _flags, _missing_pct = _store_upload(db, project_id, original_filename, raw, df, restored_cols)
+    new_upload, _col_summary, _col_types, _flags, _missing_pct = _store_upload(
+        db, project_id, original_filename, raw, df, restored_cols, dictionary_filename, dictionary_text
+    )
     db.commit()
     db.refresh(new_upload)
     log_action(db, project_id, "upload_replaced", {"old_upload_id": old_upload.id, "upload_id": new_upload.id, "file_type": new_upload.file_type, "size_bytes": new_upload.size_bytes})

@@ -313,3 +313,27 @@ def test_project_purge_removes_project_and_encrypted_upload_file(client, tmp_pat
 
     with SessionLocal() as db:
         assert db.get(Project, project["id"]) is None
+
+
+def test_project_ai_state_json_columns_round_trip_through_the_api(client):
+    _register(client, "owner@example.com")
+    project = _create_project(client, "AI state", "Round trip")
+
+    for field in ("ai_clarification_state", "ai_project_design", "ai_analysis_plan", "data_collection_notes"):
+        assert project[field] is None
+
+    with SessionLocal() as db:
+        row = db.get(Project, project["id"])
+        row.ai_clarification_state = json.dumps({"turns": [{"role": "ai", "text": "What are you measuring?"}]})
+        row.ai_project_design = json.dumps({"primary_outcome": "fall rate", "intervention": "screening tool"})
+        row.ai_analysis_plan = json.dumps({"analyses": ["run_chart", "p_chart"], "confirmed": False})
+        row.data_collection_notes = json.dumps({"missing": ["intervention_date"]})
+        db.commit()
+
+    fetched = client.get(f"/projects/{project['id']}")
+    assert fetched.status_code == 200, fetched.text
+    body = fetched.json()
+    assert body["ai_clarification_state"] == {"turns": [{"role": "ai", "text": "What are you measuring?"}]}
+    assert body["ai_project_design"] == {"primary_outcome": "fall rate", "intervention": "screening tool"}
+    assert body["ai_analysis_plan"] == {"analyses": ["run_chart", "p_chart"], "confirmed": False}
+    assert body["data_collection_notes"] == {"missing": ["intervention_date"]}
