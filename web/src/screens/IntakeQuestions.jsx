@@ -122,17 +122,19 @@ export default function IntakeQuestions() {
   }
 
   function applyValueAndAdvance(q, value) {
-    setAnswers(a => {
-      const nextAnswers = q.subKey
-        ? { ...a, [q.key]: { ...(a[q.key] || {}), [q.subKey]: value } }
-        : { ...a, [q.key]: value }
-      if (q.key === 'q3' && value === NO_COMPARISON) {
-        delete nextAnswers.q7
-        delete nextAnswers.q8
-      }
-      advance(nextAnswers)
-      return nextAnswers
-    })
+    // Compute the next answers as a plain value and call the (side-effecting,
+    // async) advance() outside of any setState updater -- React's Strict Mode
+    // double-invokes updater functions to catch impure updaters, which was
+    // silently advancing the question index twice for one AI-resolved answer.
+    const nextAnswers = q.subKey
+      ? { ...answers, [q.key]: { ...(answers[q.key] || {}), [q.subKey]: value } }
+      : { ...answers, [q.key]: value }
+    if (q.key === 'q3' && value === NO_COMPARISON) {
+      delete nextAnswers.q7
+      delete nextAnswers.q8
+    }
+    setAnswers(nextAnswers)
+    advance(nextAnswers)
   }
 
   async function askAI(q) {
