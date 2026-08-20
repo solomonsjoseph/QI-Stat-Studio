@@ -18,9 +18,8 @@ const { apiMock } = vi.hoisted(() => ({
 
 vi.mock('./api', () => ({ api: apiMock }))
 vi.mock('./screens/Auth', () => ({ default: () => <h1>Auth screen</h1> }))
-vi.mock('./screens/ProjectDescription', () => ({ default: () => <h1>Screen description</h1> }))
+vi.mock('./screens/ProjectIntake', () => ({ default: () => <h1>Screen description</h1> }))
 vi.mock('./screens/IntakeQuestions', () => ({ default: () => <h1>Screen intake</h1> }))
-vi.mock('./screens/Upload', () => ({ default: () => <h1>Screen upload</h1> }))
 vi.mock('./screens/DataReview', () => ({ default: () => <h1>Screen review</h1> }))
 vi.mock('./screens/AnalysisSelection', () => ({ default: () => <h1>Screen analysis</h1> }))
 vi.mock('./screens/ParameterSelection', () => ({ default: () => <h1>Screen params</h1> }))
@@ -120,15 +119,15 @@ describe('App resume hydration', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Screen review' })).toBeInTheDocument()
-    for (const label of ['Description', 'Intake', 'Upload', /Review/]) {
+    for (const label of ['Project Intake', 'Intake', /Review/]) {
       expect(screen.getByRole('button', { name: label })).toBeEnabled()
     }
     expect(screen.getByRole('button', { name: /Results/ })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.click(screen.getByRole('button', { name: 'Intake' }))
 
-    expect(await screen.findByRole('heading', { name: 'Screen upload' })).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/app/77/upload')
+    expect(await screen.findByRole('heading', { name: 'Screen intake' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/77/intake')
   })
 
   it('lets the landing project list recover from a load failure', async () => {

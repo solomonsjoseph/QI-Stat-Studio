@@ -1,5 +1,7 @@
+import pandas as pd
+
 from api.middleware import phi_scrubber
-from api.middleware.phi_scrubber import scrub_text
+from api.middleware.phi_scrubber import scan_dataframe_for_phi, scrub_text
 
 
 def _create_project(client) -> int:
@@ -115,3 +117,67 @@ def test_ai_chat_scrubs_phi_from_system_messages_before_outbound_call(client, mo
     assert system_message["role"] == "system"
     assert "123-45-6789" not in system_message["content"]
     assert response.json()["redaction_count"] >= 1
+
+
+def test_scan_flags_patient_name_and_mrn_columns():
+    df = pd.DataFrame({
+        "patient_name": ["Jane Doe", "John Smith"],
+        "mrn": [100234, 100567],
+        "age": [72, 65],
+    })
+    result = scan_dataframe_for_phi(df)
+    categories = {v.column: v.category for v in result.violations}
+    assert categories == {"patient_name": "Patient Name", "mrn": "Medical Record Number"}
+    assert result.blocked is True
+
+
+def test_scan_permits_sequential_and_synthetic_id_columns():
+    # Sequential small ints (pt_id) and non-identifying synthetic codes
+    # (patient_id like "P10270") are internal IDs, not PHI -- never flagged
+    # purely for being named "id"-like.
+    df = pd.DataFrame({
+        "pt_id": [1, 2, 3, 4],
+        "patient_id": ["P10270", "P10271", "P10272", "P10273"],
+        "age": [72, 65, 50, 44],
+    })
+    result = scan_dataframe_for_phi(df)
+    assert result.blocked is False
+
+
+def test_scan_dob_message_varies_with_age_presence():
+    with_age = scan_dataframe_for_phi(pd.DataFrame({"dob": ["1/2/1980"], "age": [45]}))
+    assert "already available" in with_age.violations[0].message
+
+    without_age = scan_dataframe_for_phi(pd.DataFrame({"dob": ["1/2/1980"]}))
+    assert "Convert this to age" in without_age.violations[0].message
+
+
+def test_scan_dictionary_cannot_clear_real_identifier_categories():
+    df = pd.DataFrame({
+        "patient_name": ["Jane Doe"],
+        "mrn": [100234],
+        "dob": ["1/2/1980"],
+    })
+    dictionary_text = (
+        "patient_name: non-identifying. mrn: de-identified study id. "
+        "dob: not phi, sequential id."
+    )
+    result = scan_dataframe_for_phi(df, dictionary_text=dictionary_text)
+    assert {v.column for v in result.violations} == {"patient_name", "mrn", "dob"}
+
+
+def test_scan_flags_value_level_ssn_in_generically_named_column():
+    df = pd.DataFrame({"notes": ["SSN 123-45-6789", "nothing here"]})
+    result = scan_dataframe_for_phi(df)
+    assert result.violations[0].category == "Social Security Number"
+
+
+def test_scan_clean_dataset_passes():
+    df = pd.DataFrame({
+        "id": [1, 2, 3],
+        "fall_date": ["2026-01-04", "2026-01-09", "2026-01-15"],
+        "unit": ["3W", "3W", "3W"],
+        "age": [72, 65, 80],
+    })
+    result = scan_dataframe_for_phi(df)
+    assert result.blocked is False

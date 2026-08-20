@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import Auth from './screens/Auth'
 import Landing from './screens/Landing'
-import ProjectDescription from './screens/ProjectDescription'
+import ProjectIntake from './screens/ProjectIntake'
 import IntakeQuestions from './screens/IntakeQuestions'
-import Upload from './screens/Upload'
 import DataReview from './screens/DataReview'
 import AnalysisSelection from './screens/AnalysisSelection'
 import ParameterSelection from './screens/ParameterSelection'
@@ -19,7 +18,7 @@ export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
 
 export const SCREENS = [
-  'landing', 'description', 'intake', 'upload', 'review',
+  'landing', 'description', 'intake', 'review',
   'analysis', 'params', 'results', 'edit', 'download',
 ]
 
@@ -27,9 +26,8 @@ const ROUTE_SCREENS = new Set([...SCREENS, 'settings'])
 
 const COMPONENTS = {
   landing: Landing,
-  description: ProjectDescription,
+  description: ProjectIntake,
   intake: IntakeQuestions,
-  upload: Upload,
   review: DataReview,
   analysis: AnalysisSelection,
   params: ParameterSelection,
@@ -40,9 +38,8 @@ const COMPONENTS = {
 }
 
 export const STEP_LABELS = {
-  description: 'Description',
+  description: 'Project Intake',
   intake: 'Intake',
-  upload: 'Upload',
   review: 'Review',
   analysis: 'Analysis',
   params: 'Parameters',

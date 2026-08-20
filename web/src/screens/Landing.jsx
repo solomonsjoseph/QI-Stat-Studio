@@ -43,18 +43,9 @@ export default function Landing() {
     loadProjects()
   }, [])
 
-  async function start() {
-    setSaving(true)
-    setError('')
-    try {
-      const project = await api.createProject({ title: 'New QI Project', description: '' })
-      resetProject({ projectId: project.id, projectTitle: project.title, projectDesc: project.description || '' })
-      goTo('description')
-    } catch (err) {
-      setError(formatError(err))
-    } finally {
-      setSaving(false)
-    }
+  function start() {
+    resetProject({})
+    goTo('description')
   }
 
   async function archiveProject(projectId) {

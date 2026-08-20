@@ -2,14 +2,13 @@ import React from 'react'
 import * as AppModule from '../App'
 
 const FALLBACK_SCREENS = [
-  'landing', 'description', 'intake', 'upload', 'review',
+  'landing', 'description', 'intake', 'review',
   'analysis', 'params', 'results', 'edit', 'download',
 ]
 
 const FALLBACK_STEP_LABELS = {
-  description: 'Description',
+  description: 'Project Intake',
   intake: 'Intake',
-  upload: 'Upload',
   review: 'Review',
   analysis: 'Analysis',
   params: 'Parameters',
@@ -38,7 +37,7 @@ export default function PageIntro({ step, title, lead }) {
     <div className="mb-6">
       {step && stepIdx > 0 && label && (
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Step {stepIdx} of 9 · {label}
+          Step {stepIdx} of {screens.length - 1} · {label}
         </p>
       )}
       <h1 className="text-2xl font-semibold text-ink">{title}</h1>

@@ -1,7 +1,11 @@
+from __future__ import annotations
+
 import logging
 import re
-from typing import Tuple
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
 
+import pandas as pd
 import spacy
 
 logger = logging.getLogger(__name__)
@@ -47,3 +51,114 @@ def scrub_text(text: str) -> Tuple[str, int]:
         text = text[:ent.start_char] + "[REDACTED]" + text[ent.end_char:]
         count += 1
     return text, count
+
+
+# --- Deterministic, non-AI dataset PHI gate -------------------------------
+# No LLM ever sees dataset contents here: this is pure column-name/value
+# pattern matching, run before an uploaded file is stored.
+
+_NAME_COL_RE = re.compile(r"(patient.*name|pt.*name|full.?name|last.?name|first.?name|^name$)", re.I)
+_MRN_COL_RE = re.compile(r"(mrn|medical.?record)", re.I)
+_SSN_COL_RE = re.compile(r"(ssn|social.?security)", re.I)
+_DOB_COL_RE = re.compile(r"(dob|date.?of.?birth|birth.?date)", re.I)
+_ADDRESS_COL_RE = re.compile(r"(address|street)", re.I)
+_PHONE_COL_RE = re.compile(r"phone", re.I)
+_EMAIL_COL_RE = re.compile(r"email", re.I)
+_AGE_COL_RE = re.compile(r"^age([_ ]?(years|yrs))?$", re.I)
+
+_VALUE_CATEGORY_PATTERNS = [
+    ("Medical Record Number", re.compile(r"\bMRN[:\s#]*\d{5,10}\b", re.I)),
+    ("Social Security Number", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("Phone Number", re.compile(r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}\b")),
+    ("Email Address", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
+]
+
+# Real identifier categories can never be talked out of by a data dictionary --
+# there is no legitimate non-identifying reading of an actual name/MRN/SSN/DOB.
+_NON_CLEARABLE_CATEGORIES = {"Patient Name", "Medical Record Number", "Social Security Number", "Date of Birth"}
+_CLEARING_PHRASES = ("de-identified", "non-identifying", "not phi", "sequential id", "study id", "randomly assigned")
+
+
+@dataclass
+class PhiViolation:
+    column: str
+    category: str
+    message: str
+
+
+@dataclass
+class PhiScanResult:
+    violations: list = field(default_factory=list)
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.violations)
+
+
+def _dictionary_clears_column(column: str, dictionary_text: str) -> bool:
+    text = dictionary_text.lower()
+    idx = text.find(column.lower())
+    if idx == -1:
+        return False
+    window = text[idx: idx + 300]
+    return any(phrase in window for phrase in _CLEARING_PHRASES)
+
+
+def scan_dataframe_for_phi(df: pd.DataFrame, dictionary_text: str | None = None) -> PhiScanResult:
+    """Deterministic, zero-tolerance PHI scan of an uploaded dataset.
+
+    Checks column names against identifier heuristics and cell values against
+    the same regex patterns used by scrub_text. A single matching cell or
+    column name is a violation. Never reads/logs raw PHI values -- only the
+    column name and violation category are returned.
+    """
+    has_age_column = any(_AGE_COL_RE.search(str(col)) for col in df.columns)
+    violations: list[PhiViolation] = []
+
+    for col in df.columns:
+        col_str = str(col)
+        category: str | None = None
+        message: str | None = None
+
+        if _NAME_COL_RE.search(col_str):
+            category = "Patient Name"
+            message = f'"{col_str}" looks like a patient name column. Remove it.'
+        elif _MRN_COL_RE.search(col_str):
+            category = "Medical Record Number"
+            message = f'"{col_str}" looks like a medical record number column. Remove it.'
+        elif _SSN_COL_RE.search(col_str):
+            category = "Social Security Number"
+            message = f'"{col_str}" looks like a Social Security Number column. Remove it.'
+        elif _DOB_COL_RE.search(col_str):
+            category = "Date of Birth"
+            if has_age_column:
+                message = f'"{col_str}" — remove this column, age is already available and date of birth is not needed.'
+            else:
+                message = f'"{col_str}" — this is a HIPAA violation. Convert this to age (or an age range) instead of date of birth, then re-upload.'
+        elif _ADDRESS_COL_RE.search(col_str):
+            category = "Address"
+            message = f'"{col_str}" looks like a street address column. Remove it.'
+        elif _PHONE_COL_RE.search(col_str):
+            category = "Phone Number"
+            message = f'"{col_str}" looks like a phone number column. Remove it.'
+        elif _EMAIL_COL_RE.search(col_str):
+            category = "Email Address"
+            message = f'"{col_str}" looks like an email address column. Remove it.'
+        else:
+            values = df[col].dropna().astype(str)
+            for value_category, pattern in _VALUE_CATEGORY_PATTERNS:
+                if values.apply(lambda v: bool(pattern.search(v))).any():
+                    category = value_category
+                    message = f'"{col_str}" contains values that look like a {value_category.lower()}. Remove it.'
+                    break
+
+        if category is None:
+            continue
+
+        clearable = category not in _NON_CLEARABLE_CATEGORIES
+        if clearable and dictionary_text and _dictionary_clears_column(col_str, dictionary_text):
+            continue
+
+        violations.append(PhiViolation(column=col_str, category=category, message=message))
+
+    return PhiScanResult(violations=violations)

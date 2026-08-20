@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -34,6 +34,7 @@ from api.models_db import (
     User,
 )
 from api.routers.share import _active_filter
+from api.routers.upload import _enforce_phi_gate, _read_dictionary_file, _read_validated_upload_file, _store_upload
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -167,6 +168,35 @@ def create_project(
     db.refresh(p)
     log_action(db, p.id, "project_created")
     return p
+
+
+@router.post("/intake")
+async def create_project_intake(
+    title: str = Form(...),
+    description: str = Form(""),
+    file: UploadFile = File(...),
+    dictionary: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Unified intake: title/description + dataset + required data dictionary in one step."""
+    original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
+    dictionary_filename, dictionary_text = await _read_dictionary_file(dictionary)
+    _enforce_phi_gate(df, dictionary_text)
+
+    project = Project(owner_user_id=user.id, title=title, description=description, status="draft")
+    db.add(project)
+    db.flush()
+
+    upload, *_ = _store_upload(
+        db, project.id, original_filename, raw, df, restored_cols, dictionary_filename, dictionary_text
+    )
+    db.commit()
+    db.refresh(project)
+    db.refresh(upload)
+    log_action(db, project.id, "project_created")
+    log_action(db, project.id, "upload_created", {"upload_id": upload.id, "file_type": upload.file_type, "size_bytes": upload.size_bytes})
+    return {"project": ProjectOut.model_validate(project), "upload": _upload_out(upload)}
 
 
 @router.get("", response_model=ProjectListResponse)

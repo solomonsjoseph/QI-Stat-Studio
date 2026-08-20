@@ -1,7 +1,8 @@
+import json
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProjectCreate(BaseModel):
@@ -26,8 +27,25 @@ class ProjectOut(BaseModel):
     owner_user_id: Optional[int] = None
     archived_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    ai_clarification_state: Optional[dict[str, Any]] = None
+    ai_project_design: Optional[dict[str, Any]] = None
+    ai_analysis_plan: Optional[dict[str, Any]] = None
+    data_collection_notes: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator(
+        "ai_clarification_state", "ai_project_design", "ai_analysis_plan", "data_collection_notes",
+        mode="before",
+    )
+    @classmethod
+    def _parse_ai_state_json(cls, value: Any) -> Optional[dict[str, Any]]:
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        return value
 
 
 class UploadOut(BaseModel):

@@ -8,11 +8,14 @@ from uuid import uuid4
 
 import pandas as pd
 from cryptography.fernet import InvalidToken
+from docx import Document
 from fastapi import HTTPException
+from pypdf import PdfReader
 
 from api.config import settings
 
 AllowedUploadType = Literal["csv", "xlsx", "xls"]
+AllowedDictionaryType = Literal["pdf", "docx", "txt"]
 
 
 def _allowed_suffix(filename: str) -> AllowedUploadType:
@@ -91,6 +94,34 @@ def _validate_dataset_shape(df: pd.DataFrame) -> None:
 def _safe_storage_key(project_id: int, original_filename: str, raw: bytes) -> str:
     suffix = _allowed_suffix(original_filename)
     return f"{project_id}_{uuid4().hex}.{suffix}.enc"
+
+
+def _allowed_dictionary_suffix(filename: str) -> AllowedDictionaryType:
+    suffix = Path(filename or "").suffix.lower().lstrip(".")
+    if suffix in {"pdf", "docx", "txt"}:
+        return suffix  # type: ignore[return-value]
+    display = f".{suffix}" if suffix else "(none)"
+    raise HTTPException(status_code=400, detail=f"Unsupported data dictionary file type: {display}")
+
+
+def extract_dictionary_text(filename: str, raw: bytes) -> str:
+    """Extract plain text from a required data-dictionary upload (PDF/DOCX/txt)."""
+    suffix = _allowed_dictionary_suffix(filename)
+    try:
+        if suffix == "txt":
+            return raw.decode("utf-8", errors="ignore")
+        if suffix == "docx":
+            doc = Document(io.BytesIO(raw))
+            return "\n".join(p.text for p in doc.paragraphs)
+        if suffix == "pdf":
+            reader = PdfReader(io.BytesIO(raw))
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not parse uploaded data dictionary ({suffix}): {_short_reason(exc)}",
+        ) from exc
+    raise HTTPException(status_code=400, detail=f"Unsupported data dictionary file type: {suffix}")
 
 
 def load_upload_dataframe(upload) -> pd.DataFrame:

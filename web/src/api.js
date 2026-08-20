@@ -59,6 +59,16 @@ export const api = {
 
   // Projects
   createProject: (data) => req('POST', '/projects', data),
+  createProjectIntake: async ({ title, description, file, dictionary }) => {
+    const fd = new FormData()
+    fd.append('title', title)
+    fd.append('description', description || '')
+    fd.append('file', file)
+    fd.append('dictionary', dictionary)
+    const res = await fetch(`${BASE}/projects/intake`, { method: 'POST', body: fd, credentials: 'include' })
+    if (!res.ok) await parseError(res, `projects/intake → ${res.status}`)
+    return readResponse(res)
+  },
   getProject: (id) => req('GET', `/projects/${id}`),
   listProjects: async (params = {}) => {
     const search = new URLSearchParams()

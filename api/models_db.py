@@ -34,6 +34,10 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     archived_at = Column(DateTime, nullable=True)
+    ai_clarification_state = Column(Text, nullable=True)
+    ai_project_design = Column(Text, nullable=True)
+    ai_analysis_plan = Column(Text, nullable=True)
+    data_collection_notes = Column(Text, nullable=True)
 
 
 class Upload(Base):
@@ -53,6 +57,9 @@ class Upload(Base):
     original_filename = Column(String(255), default="", nullable=False)
     storage_key = Column(String(512), default="", nullable=False)
     status = Column(String(20), default="active", nullable=False)
+    phi_scan_status = Column(String(20), default="clean", nullable=False)
+    dictionary_filename = Column(String(255), nullable=True)
+    dictionary_text = Column(Text, nullable=True)
 
 
 class IntakeAnswer(Base):

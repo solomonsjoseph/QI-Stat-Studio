@@ -15,9 +15,16 @@ from api.audit import log_action
 from api.auth import get_current_user, require_project_owner
 from api.config import settings
 from api.database import get_db
+from api.middleware.phi_scrubber import scan_dataframe_for_phi
 from api.models_api import ColumnTypeUpdate, UploadOut
 from api.models_db import Project, Upload, User
-from api.upload_utils import _allowed_suffix, _read_dataframe, _safe_storage_key, _validate_dataset_shape
+from api.upload_utils import (
+    _allowed_suffix,
+    _read_dataframe,
+    _safe_storage_key,
+    _validate_dataset_shape,
+    extract_dictionary_text,
+)
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 UPLOAD_DIR = Path("uploads_enc")
@@ -175,7 +182,30 @@ def _upload_out(upload: Upload, preview_rows: list[dict[str, Any]] | None = None
     )
 
 
-def _store_upload(db: Session, project_id: int, original_filename: str, raw: bytes, df: pd.DataFrame, preserved_cols: set[str]) -> tuple[Upload, dict, dict, list, dict]:
+def _enforce_phi_gate(df: pd.DataFrame, dictionary_text: str | None) -> None:
+    result = scan_dataframe_for_phi(df, dictionary_text=dictionary_text)
+    if result.blocked:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "We found information that may identify a patient. Remove it and upload again.",
+                # field_errors is the one detail key the global error handler preserves,
+                # so per-column PHI violations ({category}: {message}) ride along in it.
+                "field_errors": {v.column: [f"{v.category}: {v.message}"] for v in result.violations},
+            },
+        )
+
+
+def _store_upload(
+    db: Session,
+    project_id: int,
+    original_filename: str,
+    raw: bytes,
+    df: pd.DataFrame,
+    preserved_cols: set[str],
+    dictionary_filename: str | None = None,
+    dictionary_text: str | None = None,
+) -> tuple[Upload, dict, dict, list, dict]:
     file_type = _allowed_suffix(original_filename)
     storage_key = _safe_storage_key(project_id, original_filename, raw)
     enc_path = UPLOAD_DIR / storage_key
@@ -197,6 +227,9 @@ def _store_upload(db: Session, project_id: int, original_filename: str, raw: byt
         column_map=json.dumps({}),
         quality_flags=json.dumps(flags),
         encrypted_path=str(enc_path),
+        phi_scan_status="clean",
+        dictionary_filename=dictionary_filename,
+        dictionary_text=dictionary_text,
     )
     db.add(upload)
     return upload, col_summary, col_types, flags, {col: col_summary[col]["missing_pct"] for col in col_summary}
@@ -213,6 +246,14 @@ async def _read_validated_upload_file(file: UploadFile) -> tuple[str, str, bytes
     df, restored_cols = _read_dataframe(raw, file_type)
     _validate_dataset_shape(df)
     return original_filename, file_type, raw, df, restored_cols
+
+
+async def _read_dictionary_file(file: UploadFile) -> tuple[str, str]:
+    original_filename = file.filename or "dictionary"
+    raw = await file.read()
+    if len(raw) > MAX_BYTES:
+        raise HTTPException(400, "Data dictionary file exceeds 50 MB limit")
+    return original_filename, extract_dictionary_text(original_filename, raw)
 
 
 @router.get("/project/{project_id}", response_model=list[UploadOut])
@@ -239,11 +280,16 @@ def get_upload(upload_id: int, db: Session = Depends(get_db), user: User = Depen
 async def upload_file(
     project_id: int,
     file: UploadFile = File(...),
+    dictionary: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     project: Project = Depends(require_project_owner),
 ):
     original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
-    upload, col_summary, col_types, flags, missing_pct = _store_upload(db, project_id, original_filename, raw, df, restored_cols)
+    dictionary_filename, dictionary_text = (await _read_dictionary_file(dictionary)) if dictionary else (None, None)
+    _enforce_phi_gate(df, dictionary_text)
+    upload, col_summary, col_types, flags, missing_pct = _store_upload(
+        db, project_id, original_filename, raw, df, restored_cols, dictionary_filename, dictionary_text
+    )
     db.commit()
     db.refresh(upload)
     log_action(db, project_id, "upload_created", {"upload_id": upload.id, "file_type": upload.file_type, "size_bytes": upload.size_bytes})
