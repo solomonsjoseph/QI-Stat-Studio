@@ -42,7 +42,10 @@ export default function ClarificationStage() {
     setTurns(body.turns)
     setConfirmed(body.confirmed)
     if (body.suggested_title || body.suggested_description) {
-      setSuggestion({ title: body.suggested_title, description: body.suggested_description })
+      setSuggestion({
+        title: body.suggested_title || ctx.projectTitle,
+        description: body.suggested_description || ctx.projectDesc,
+      })
     }
   }
 
@@ -104,9 +107,13 @@ export default function ClarificationStage() {
     }
   }
 
+  function setSuggestionField(field, value) {
+    setSuggestion(s => ({ ...s, [field]: value }))
+  }
+
   async function acceptSuggestion() {
-    const title = suggestion.title || ctx.projectTitle
-    const description = suggestion.description || ctx.projectDesc
+    const title = suggestion.title
+    const description = suggestion.description
     try {
       await api.updateProject(ctx.projectId, { title, description })
       update({ projectTitle: title, projectDesc: description })
@@ -172,11 +179,25 @@ export default function ClarificationStage() {
             </button>
           </div>
 
-          {suggestion && (suggestion.title || suggestion.description) && (
+          {suggestion && (
             <div className="alert-info mb-3">
-              <p className="font-medium mb-1">Suggested rewrite:</p>
-              {suggestion.title && <p><strong>Title:</strong> {suggestion.title}</p>}
-              {suggestion.description && <p><strong>Description:</strong> {suggestion.description}</p>}
+              <p className="font-medium mb-1">Suggested rewrite (edit before accepting if you'd like):</p>
+              <label className="flex flex-col gap-1 mb-2">
+                <span className="text-xs font-medium">Title</span>
+                <input
+                  className="input"
+                  value={suggestion.title}
+                  onChange={e => setSuggestionField('title', e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-medium">Description</span>
+                <textarea
+                  className="input"
+                  value={suggestion.description}
+                  onChange={e => setSuggestionField('description', e.target.value)}
+                />
+              </label>
               <div className="flex gap-2 mt-2">
                 <button type="button" onClick={acceptSuggestion} className="btn-primary px-3 py-1">Accept</button>
                 <button type="button" onClick={dismissSuggestion} className="btn-secondary px-3 py-1">Dismiss</button>
@@ -192,6 +213,7 @@ export default function ClarificationStage() {
             ))}
           </div>
 
+          <p className="text-xs text-ink-faint mb-1">Don't include patient names, MRNs, or other identifying information in your messages.</p>
           {pendingRedacted !== null && (
             <p role="alert" className="alert-warn mb-2">
               We removed what looked like PHI from your message. Click Share again to send the redacted version below.

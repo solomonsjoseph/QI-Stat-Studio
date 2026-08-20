@@ -170,6 +170,7 @@ export default function AnalysisPlanStage() {
             <strong>{turn.role === 'ai' ? 'AI' : 'You'}:</strong> {turn.content}
           </p>
         ))}
+        <p className="text-xs text-ink-faint">Don't include patient names, MRNs, or other identifying information in your messages.</p>
         {pendingRedacted !== null && (
           <p role="alert" className="alert-warn">
             We removed what looked like PHI from your message. Click Share again to send the redacted version below.

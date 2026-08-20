@@ -68,7 +68,7 @@ describe('ClarificationStage', () => {
     const value = renderScreen()
 
     await user.click(screen.getByRole('button', { name: 'Chat with AI' }))
-    await screen.findByText('Fall-Risk Screening Impact on Falls Rate, Unit 3W')
+    await screen.findByDisplayValue('Fall-Risk Screening Impact on Falls Rate, Unit 3W')
 
     await user.click(screen.getByRole('button', { name: 'Accept' }))
 
@@ -121,5 +121,36 @@ describe('ClarificationStage', () => {
 
     expect(apiMock.clarify).not.toHaveBeenCalled()
     expect(value.next).toHaveBeenCalled()
+  })
+
+  it('lets the resident edit the AI suggested title/description before accepting', async () => {
+    apiMock.clarify.mockResolvedValue({
+      message: 'Proposed rewrite',
+      confirmed: false,
+      suggested_title: 'AI suggested title',
+      suggested_description: 'AI suggested description.',
+      turns: [{ role: 'ai', content: 'Proposed rewrite' }],
+    })
+    apiMock.updateProject.mockResolvedValue({})
+    const user = userEvent.setup()
+    const value = renderScreen()
+
+    await user.click(screen.getByRole('button', { name: 'Chat with AI' }))
+    const titleInput = await screen.findByDisplayValue('AI suggested title')
+    await user.clear(titleInput)
+    await user.type(titleInput, 'My edited title')
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    await waitFor(() => {
+      expect(apiMock.updateProject).toHaveBeenCalledWith(1, {
+        title: 'My edited title',
+        description: 'AI suggested description.',
+      })
+    })
+    expect(value.update).toHaveBeenCalledWith({
+      projectTitle: 'My edited title',
+      projectDesc: 'AI suggested description.',
+    })
   })
 })
