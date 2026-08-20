@@ -3,7 +3,7 @@ import * as AppModule from '../App'
 
 const FALLBACK_SCREENS = [
   'landing', 'description', 'clarify', 'intake', 'review',
-  'analysis', 'params', 'results', 'edit', 'download',
+  'analysis', 'results', 'edit', 'download',
 ]
 
 const FALLBACK_STEP_LABELS = {
@@ -11,8 +11,7 @@ const FALLBACK_STEP_LABELS = {
   clarify: 'AI Clarification',
   intake: 'Intake',
   review: 'Review',
-  analysis: 'Analysis',
-  params: 'Parameters',
+  analysis: 'Analysis Plan',
   results: 'Results',
   edit: 'Edits',
   download: 'Download',

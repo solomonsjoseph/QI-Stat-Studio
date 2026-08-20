@@ -5,8 +5,7 @@ import ProjectIntake from './screens/ProjectIntake'
 import ClarificationStage from './screens/ClarificationStage'
 import IntakeQuestions from './screens/IntakeQuestions'
 import DataReview from './screens/DataReview'
-import AnalysisSelection from './screens/AnalysisSelection'
-import ParameterSelection from './screens/ParameterSelection'
+import AnalysisPlanStage from './screens/AnalysisPlanStage'
 import Results from './screens/Results'
 import EditReview from './screens/EditReview'
 import DownloadShare from './screens/DownloadShare'
@@ -20,7 +19,7 @@ export const useApp = () => useContext(AppCtx)
 
 export const SCREENS = [
   'landing', 'description', 'clarify', 'intake', 'review',
-  'analysis', 'params', 'results', 'edit', 'download',
+  'analysis', 'results', 'edit', 'download',
 ]
 
 const ROUTE_SCREENS = new Set([...SCREENS, 'settings'])
@@ -31,8 +30,7 @@ const COMPONENTS = {
   clarify: ClarificationStage,
   intake: IntakeQuestions,
   review: DataReview,
-  analysis: AnalysisSelection,
-  params: ParameterSelection,
+  analysis: AnalysisPlanStage,
   results: Results,
   edit: EditReview,
   download: DownloadShare,
@@ -44,8 +42,7 @@ export const STEP_LABELS = {
   clarify: 'AI Clarification',
   intake: 'Intake',
   review: 'Review',
-  analysis: 'Analysis',
-  params: 'Parameters',
+  analysis: 'Analysis Plan',
   results: 'Results',
   edit: 'Edits',
   download: 'Download',

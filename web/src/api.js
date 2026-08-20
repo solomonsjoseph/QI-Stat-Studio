@@ -91,6 +91,9 @@ export const api = {
   scrubPreview: (text) => req('POST', '/ai/scrub-preview', { text }),
   clarify: (projectId, message) => req('POST', `/ai/clarify/${projectId}`, { message: message || null }),
 
+  // AI analysis-plan recommendation
+  recommendPlan: (projectId, message) => req('POST', `/ai/recommend-plan/${projectId}`, { message: message || null }),
+
   // Upload
   upload: async (projectId, file) => {
     const fd = new FormData()

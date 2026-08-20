@@ -179,6 +179,30 @@ class ClarifyResponse(BaseModel):
     turns: list[ClarifyTurn]
 
 
+class AnalysisPlanRequest(BaseModel):
+    message: Optional[str] = None
+
+
+class AnalysisPlanItem(BaseModel):
+    template: str
+    rationale: Optional[str] = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnalysisPlanTurn(BaseModel):
+    role: Literal["ai", "user"]
+    content: str
+    reasoning: Optional[str] = None
+
+
+class AnalysisPlanResponse(BaseModel):
+    message: str
+    reasoning: Optional[str] = None
+    confirmed: bool
+    analyses: list[AnalysisPlanItem]
+    turns: list[AnalysisPlanTurn]
+
+
 class ColumnTypeUpdate(BaseModel):
     col_types: dict[str, str]
     column_map: dict[str, str] = Field(default_factory=dict)

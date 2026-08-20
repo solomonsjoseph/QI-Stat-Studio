@@ -14,7 +14,12 @@ from api.config import settings
 from api.database import get_db
 from api.intake_schema import validate_answers
 from api.middleware.phi_scrubber import scrub_text
+from api.analysis_schemas import TEMPLATE_PARAM_MODELS
+from api.routers.analyze import _ALL as ANALYSIS_TEMPLATES
+from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.models_api import (
+    AnalysisPlanRequest,
+    AnalysisPlanResponse,
     ChatRequest,
     ChatResponse,
     ClarifyRequest,
@@ -88,12 +93,20 @@ def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
     return "openrouter", settings.openrouter_api_key or None, None, model
 
 
-def _llm_completion(provider: str, api_key: str | None, api_base: str | None, model: str, messages: list[dict[str, str]]):
+def _llm_completion(
+    provider: str,
+    api_key: str | None,
+    api_base: str | None,
+    model: str,
+    messages: list[dict[str, str]],
+    max_tokens: int = 800,
+    reasoning_effort: str | None = None,
+):
     """Route a chat completion through litellm's unified, OpenAI-compatible interface."""
     kwargs: dict[str, Any] = {
         "model": f"{_MODEL_PREFIXES[provider]}{model}",
         "messages": messages,
-        "max_tokens": 800,
+        "max_tokens": max_tokens,
         "timeout": 30,
         "num_retries": 2,
     }
@@ -101,6 +114,14 @@ def _llm_completion(provider: str, api_key: str | None, api_base: str | None, mo
         kwargs["api_key"] = api_key
     if api_base:
         kwargs["api_base"] = api_base
+    # Reasoning models (e.g. gpt-5-nano) can spend the entire max_tokens budget on
+    # hidden reasoning and return empty content for anything beyond a trivial prompt;
+    # capping reasoning effort keeps a real answer inside the token budget. Not every
+    # configured provider/model supports this param, so let litellm drop it silently
+    # rather than erroring out non-reasoning models.
+    if reasoning_effort:
+        kwargs["reasoning_effort"] = reasoning_effort
+        kwargs["drop_params"] = True
     return litellm.completion(**kwargs)
 
 
@@ -295,7 +316,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
 
     prompt_chars = sum(len(m["content"]) for m in messages)
     try:
-        resp = _llm_completion(provider, api_key, api_base, default_model, messages)
+        resp = _llm_completion(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
         content = resp.choices[0].message.content
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
@@ -319,5 +340,116 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
         suggested_title=draft.suggested_title,
         suggested_description=draft.suggested_description,
         confirmed=draft.confirmed,
+        turns=turns,
+    )
+
+
+def _method_library_text() -> str:
+    lines = []
+    for template in ANALYSIS_TEMPLATES:
+        model = TEMPLATE_PARAM_MODELS[template]
+        fields = ", ".join(
+            f"{name}{'' if field.is_required() else ' (optional)'}"
+            for name, field in model.model_fields.items()
+        )
+        lines.append(f"- {template}: {ANALYSIS_DESCRIPTIONS[template]} Parameters: {fields}.")
+    return "\n".join(lines)
+
+
+_RECOMMEND_SYSTEM_PROMPT = """You are recommending a complete statistical analysis plan for a medical resident's quality-improvement (QI) project. You may recommend and combine multiple analyses -- never force a single choice -- but ONLY from this fixed library of implemented, executable methods (never propose anything outside this list, never invent a new method):
+
+{method_library}
+
+Confirmed project design: {design}
+Dataset columns and types: {col_types}
+Data dictionary: {dictionary_text}
+
+Your job this turn:
+- Recommend every analysis from the library above that is genuinely relevant given the project design (e.g. a pre/post project may need descriptive_summary AND run_chart AND before_after_mean together; a simple one-period project may need only descriptive_summary).
+- For each recommended analysis, infer its exact parameters (real column names from the dataset above) as confidently as you can. Leave a parameter out only if you genuinely cannot infer it.
+- Briefly explain why each analysis is recommended and what question it answers.
+- If the resident denies an analysis or asks for something different, adjust the plan and explain the change.
+- Only set "confirmed" to true once the resident has explicitly agreed to the final plan.
+
+Respond with JSON only, no prose outside the JSON, in exactly this shape:
+{{"message": "<your reply to the resident>", "reasoning": "<one or two sentences of your reasoning for this turn>", "confirmed": <true or false>, "analyses": [{{"template": "<one of the library ids above>", "rationale": "<why this analysis, briefly>", "parameters": {{"<param name>": "<inferred column name or value>"}}}}]}}"""
+
+
+class _AnalysisPlanItemDraft(BaseModel):
+    template: str
+    rationale: str | None = None
+    parameters: dict[str, Any] = {}
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class _AnalysisPlanDraft(BaseModel):
+    message: str = ""
+    reasoning: str | None = None
+    confirmed: bool = False
+    analyses: list[_AnalysisPlanItemDraft] = []
+
+    model_config = ConfigDict(extra="ignore")
+
+
+@router.post("/recommend-plan/{project_id}", response_model=AnalysisPlanResponse)
+def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    project = _require_project_access(db, project_id, user)
+    _enforce_ai_rate_limit(db, user)
+
+    provider, api_key, api_base, default_model = _provider_settings(db)
+    if not api_key and provider != "local":
+        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+
+    state = json.loads(project.ai_analysis_plan) if project.ai_analysis_plan else {}
+    turns = state.get("turns", [])
+
+    clean_message = None
+    redaction_count = 0
+    if req.message:
+        clean_message, redaction_count = scrub_text(req.message)
+        if redaction_count > 0:
+            log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_recommend_plan"})
+        turns.append({"role": "user", "content": clean_message})
+
+    upload = _latest_active_upload(db, project_id)
+    col_types = json.loads(upload.col_types) if upload and upload.col_types else {}
+    dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
+    design = json.loads(project.ai_project_design) if project.ai_project_design else {}
+
+    system_prompt = _RECOMMEND_SYSTEM_PROMPT.format(
+        method_library=_method_library_text(),
+        design=json.dumps(design) if design else "(not yet clarified)",
+        col_types=json.dumps(col_types),
+        dictionary_text=dictionary_text,
+    )
+    messages = [{"role": "system", "content": system_prompt}]
+    for turn in turns:
+        messages.append({"role": "assistant" if turn["role"] == "ai" else "user", "content": turn["content"]})
+    if not turns:
+        messages.append({"role": "user", "content": "(starting the conversation -- please propose your recommended analysis plan)"})
+
+    prompt_chars = sum(len(m["content"]) for m in messages)
+    try:
+        resp = _llm_completion(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
+        content = resp.choices[0].message.content
+    except Exception:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+
+    draft = _AnalysisPlanDraft.model_validate(_extract_json_object(content))
+    analyses = [a.model_dump() for a in draft.analyses if a.template in ANALYSIS_TEMPLATES]
+    turns.append({"role": "ai", "content": draft.message, "reasoning": draft.reasoning})
+
+    project.ai_analysis_plan = json.dumps({"turns": turns, "confirmed": draft.confirmed, "analyses": analyses})
+    db.commit()
+
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
+
+    return AnalysisPlanResponse(
+        message=draft.message,
+        reasoning=draft.reasoning,
+        confirmed=draft.confirmed,
+        analyses=analyses,
         turns=turns,
     )
