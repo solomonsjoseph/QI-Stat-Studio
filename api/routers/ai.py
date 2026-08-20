@@ -125,6 +125,35 @@ def _llm_completion(
     return litellm.completion(**kwargs)
 
 
+def _llm_completion_nonempty(
+    provider: str,
+    api_key: str | None,
+    api_base: str | None,
+    model: str,
+    messages: list[dict[str, str]],
+    max_tokens: int,
+    reasoning_effort: str | None,
+) -> str:
+    """Call the LLM and guarantee non-blank content.
+
+    A reasoning model can spend its entire max_tokens budget on hidden reasoning
+    and return empty content for anything beyond a trivial prompt -- this looked
+    to the resident like the AI "stopped responding" (a blank turn silently
+    appended to the conversation, no error, nothing to retry). Retry once with a
+    lower reasoning effort and a larger budget; if it's still blank, raise so the
+    caller shows a real error instead of persisting a dead turn.
+    """
+    resp = _llm_completion(provider, api_key, api_base, model, messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort)
+    content = (resp.choices[0].message.content or "").strip()
+    if content:
+        return content
+    resp = _llm_completion(provider, api_key, api_base, model, messages, max_tokens=max_tokens * 2, reasoning_effort="minimal")
+    content = (resp.choices[0].message.content or "").strip()
+    if content:
+        return content
+    raise RuntimeError("empty_llm_response")
+
+
 def _record_ai_usage(
     db: Session,
     *,
@@ -331,13 +360,15 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
 
     prompt_chars = sum(len(m["content"]) for m in messages)
     try:
-        resp = _llm_completion(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
-        content = resp.choices[0].message.content
+        content = _llm_completion_nonempty(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
     draft = _ClarifyDraft.model_validate(_extract_json_object(content))
+    if not draft.message.strip():
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
     turns.append({"role": "ai", "content": draft.message, "reasoning": draft.reasoning})
 
     project.ai_clarification_state = json.dumps({"turns": turns, "confirmed": draft.confirmed})
@@ -446,13 +477,15 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
 
     prompt_chars = sum(len(m["content"]) for m in messages)
     try:
-        resp = _llm_completion(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
-        content = resp.choices[0].message.content
+        content = _llm_completion_nonempty(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
     draft = _AnalysisPlanDraft.model_validate(_extract_json_object(content))
+    if not draft.message.strip():
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
     analyses = [a.model_dump() for a in draft.analyses if a.template in ANALYSIS_TEMPLATES]
     turns.append({"role": "ai", "content": draft.message, "reasoning": draft.reasoning})
 

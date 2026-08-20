@@ -603,3 +603,67 @@ def test_clarify_confirm_true_does_not_require_an_api_key(client):
 
     assert response.status_code == 200, response.text
     assert response.json()["confirmed"] is True
+
+
+def test_clarify_retries_once_when_the_model_returns_empty_content_then_succeeds(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch(
+        "api.routers.ai.litellm.completion",
+        side_effect=[_mock_completion(""), _clarify_reply()],
+    ) as mocked_completion:
+        response = client.post(f"/ai/clarify/{project_id}", json={})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["message"] == "Here's what I understood about your project..."
+    assert mocked_completion.call_count == 2
+    second_call_kwargs = mocked_completion.call_args_list[1].kwargs
+    assert second_call_kwargs["reasoning_effort"] == "minimal"
+
+
+def test_clarify_fails_loud_instead_of_persisting_a_blank_turn_when_still_empty_after_retry(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("")) as mocked_completion:
+        response = client.post(f"/ai/clarify/{project_id}", json={})
+
+    assert response.status_code == 502
+    assert mocked_completion.call_count == 2
+
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        assert project.ai_clarification_state is None  # no dead blank turn persisted
+
+
+def test_recommend_plan_retries_once_when_the_model_returns_empty_content_then_succeeds(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch(
+        "api.routers.ai.litellm.completion",
+        side_effect=[_mock_completion(""), _plan_reply()],
+    ) as mocked_completion:
+        response = client.post(f"/ai/recommend-plan/{project_id}", json={})
+
+    assert response.status_code == 200, response.text
+    assert mocked_completion.call_count == 2
+
+
+def test_recommend_plan_fails_loud_instead_of_persisting_a_blank_turn_when_still_empty_after_retry(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("")):
+        response = client.post(f"/ai/recommend-plan/{project_id}", json={})
+
+    assert response.status_code == 502
+
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        assert project.ai_analysis_plan is None
