@@ -195,3 +195,17 @@ def test_scan_clean_dataset_passes():
     })
     result = scan_dataframe_for_phi(df)
     assert result.blocked is False
+
+
+def test_scrub_text_redact_dates_false_preserves_a_standalone_date_but_still_redacts_names_and_ids():
+    result, count = scrub_text("MRN 1234567, started 2026-01-01, contact patient@hospital.org", redact_dates=False)
+    assert "2026-01-01" in result
+    assert "1234567" not in result
+    assert "patient@hospital.org" not in result
+    assert count >= 2  # MRN + email redacted, date preserved
+
+
+def test_scrub_text_redact_dates_true_still_redacts_a_standalone_date_by_default():
+    result, count = scrub_text("Seen on 2026-01-01 at the clinic")
+    assert "2026-01-01" not in result
+    assert count >= 1

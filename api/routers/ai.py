@@ -542,7 +542,12 @@ def ai_intake_answer(project_id: int, req: IntakeAnswerAIRequest, db: Session = 
     if not api_key and provider != "local":
         raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
 
-    clean_message, redaction_count = scrub_text(req.message)
+    # date/intervention questions are specifically asking for a project-level date
+    # (intervention date, abstract deadline) -- that date is the answer being
+    # extracted, not incidental text that might be a patient's DOB, so it must
+    # survive scrubbing. Names/MRNs/SSNs/phones/emails/addresses are still redacted.
+    redact_dates = req.question_type not in ("date", "intervention")
+    clean_message, redaction_count = scrub_text(req.message, redact_dates=redact_dates)
     if redaction_count > 0:
         log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_intake_answer"})
 

@@ -813,3 +813,55 @@ def test_intake_answer_rate_limited_like_chat(client, monkeypatch):
 
     assert response.status_code == 429
     assert mocked_completion.call_count == 0
+
+
+def test_intake_answer_preserves_the_intervention_date_instead_of_redacting_it(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch(
+        "api.routers.ai.litellm.completion",
+        return_value=_mock_completion(json.dumps({
+            "value": {"description": "New fall-risk screening tool", "date": "2026-01-01"},
+            "message": "Got it.",
+            "resolved": True,
+        })),
+    ) as mocked_completion:
+        response = client.post(
+            f"/ai/intake-answer/{project_id}",
+            json={
+                "question_key": "q7",
+                "question_text": "What was the intervention and when did it start?",
+                "question_type": "intervention",
+                "message": "we rolled out a new fall-risk screening tool starting 2026-01-01",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    sent_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
+    assert "2026-01-01" in sent_content  # the date itself is what's being asked for -- must survive scrubbing
+
+
+def test_intake_answer_still_redacts_names_and_mrns_from_an_intervention_date_answer(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch(
+        "api.routers.ai.litellm.completion",
+        return_value=_mock_completion(json.dumps({"value": {"description": "x", "date": None}, "message": "ok", "resolved": True})),
+    ) as mocked_completion:
+        response = client.post(
+            f"/ai/intake-answer/{project_id}",
+            json={
+                "question_key": "q7",
+                "question_text": "What was the intervention and when did it start?",
+                "question_type": "intervention",
+                "message": "started around when patient MRN 1234567 was admitted",
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    sent_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
+    assert "1234567" not in sent_content

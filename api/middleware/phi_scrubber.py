@@ -22,31 +22,48 @@ _PATTERNS = [
     r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b",  # phone
     r"\(\d{3}\)\s*\d{3}[-.\s]?\d{4}\b",  # phone, parenthesized area code
     r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",  # email
-    r"\bDOB[:\s]*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b",
-    r"\b\d{1,2}/\d{1,2}/\d{4}\b",  # standalone MM/DD/YYYY date
-    r"\b\d{1,2}/\d{1,2}/\d{2}\b",  # standalone MM/DD/YY date
-    r"\b\d{4}-\d{2}-\d{2}\b",  # standalone YYYY-MM-DD date
     r"\b\d{1,6}\s+[A-Za-z0-9.'-]+(?:\s+[A-Za-z0-9.'-]+){0,4}\s+"
     r"(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Court|Ct|Way|Place|Pl)\b",
 ]
 
+# Date-shaped patterns are split out from _PATTERNS: most callers want them redacted
+# (a date in free-text chat could easily be a patient's DOB), but a caller that is
+# specifically asking the resident for a project-level date (an intervention date,
+# an abstract deadline) needs that exact date to survive scrubbing -- redacting it
+# defeats the purpose of asking. See scrub_text(redact_dates=...).
+_DATE_PATTERNS = [
+    r"\bDOB[:\s]*\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b",
+    r"\b\d{1,2}/\d{1,2}/\d{4}\b",  # standalone MM/DD/YYYY date
+    r"\b\d{1,2}/\d{1,2}/\d{2}\b",  # standalone MM/DD/YY date
+    r"\b\d{4}-\d{2}-\d{2}\b",  # standalone YYYY-MM-DD date
+]
 
-def scrub_text(text: str) -> Tuple[str, int]:
+
+def scrub_text(text: str, redact_dates: bool = True) -> Tuple[str, int]:
     """Redact obvious PHI with regexes and, when available, spaCy NER.
 
     This scrubber is defense-in-depth for accidental disclosure, not a guarantee
     that arbitrary clinical text is PHI-free. Callers must never log original
     content or treat redaction as a substitute for minimum-necessary prompting.
+
+    redact_dates=False skips date-shaped regexes and the NER DATE label -- use
+    this only when the caller is specifically asking for a project-level date
+    (an intervention date, an abstract deadline), where the date itself is the
+    answer being extracted, not incidental text that might be a patient's DOB.
+    Names, MRNs, SSNs, phone numbers, emails, and addresses are still redacted
+    either way.
     """
     count = 0
-    for pattern in _PATTERNS:
+    patterns = _PATTERNS + _DATE_PATTERNS if redact_dates else _PATTERNS
+    for pattern in patterns:
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         count += len(matches)
         text = re.sub(pattern, "[REDACTED]", text, flags=re.IGNORECASE)
     if _nlp is None:
         return text, count
     doc = _nlp(text)
-    spans = [ent for ent in doc.ents if ent.label_ in {"PERSON", "DATE", "ORG"}]
+    ner_labels = {"PERSON", "DATE", "ORG"} if redact_dates else {"PERSON", "ORG"}
+    spans = [ent for ent in doc.ents if ent.label_ in ner_labels]
     for ent in reversed(spans):
         text = text[:ent.start_char] + "[REDACTED]" + text[ent.end_char:]
         count += 1
