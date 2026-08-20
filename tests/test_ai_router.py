@@ -568,3 +568,38 @@ def test_recommend_plan_rate_limited_like_chat(client, monkeypatch):
 
     assert response.status_code == 429
     assert mocked_completion.call_count == 0
+
+
+def test_clarify_confirm_true_short_circuits_without_calling_the_llm(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_clarify_reply()) as mocked_completion:
+        opening = client.post(f"/ai/clarify/{project_id}", json={})
+    assert opening.status_code == 200, opening.text
+    assert opening.json()["confirmed"] is False
+    assert mocked_completion.call_count == 1
+
+    with patch("api.routers.ai.litellm.completion") as mocked_completion_confirm:
+        response = client.post(f"/ai/clarify/{project_id}", json={"confirm": True})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["confirmed"] is True
+    assert len(body["turns"]) == 1  # confirm doesn't add a new turn
+    assert mocked_completion_confirm.call_count == 0  # no LLM round-trip needed
+
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        state = json.loads(project.ai_clarification_state)
+        assert state["confirmed"] is True
+
+
+def test_clarify_confirm_true_does_not_require_an_api_key(client):
+    project_id = _project_id(client)
+
+    response = client.post(f"/ai/clarify/{project_id}", json={"confirm": True})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["confirmed"] is True

@@ -5,12 +5,13 @@ import ClarificationStage from './ClarificationStage'
 import { AppCtx } from '../App'
 
 const { apiMock } = vi.hoisted(() => ({
-  apiMock: { getProject: vi.fn(), clarify: vi.fn(), scrubPreview: vi.fn(), updateProject: vi.fn() },
+  apiMock: { getProject: vi.fn(), clarify: vi.fn(), confirmClarification: vi.fn(), scrubPreview: vi.fn(), updateProject: vi.fn() },
 }))
 vi.mock('../api', () => ({ api: apiMock }))
 
 beforeEach(() => {
   apiMock.getProject.mockResolvedValue({ id: 1, ai_clarification_state: null })
+  apiMock.confirmClarification.mockResolvedValue({ confirmed: true })
 })
 
 afterEach(() => {
@@ -55,6 +56,32 @@ describe('ClarificationStage', () => {
     expect(value.next).not.toHaveBeenCalled()
   })
 
+  it('unlocks Continue as soon as the resident accepts the suggestion, and Continue then advances', async () => {
+    apiMock.clarify.mockResolvedValue({
+      message: "Here's what I understood...",
+      confirmed: false,
+      suggested_title: 'Better title',
+      suggested_description: 'Better description',
+      turns: [{ role: 'ai', content: "Here's what I understood..." }],
+    })
+    apiMock.updateProject.mockResolvedValue({})
+    const user = userEvent.setup()
+    const value = renderScreen()
+
+    // First Continue click: nothing accepted yet, must not advance -- opens the panel instead.
+    await waitFor(() => expect(apiMock.getProject).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByDisplayValue('Better title')
+    expect(value.next).not.toHaveBeenCalled()
+
+    // Resident accepts the suggestion -- that's their own sign-off, Continue unlocks immediately.
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+    await waitFor(() => expect(apiMock.confirmClarification).toHaveBeenCalledWith(1))
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(value.next).toHaveBeenCalled()
+  })
+
   it('shows Accept/Dismiss for a suggested title and description, applying it via updateProject on Accept', async () => {
     apiMock.clarify.mockResolvedValue({
       message: 'Proposed rewrite',
@@ -82,6 +109,11 @@ describe('ClarificationStage', () => {
       projectTitle: 'Fall-Risk Screening Impact on Falls Rate, Unit 3W',
       projectDesc: 'Clarified description.',
     })
+
+    // Accepting is the resident's own sign-off -- it confirms deterministically,
+    // unlocking Continue without waiting on another AI turn.
+    await waitFor(() => expect(apiMock.confirmClarification).toHaveBeenCalledWith(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled())
   })
 
   it('redacts PHI in the chat input and requires a second Share click before sending', async () => {

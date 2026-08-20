@@ -162,6 +162,7 @@ class ScrubPreviewResponse(BaseModel):
 
 class ClarifyRequest(BaseModel):
     message: Optional[str] = None
+    confirm: Optional[bool] = None
 
 
 class ClarifyTurn(BaseModel):

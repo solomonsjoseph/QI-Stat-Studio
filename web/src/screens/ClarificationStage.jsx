@@ -117,6 +117,11 @@ export default function ClarificationStage() {
     try {
       await api.updateProject(ctx.projectId, { title, description })
       update({ projectTitle: title, projectDesc: description })
+      // Accepting the AI's rewrite is the resident's own explicit sign-off --
+      // that confirms the clarification stage immediately, without waiting on
+      // the AI to separately agree in a later turn.
+      await api.confirmClarification(ctx.projectId)
+      setConfirmed(true)
     } catch (err) {
       setError(errorMessage(err))
     } finally {

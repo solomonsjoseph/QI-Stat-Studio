@@ -281,14 +281,29 @@ class _ClarifyDraft(BaseModel):
 @router.post("/clarify/{project_id}", response_model=ClarifyResponse)
 def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = _require_project_access(db, project_id, user)
+
+    state = json.loads(project.ai_clarification_state) if project.ai_clarification_state else {"turns": [], "confirmed": False}
+    turns = state.get("turns", [])
+
+    if req.confirm:
+        # Resident explicitly accepted the AI's rewrite -- that acceptance is itself
+        # the resident's sign-off, so it confirms deterministically without another
+        # LLM round-trip (which could second-guess an already-made decision).
+        project.ai_clarification_state = json.dumps({"turns": turns, "confirmed": True})
+        db.commit()
+        last_ai_turn = next((t for t in reversed(turns) if t["role"] == "ai"), {})
+        return ClarifyResponse(
+            message=last_ai_turn.get("content", ""),
+            reasoning=last_ai_turn.get("reasoning"),
+            confirmed=True,
+            turns=turns,
+        )
+
     _enforce_ai_rate_limit(db, user)
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
         raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
-
-    state = json.loads(project.ai_clarification_state) if project.ai_clarification_state else {"turns": [], "confirmed": False}
-    turns = state.get("turns", [])
 
     clean_message = None
     redaction_count = 0

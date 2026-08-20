@@ -90,6 +90,7 @@ export const api = {
   // AI clarification
   scrubPreview: (text) => req('POST', '/ai/scrub-preview', { text }),
   clarify: (projectId, message) => req('POST', `/ai/clarify/${projectId}`, { message: message || null }),
+  confirmClarification: (projectId) => req('POST', `/ai/clarify/${projectId}`, { confirm: true }),
 
   // AI analysis-plan recommendation
   recommendPlan: (projectId, message) => req('POST', `/ai/recommend-plan/${projectId}`, { message: message || null }),
