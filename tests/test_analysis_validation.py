@@ -11,13 +11,16 @@ def _project(client):
 
 
 def _upload_csv(client, project_id, content, filename="data.csv"):
-    return client.post(
+    resp = client.post(
         f"/upload/{project_id}",
         files={
             "file": (filename, content, "text/csv"),
             "dictionary": ("dictionary.txt", b"value: measured outcome.", "text/plain"),
         },
     )
+    from tests.helpers import advance_to_phase
+    advance_to_phase(project_id, "plan")
+    return resp
 
 
 def _run(client, project_id, upload_id, template, parameters):

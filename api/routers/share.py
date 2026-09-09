@@ -226,14 +226,43 @@ def regenerate_share(
 
 @router.get("/view/{token}")
 def mentor_view(token: str, db: Session = Depends(get_db)):
-    from api.routers.report import _build_context
+    from api.routers.report import _build_context, run_hydration_dict
+    from api.models_db import Upload
 
     share = _active_share_or_404(token, db)
     project = db.get(Project, share.project_id)
-    run = _latest_run(share.project_id, db)
-    context = _build_context(run, db) if run else None
-    result = context["result"] if context else {}
-    flags = context["flags"] if context else []
+    upload = (
+        db.query(Upload)
+        .filter(Upload.project_id == share.project_id, Upload.status == "active")
+        .order_by(Upload.created_at.desc(), Upload.id.desc())
+        .first()
+    )
+    run_query = db.query(AnalysisRun).filter(AnalysisRun.project_id == share.project_id)
+    if upload:
+        run_query = run_query.filter(AnalysisRun.upload_id == upload.id)
+    runs = run_query.order_by(AnalysisRun.created_at.asc(), AnalysisRun.id.asc()).all()
+
+    results_list = []
+    for r in runs:
+        hydrated = run_hydration_dict(r, db)
+        results_list.append({
+            "run_id": hydrated["run_id"],
+            "template": hydrated["template"],
+            "methods": hydrated["methods"],
+            "result_summary": hydrated["result_summary"],
+            "interpretation": hydrated["ai_interpretation"],
+            "table": hydrated["table"],
+            "figure_base64": hydrated["figure_base64"],
+            "caption": hydrated["caption"],
+            "code_r": hydrated["code_r"],
+            "code_spss": hydrated["code_spss"],
+            "code_sas": hydrated["code_sas"],
+        })
+
+    latest_ctx = _build_context(runs[-1], db) if runs else None
+    latest_res = latest_ctx["result"] if latest_ctx else {}
+    flags = latest_ctx["flags"] if latest_ctx else []
+
     comments = (
         db.query(MentorComment)
         .filter(MentorComment.share_id == share.id, MentorComment.deleted_at.is_(None))
@@ -249,20 +278,20 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
             "deadline": project.deadline,
         } if project else {},
         "share": _share_response(share),
-        "template": run.template if run else None,
-        "methods": result.get("methods", ""),
-        "result_summary": result.get("result_summary", ""),
-        "interpretation": context["interpretation"] if context else result.get("interpretation", ""),
-        "table": result.get("table", []),
-        "figure_base64": result.get("figure_base64"),
-        "caption": context["caption"] if context else "",
+        "results": results_list,
+        "template": runs[-1].template if runs else None,
+        "methods": latest_res.get("methods", ""),
+        "result_summary": latest_res.get("result_summary", ""),
+        "interpretation": latest_ctx["interpretation"] if latest_ctx else latest_res.get("interpretation", ""),
+        "table": latest_res.get("table", []),
+        "figure_base64": latest_res.get("figure_base64"),
+        "caption": latest_ctx["caption"] if latest_ctx else "",
         "limitations": flags,
-        "code_r": run.code_r if run else "",
-        "code_spss": run.code_spss if run else "",
-        "code_sas": run.code_sas if run else "",
+        "code_r": runs[-1].code_r if runs else "",
+        "code_spss": runs[-1].code_spss if runs else "",
+        "code_sas": runs[-1].code_sas if runs else "",
         "comments": normalized_comments,
     }
-
 
 @router.post("/view/{token}/comment", response_model=MentorCommentOut)
 def add_comment(token: str, payload: CommentPayload, db: Session = Depends(get_db)):

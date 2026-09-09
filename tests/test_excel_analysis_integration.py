@@ -21,7 +21,10 @@ def _xls_bytes(df: pd.DataFrame) -> bytes:
 def _project(client):
     response = client.post("/projects", json={"title": "QI", "description": "desc"})
     assert response.status_code == 200, response.text
-    return response.json()["id"]
+    pid = response.json()["id"]
+    from tests.helpers import advance_to_phase
+    advance_to_phase(pid, "plan")
+    return pid
 
 
 def test_xlsx_and_xls_uploads_can_be_reloaded_for_analysis(auth_client):

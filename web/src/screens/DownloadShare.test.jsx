@@ -6,8 +6,8 @@ import DownloadShare from './DownloadShare'
 const { apiMock, useAppMock } = vi.hoisted(() => ({
   apiMock: {
     createShare: vi.fn(),
-    docxUrl: vi.fn((runId) => `/api/report/${runId}/docx`),
-    pdfUrl: vi.fn((runId) => `/api/report/${runId}/pdf`),
+    projectDocxUrl: vi.fn((projectId) => `/api/report/project/${projectId}/docx`),
+    projectPdfUrl: vi.fn((projectId) => `/api/report/project/${projectId}/pdf`),
   },
   useAppMock: vi.fn(),
 }))
@@ -17,8 +17,8 @@ vi.mock('../App', () => ({ useApp: useAppMock }))
 
 beforeEach(() => {
   apiMock.createShare.mockReset()
-  apiMock.docxUrl.mockClear()
-  apiMock.pdfUrl.mockClear()
+  apiMock.projectDocxUrl.mockClear()
+  apiMock.projectPdfUrl.mockClear()
   useAppMock.mockReset()
 })
 
@@ -27,26 +27,35 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('DownloadShare', () => {
-  it('hides downloads until report generation and then shows the richer preview and mentor share affordance', async () => {
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 7,
-        runId: 42,
-        results: {
-          methods: 'Chi-square methods text for the preview.',
-          result_summary: 'A1c goal rates improved after the intervention.',
-          table: [{ measure: 'A1c at goal', pre: '42%', post: '61%' }],
-          figure_base64: 'iVBORw0KGgo=',
-        },
-        editedCaption: 'Figure 1. A1c goal rates before and after the intervention.',
-        editedInterp: 'The intervention was associated with improved goal rates.',
-        acknowledgedFlags: [{ msg: 'Two months had missing denominator values.' }],
-        qualityFlags: [{ msg: 'Fallback quality flag should not render when acknowledgements exist.' }],
-        answers: { q9: "I'm not sure", q10: { email: 'mentor@example.edu' } },
+function multiRunCtx(overrides = {}) {
+  return {
+    projectId: 7,
+    runs: [
+      {
+        run_id: 1,
+        template: 'descriptive_summary',
+        result_summary: 'A1c goal rates improved after the intervention.',
+        table: [{ measure: 'A1c at goal', pre: '42%', post: '61%' }],
+        figure_base64: 'iVBORw0KGgo=',
+        ai_interpretation: 'The intervention was associated with improved goal rates.',
       },
-      update: vi.fn(),
-    })
+      {
+        run_id: 2,
+        template: 'run_chart',
+        result_summary: 'Median wait time fell after the intervention.',
+        table: [{ period: 'Baseline', median: 10 }],
+        ai_interpretation: 'No special-cause signal detected.',
+      },
+    ],
+    acknowledgedFlags: [{ msg: 'Two months had missing denominator values.' }],
+    abstractDraft: 'Background: Falls reduction initiative. Methods: ...',
+    ...overrides,
+  }
+}
+
+describe('DownloadShare multi-run preview', () => {
+  it('hides downloads until report generation and then shows a section per run, abstract draft, and project-scoped download links', async () => {
+    useAppMock.mockReturnValue({ ctx: multiRunCtx(), update: vi.fn(), prev: vi.fn() })
 
     const user = userEvent.setup()
     render(<DownloadShare />)
@@ -56,39 +65,32 @@ describe('DownloadShare', () => {
 
     await user.click(screen.getByRole('button', { name: 'Generate report' }))
 
-    expect(screen.getByText('Chi-square methods text for the preview.')).toBeInTheDocument()
+    expect(screen.getByText('Background: Falls reduction initiative. Methods: ...')).toBeInTheDocument()
+    expect(screen.getByText('A1c goal rates improved after the intervention.')).toBeInTheDocument()
+    expect(screen.getByText('Median wait time fell after the intervention.')).toBeInTheDocument()
     expect(screen.getByText('A1c at goal')).toBeInTheDocument()
-    expect(screen.getByText('Figure 1. A1c goal rates before and after the intervention.')).toBeInTheDocument()
     expect(screen.getByText('The intervention was associated with improved goal rates.')).toBeInTheDocument()
+    expect(screen.getByText('No special-cause signal detected.')).toBeInTheDocument()
     expect(screen.getByText('Two months had missing denominator values.')).toBeInTheDocument()
     expect(screen.getByText('Includes R, SPSS, and SAS code supplements. The downloaded report also contains the full audit trail.')).toBeInTheDocument()
-    expect(screen.getByText('A read-only link will be emailed to mentor@example.edu.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Share with mentor' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /download word/i })).toHaveAttribute('href', '/api/report/42/docx')
-    expect(screen.getByRole('link', { name: /download pdf/i })).toHaveAttribute('href', '/api/report/42/pdf')
+
+    expect(screen.getByRole('link', { name: /download word/i })).toHaveAttribute('href', '/api/report/project/7/docx')
+    expect(screen.getByRole('link', { name: /download pdf/i })).toHaveAttribute('href', '/api/report/project/7/pdf')
   })
 
-  it('shows the all-three code note when Q9 was left blank, matching the backend include_all fallback', async () => {
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 7,
-        runId: 42,
-        results: {
-          methods: 'Run chart methods text for the preview.',
-          result_summary: 'Median wait time fell after the intervention.',
-          table: [{ period: 'Baseline', median: 10 }],
-          figure_base64: 'iVBORw0KGgo=',
-        },
-        acknowledgedFlags: [],
-        answers: { q9: '' },
-      },
-      update: vi.fn(),
-    })
+  it('lets the resident type a mentor email before sharing, and posts it to createShare', async () => {
+    useAppMock.mockReturnValue({ ctx: multiRunCtx(), update: vi.fn(), prev: vi.fn() })
+    apiMock.createShare.mockResolvedValue({ token: 'tok-123' })
 
     const user = userEvent.setup()
     render(<DownloadShare />)
     await user.click(screen.getByRole('button', { name: 'Generate report' }))
 
-    expect(screen.getByText('Includes R, SPSS, and SAS code supplements. The downloaded report also contains the full audit trail.')).toBeInTheDocument()
+    const emailInput = screen.getByLabelText(/mentor email/i)
+    await user.type(emailInput, 'mentor@example.edu')
+    await user.click(screen.getByRole('button', { name: 'Share with mentor' }))
+
+    expect(apiMock.createShare).toHaveBeenCalledWith(7, 'mentor@example.edu')
+    expect(await screen.findByText(/mentor\/tok-123/)).toBeInTheDocument()
   })
 })

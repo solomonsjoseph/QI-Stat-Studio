@@ -292,7 +292,7 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
     assert edited.json()["text"] == "Scoped edited feedback"
     assert edited.json()["updated_at"] is not None
 
-    report = client.get(f"/report/{run_id}/docx")
+    report = client.get(f"/report/project/{project['id']}/docx")
     assert report.status_code == 200, report.text
     report_text = _docx_text(report.content)
     assert "Scoped edited feedback" in report_text

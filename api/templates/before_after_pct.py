@@ -71,6 +71,8 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     df[outcome_col] = _coerce_binary_outcome(df[outcome_col], outcome_col)
 
     mask = df[group_col].isin([pre_val, post_val])
+    n_excluded_other_group = int((~mask).sum())
+    n_excluded_missing = int((mask & df[outcome_col].isna()).sum())
     pre = df[df[group_col] == pre_val][outcome_col].dropna()
     post = df[df[group_col] == post_val][outcome_col].dropna()
     if pre.empty or post.empty:
@@ -125,17 +127,26 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         test_reason = f"the smallest expected cell count was {min_expected:.1f}, below {MIN_EXPECTED_CELL_COUNT}"
     else:
         test_reason = f"all expected cell counts were {MIN_EXPECTED_CELL_COUNT} or greater"
+    exclusion_note = (
+        f" {n_excluded_missing} record{' was' if n_excluded_missing == 1 else 's were'} excluded "
+        "because values in the binary outcome column were missing."
+        + (
+            f" {n_excluded_other_group} record{' was' if n_excluded_other_group == 1 else 's were'} excluded "
+            f"because {group_col} did not match either the pre- or post-intervention label."
+            if n_excluded_other_group else ""
+        )
+    )
     methods = (f"A {test_used} was used to compare the proportion of {outcome_col} "
                f"between pre- (n={len(pre)}) and post-intervention (n={len(post)}) periods; {test_reason}. "
                f"The absolute risk difference (post minus pre) is reported with a 95% confidence "
-               f"interval calculated using Newcombe's hybrid score method.")
+               f"interval calculated using Newcombe's hybrid score method.{exclusion_note}")
     direction = "increased" if post_pct > pre_pct else "decreased"
     sig = "statistically significant" if p_value < 0.05 else "not statistically significant"
     interpretation = (
         f"The proportion of {outcome_col} {direction} from {pre_pct:.1f}% before to {post_pct:.1f}% after the intervention. "
         f"This difference was {sig} ({test_used}: p={p_value:.4f}). "
         f"That is an absolute difference of {rd*100:+.1f} percentage points "
-        f"(95% CI {rd_lo*100:.1f} to {rd_hi*100:.1f}). "
+        f"(95% CI {rd_lo*100:.1f} to {rd_hi*100:.1f}).{exclusion_note} "
         f"[Edit this paragraph to describe what this finding means for your QI project and patients.]"
     )
     return {
@@ -145,7 +156,7 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "result_summary": (
             f"{outcome_col}: {pre_pct:.1f}% pre vs {post_pct:.1f}% post. "
             f"Risk difference {rd*100:+.1f} percentage points "
-            f"(95% CI {rd_lo*100:.1f} to {rd_hi*100:.1f}). {test_used}: p={p_value:.4f}."
+            f"(95% CI {rd_lo*100:.1f} to {rd_hi*100:.1f}). {test_used}: p={p_value:.4f}.{exclusion_note}"
         ),
         "interpretation": interpretation,
         "p_value": round(p_value, 4), "test_used": test_used,
@@ -156,4 +167,6 @@ def run_before_after_pct(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "risk_difference_ci_pct_points": [round(rd_lo * 100, 1), round(rd_hi * 100, 1)],
         "ci_method": "Newcombe hybrid score",
         "min_expected_cell": round(min_expected, 2) if min_expected is not None else None,
+        "n_excluded_missing": n_excluded_missing,
+        "n_excluded_other_group": n_excluded_other_group,
     }

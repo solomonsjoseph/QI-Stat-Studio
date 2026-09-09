@@ -18,10 +18,13 @@ def _dictionary_file():
 
 
 def _upload_csv(client, project_id, content, filename="data.csv"):
-    return client.post(
+    resp = client.post(
         f"/upload/{project_id}",
         files={"file": (filename, content, "text/csv"), "dictionary": _dictionary_file()},
     )
+    from tests.helpers import advance_to_phase
+    advance_to_phase(project_id, "plan")
+    return resp
 
 
 def test_upload_persists_safe_metadata_and_column_mapping(auth_client):

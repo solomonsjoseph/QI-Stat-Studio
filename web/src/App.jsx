@@ -3,7 +3,6 @@ import Auth from './screens/Auth'
 import Landing from './screens/Landing'
 import ProjectIntake from './screens/ProjectIntake'
 import ClarificationStage from './screens/ClarificationStage'
-import IntakeQuestions from './screens/IntakeQuestions'
 import DataReview from './screens/DataReview'
 import AnalysisPlanStage from './screens/AnalysisPlanStage'
 import Results from './screens/Results'
@@ -18,7 +17,7 @@ export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
 
 export const SCREENS = [
-  'landing', 'description', 'clarify', 'intake', 'review',
+  'landing', 'description', 'clarify', 'review',
   'analysis', 'results', 'edit', 'download',
 ]
 
@@ -28,7 +27,6 @@ const COMPONENTS = {
   landing: Landing,
   description: ProjectIntake,
   clarify: ClarificationStage,
-  intake: IntakeQuestions,
   review: DataReview,
   analysis: AnalysisPlanStage,
   results: Results,
@@ -40,7 +38,6 @@ const COMPONENTS = {
 export const STEP_LABELS = {
   description: 'Project Intake',
   clarify: 'AI Clarification',
-  intake: 'Intake',
   review: 'Review',
   analysis: 'Analysis Plan',
   results: 'Results',
@@ -58,24 +55,18 @@ function routeFromPath() {
 
 function ctxFromResume(resume) {
   const latestUpload = resume.latest_upload
-  const latestRun = resume.latest_run
   const latestShare = resume.latest_share
   return {
     projectId: resume.project.id,
     projectTitle: resume.project.title,
     projectDesc: resume.project.description || '',
-    answers: resume.answers || {},
+    design: resume.project.ai_project_design || {},
+    runs: resume.runs || [],
     uploadId: latestUpload?.id,
     colTypes: latestUpload?.col_types || {},
     columnMap: latestUpload?.column_map || {},
     qualityFlags: latestUpload?.quality_flags || [],
     acknowledgedFlags: latestUpload?.acknowledged_flags || [],
-    runId: latestRun?.id,
-    template: latestRun?.template,
-    params: latestRun?.parameters || {},
-    results: latestRun?.result || {},
-    resultSummary: latestRun?.result?.result_summary,
-    aiInterpretation: latestRun?.result?.interpretation || '',
     shareToken: latestShare?.token,
   }
 }

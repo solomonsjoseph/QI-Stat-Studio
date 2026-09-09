@@ -34,11 +34,14 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     archived_at = Column(DateTime, nullable=True)
+    schema_version = Column(Integer, server_default="1", default=1, nullable=False)
+    workflow_phase = Column(String(32), server_default="intake", default="intake", nullable=False)
     ai_clarification_state = Column(Text, nullable=True)
     ai_project_design = Column(Text, nullable=True)
     ai_analysis_plan = Column(Text, nullable=True)
+    ai_plan_history = Column(Text, nullable=True)
+    inputs_fingerprint = Column(String(64), nullable=True)
     data_collection_notes = Column(Text, nullable=True)
-
 
 class Upload(Base):
     __tablename__ = "uploads"
@@ -57,18 +60,12 @@ class Upload(Base):
     original_filename = Column(String(255), default="", nullable=False)
     storage_key = Column(String(512), default="", nullable=False)
     status = Column(String(20), default="active", nullable=False)
-    phi_scan_status = Column(String(20), default="clean", nullable=False)
+    phi_scan_status = Column(String(20), default="pending", nullable=False)
+    dataset_profile = Column(Text, nullable=True)
+    phi_scan_detail = Column(Text, nullable=True)
+    column_roles = Column(Text, server_default="{}", default="{}", nullable=False)
     dictionary_filename = Column(String(255), nullable=True)
     dictionary_text = Column(Text, nullable=True)
-
-
-class IntakeAnswer(Base):
-    __tablename__ = "intake_answers"
-    id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    question_key = Column(String(10))
-    answer = Column(Text)
-    is_unsure = Column(Boolean, default=False)
 
 
 class AnalysisRun(Base):
@@ -98,6 +95,7 @@ class EditHistory(Base):
     __tablename__ = "edit_history"
     id = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
+    run_id = Column(Integer, ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=True)
     field = Column(String(100))
     original_text = Column(Text)
     edited_text = Column(Text)

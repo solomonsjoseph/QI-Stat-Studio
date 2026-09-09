@@ -22,7 +22,10 @@ def _project_id(client):
     assert response.status_code == 200, response.text
     response = client.post("/projects", json={"title": "AI project", "description": "desc"})
     assert response.status_code == 200, response.text
-    return response.json()["id"]
+    pid = response.json()["id"]
+    from tests.helpers import advance_to_phase
+    advance_to_phase(pid, "plan")
+    return pid
 
 
 def _set_runtime_setting(key, value):
@@ -319,6 +322,23 @@ def test_scrub_preview_leaves_clean_text_unchanged(client):
     assert body["text"] == "Mean A1c decreased from 8.2 to 7.4"
 
 
+def test_scrub_preview_preserves_dates_matching_ai_clarify_behavior(client):
+    """/ai/scrub-preview must not flag dates as redacted: /ai/clarify's actual send
+    uses scrub_text(..., redact_dates=False) since an intervention start date is
+    operationally relevant QI content, not PHI. If preview disagreed, the frontend
+    would show a false "redacted" warning and force a spurious extra confirm click
+    on any message mentioning a date."""
+    _project_id(client)
+
+    response = client.post("/ai/scrub-preview", json={"text": "The protocol began in January 2025."})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["redacted"] is False
+    assert body["count"] == 0
+    assert body["text"] == "The protocol began in January 2025."
+
+
 def _clarify_reply(**overrides):
     payload = {
         "message": "Here's what I understood about your project...",
@@ -366,8 +386,39 @@ def test_clarify_opening_turn_sends_dataset_schema_and_dictionary_not_raw_values
     with SessionLocal() as db:
         project = db.get(Project, project_id)
         design = json.loads(project.ai_project_design)
-        assert design["primary_outcome"] == "fall rate"
+        outcome_val = design.get("primary_outcome")
+        if isinstance(outcome_val, dict):
+            assert outcome_val.get("label") == "fall rate"
+        else:
+            assert outcome_val == "fall rate"
 
+
+def test_clarify_response_includes_design_for_live_understanding_card(client, monkeypatch):
+    """ClarifyResponse must carry the merged design (including plain_restatement) back
+    to the client on every turn, not just after a resume/reload -- ClarificationStage's
+    Structured Understanding Card renders from this field directly."""
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+
+    with patch("api.routers.ai.litellm.completion", return_value=_clarify_reply(
+        design={"aim": "reduce falls", "primary_outcome": "fall rate", "plain_restatement": "Tracking monthly falls."},
+    )):
+        response = client.post(f"/ai/clarify/{project_id}", json={})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["design"] is not None
+    assert body["design"]["plain_restatement"] == "Tracking monthly falls."
+    assert "status" in body["design"]
+
+    with patch("api.routers.ai.litellm.completion") as mocked_completion:
+        confirmed = client.post(f"/ai/clarify/{project_id}", json={"confirm": True})
+    assert confirmed.status_code == 200, confirmed.text
+    assert mocked_completion.call_count == 0
+    confirmed_body = confirmed.json()
+    assert confirmed_body["design"] is not None
+    assert confirmed_body["design"]["plain_restatement"] == "Tracking monthly falls."
 
 def test_clarify_scrubs_phi_from_resident_message_before_sending_to_llm(client, monkeypatch):
     _set_openrouter_provider()
@@ -669,199 +720,3 @@ def test_recommend_plan_fails_loud_instead_of_persisting_a_blank_turn_when_still
         assert project.ai_analysis_plan is None
 
 
-def test_intake_answer_radio_maps_free_text_to_an_exact_preset_option(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_mock_completion(json.dumps({
-            "value": "A count (number of falls per month)",
-            "message": "Got it, tracking a monthly falls count.",
-            "resolved": True,
-        })),
-    ):
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={
-                "question_key": "q2",
-                "question_text": "What are you measuring?",
-                "question_type": "radio",
-                "options": [
-                    "A rate of events over time (infections per 1,000 catheter-days)",
-                    "A percentage or proportion (percent of patients screened)",
-                    "A count (number of falls per month)",
-                    "An average or median value (average LDL)",
-                ],
-                "message": "we're counting how many falls happen each month",
-            },
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["value"] == "A count (number of falls per month)"
-    assert body["resolved"] is True
-
-
-def test_intake_answer_radio_rejects_a_value_not_in_the_preset_options(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_mock_completion(json.dumps({
-            "value": "Something the model made up that isn't a real option",
-            "message": "Here you go.",
-            "resolved": True,
-        })),
-    ):
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={
-                "question_key": "q2",
-                "question_text": "What are you measuring?",
-                "question_type": "radio",
-                "options": ["Option A", "Option B"],
-                "message": "something vague",
-            },
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["value"] is None
-    assert body["resolved"] is False
-
-
-def test_intake_answer_intervention_extracts_description_and_date(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_mock_completion(json.dumps({
-            "value": {"description": "New fall-risk screening tool on 3W", "date": "2026-01-01"},
-            "message": "Got it.",
-            "resolved": True,
-        })),
-    ):
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={
-                "question_key": "q7",
-                "question_text": "What was the intervention and when did it start?",
-                "question_type": "intervention",
-                "message": "we rolled out a new fall-risk screening tool on 3W starting Jan 1 2026",
-            },
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["value"] == {"description": "New fall-risk screening tool on 3W", "date": "2026-01-01"}
-
-
-def test_intake_answer_scrubs_phi_before_sending_to_llm(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_mock_completion(json.dumps({"value": 12, "message": "ok", "resolved": True})),
-    ) as mocked_completion:
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={
-                "question_key": "q6",
-                "question_text": "How many time points do you have?",
-                "question_type": "number",
-                "message": "patient SSN 123-45-6789 has about 12 months of data",
-            },
-        )
-
-    assert response.status_code == 200, response.text
-    sent_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
-    assert "123-45-6789" not in sent_content
-
-
-def test_intake_answer_rate_limited_like_chat(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    _set_runtime_setting("ai_rate_limit_per_hour", "1")
-    with SessionLocal() as db:
-        db.add(
-            AIUsageEvent(
-                user_id=1,
-                project_id=project_id,
-                model="runtime/model",
-                prompt_chars=1,
-                completion_chars=1,
-                status="ok",
-                created_at=datetime.utcnow() - timedelta(minutes=5),
-            )
-        )
-        db.commit()
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch("api.routers.ai.litellm.completion") as mocked_completion:
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={"question_key": "q6", "question_text": "How many time points?", "question_type": "number", "message": "12"},
-        )
-
-    assert response.status_code == 429
-    assert mocked_completion.call_count == 0
-
-
-def test_intake_answer_preserves_the_intervention_date_instead_of_redacting_it(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_mock_completion(json.dumps({
-            "value": {"description": "New fall-risk screening tool", "date": "2026-01-01"},
-            "message": "Got it.",
-            "resolved": True,
-        })),
-    ) as mocked_completion:
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={
-                "question_key": "q7",
-                "question_text": "What was the intervention and when did it start?",
-                "question_type": "intervention",
-                "message": "we rolled out a new fall-risk screening tool starting 2026-01-01",
-            },
-        )
-
-    assert response.status_code == 200, response.text
-    sent_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
-    assert "2026-01-01" in sent_content  # the date itself is what's being asked for -- must survive scrubbing
-
-
-def test_intake_answer_still_redacts_names_and_mrns_from_an_intervention_date_answer(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
-
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_mock_completion(json.dumps({"value": {"description": "x", "date": None}, "message": "ok", "resolved": True})),
-    ) as mocked_completion:
-        response = client.post(
-            f"/ai/intake-answer/{project_id}",
-            json={
-                "question_key": "q7",
-                "question_text": "What was the intervention and when did it start?",
-                "question_type": "intervention",
-                "message": "started around when patient MRN 1234567 was admitted",
-            },
-        )
-
-    assert response.status_code == 200, response.text
-    sent_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
-    assert "1234567" not in sent_content

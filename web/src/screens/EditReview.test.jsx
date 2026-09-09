@@ -25,61 +25,91 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('EditReview', () => {
-  it('saves edits through api.saveProjectEdit and stops before local state advances when one save fails', async () => {
+function runsCtx(overrides = {}) {
+  return {
+    projectId: 7,
+    projectTitle: 'Original report title',
+    runs: [
+      { run_id: 1, template: 'descriptive_summary', caption: 'Original caption', ai_interpretation: 'Original interpretation' },
+      { run_id: 2, template: 'run_chart', caption: 'Second caption', ai_interpretation: 'Second interpretation' },
+    ],
+    ...overrides,
+  }
+}
+
+describe('EditReview per-run edits', () => {
+  it('saves a per-run caption and interpretation edit posting run_id, and title separately', async () => {
     const update = vi.fn()
     const next = vi.fn()
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 7,
-        projectTitle: 'Original report title',
-        editedCaption: 'Original caption',
-        aiInterpretation: 'Original interpretation',
-      },
-      update,
-      next,
-    })
-    apiMock.saveProjectEdit
-      .mockResolvedValueOnce({ id: 1 })
-      .mockRejectedValueOnce(Object.assign(new Error('Caption edit rejected'), { requestId: 'req-edit-2' }))
+    useAppMock.mockReturnValue({ ctx: runsCtx(), update, next, prev: vi.fn() })
+    apiMock.saveProjectEdit.mockResolvedValue({ ok: true })
+    apiMock.updateProject.mockResolvedValue({})
 
     const user = userEvent.setup()
     render(<EditReview />)
 
     await user.clear(screen.getByLabelText(/report title/i))
     await user.type(screen.getByLabelText(/report title/i), 'Revised report title')
-    await user.clear(screen.getByLabelText(/figure caption/i))
-    await user.type(screen.getByLabelText(/figure caption/i), 'Revised caption')
-    await user.clear(screen.getByLabelText(/interpretation/i))
-    await user.type(screen.getByLabelText(/interpretation/i), 'Revised interpretation')
+
+    const captionInput = screen.getByLabelText(/figure caption/i, { selector: '#edit-caption-1' }) || screen.getAllByLabelText(/figure caption/i)[0]
+    await user.clear(captionInput)
+    await user.type(captionInput, 'Revised caption')
+
     await user.click(screen.getByRole('button', { name: /save & continue/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Caption edit rejected (Request ID: req-edit-2)')
-    await waitFor(() => expect(apiMock.saveProjectEdit).toHaveBeenCalledTimes(2))
-    expect(apiMock.saveProjectEdit).toHaveBeenNthCalledWith(1, 7, 'title', 'Original report title', 'Revised report title')
-    expect(apiMock.saveProjectEdit).toHaveBeenNthCalledWith(2, 7, 'caption', 'Original caption', 'Revised caption')
-    expect(apiMock.saveProjectEdit).not.toHaveBeenCalledWith(7, 'interpretation', expect.any(String), expect.any(String))
-    expect(apiMock.updateProject).not.toHaveBeenCalled()
-    expect(update).not.toHaveBeenCalled()
-    expect(next).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(apiMock.saveProjectEdit).toHaveBeenCalledWith(7, 'title', 'Original report title', 'Revised report title')
+      expect(apiMock.saveProjectEdit).toHaveBeenCalledWith(7, 'caption', 'Original caption', 'Revised caption', 1)
+      expect(apiMock.updateProject).toHaveBeenCalledWith(7, { title: 'Revised report title' })
+      expect(next).toHaveBeenCalled()
+    })
   })
 
-  it('prefills interpretation from resumed analysis results when aiInterpretation is absent', () => {
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 8,
-        projectTitle: 'Resume-backed report',
-        results: {
-          result_summary: 'Improved.',
-          interpretation: 'Server-derived interpretation from latest run.',
-        },
-      },
-      update: vi.fn(),
-      next: vi.fn(),
-    })
+  it('renders one caption + interpretation editor per run', async () => {
+    useAppMock.mockReturnValue({ ctx: runsCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
 
     render(<EditReview />)
 
-    expect(screen.getByLabelText(/interpretation/i)).toHaveValue('Server-derived interpretation from latest run.')
+    const captionFields = screen.getAllByLabelText(/figure caption/i)
+    const interpFields = screen.getAllByLabelText(/interpretation/i)
+    expect(captionFields).toHaveLength(2)
+    expect(interpFields).toHaveLength(2)
+    expect(captionFields[0]).toHaveValue('Original caption')
+    expect(captionFields[1]).toHaveValue('Second caption')
+  })
+
+  it('always records an interpretation review, even when accepted as-is, so resume does not bounce back to edit', async () => {
+    const update = vi.fn()
+    const next = vi.fn()
+    useAppMock.mockReturnValue({ ctx: runsCtx(), update, next, prev: vi.fn() })
+    apiMock.saveProjectEdit.mockResolvedValue({ ok: true })
+
+    const user = userEvent.setup()
+    render(<EditReview />)
+
+    // Resident touches nothing and accepts the AI interpretation as-is.
+    await user.click(screen.getByRole('button', { name: /save & continue/i }))
+
+    await waitFor(() => {
+      expect(apiMock.saveProjectEdit).toHaveBeenCalledWith(7, 'interpretation', 'Original interpretation', 'Original interpretation', 1)
+      expect(apiMock.saveProjectEdit).toHaveBeenCalledWith(7, 'interpretation', 'Second interpretation', 'Second interpretation', 2)
+      expect(next).toHaveBeenCalled()
+    })
+  })
+
+  it('surfaces a save error and does not advance', async () => {
+    useAppMock.mockReturnValue({ ctx: runsCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.saveProjectEdit.mockRejectedValue(Object.assign(new Error('Caption edit rejected'), { requestId: 'req-edit-2' }))
+
+    const user = userEvent.setup()
+    render(<EditReview />)
+
+    const captionFields = screen.getAllByLabelText(/figure caption/i)
+    await user.clear(captionFields[0])
+    await user.type(captionFields[0], 'Revised caption')
+
+    await user.click(screen.getByRole('button', { name: /save & continue/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Caption edit rejected (Request ID: req-edit-2)')
   })
 })

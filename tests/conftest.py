@@ -1,11 +1,10 @@
 import os
 from pathlib import Path
 
-os.environ.setdefault("DB_URL", "sqlite:///./test_qi_stat_studio.db")
-
-_db_path = Path("test_qi_stat_studio.db")
-if _db_path.exists():
-    _db_path.unlink()
+_pid = os.getpid()
+_db_file = f"/tmp/test_qi_stat_studio_{_pid}.db"
+os.environ.setdefault("DB_URL", f"sqlite:///{_db_file}")
+_db_path = Path(_db_file)
 
 import api.models_db  # noqa: E402,F401 - register models
 from api.database import Base, engine  # noqa: E402
@@ -42,3 +41,27 @@ def auth_client(client):
     response = client.post("/auth/register", json={"email": "owner@example.com", "password": "password123"})
     assert response.status_code == 200, response.text
     return client
+
+@pytest.fixture
+def mock_llm():
+    import json
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    queue = []
+
+    def push(content):
+        if isinstance(content, dict):
+            content = json.dumps(content)
+        queue.append(content)
+
+    def side_effect(*args, **kwargs):
+        if queue:
+            resp_content = queue.pop(0)
+        else:
+            resp_content = "{}"
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=resp_content))])
+
+    with patch("api.routers.ai.litellm.completion", side_effect=side_effect) as mocked:
+        mocked.push = push
+        yield mocked

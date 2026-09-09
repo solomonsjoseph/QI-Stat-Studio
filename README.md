@@ -54,6 +54,7 @@ registered becomes admin; everyone after that is a resident.
 | `FERNET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= PYTHONPATH=. python -m pytest -q` | Run backend tests. |
 | `cd web && npm run test` | Run frontend unit tests. |
 | `cd web && npm run e2e` | Run Playwright end-to-end tests. |
+| `AI_PROVIDER=stub uvicorn api.main:app --reload` | Run the backend against the offline AI stub (deterministic, no API key or network calls) — used by Playwright e2e. |
 | `docker build -t qi-stat-studio . && docker run -p 8000:8000 ...` | Build and run the production container. |
 
 ## Documentation

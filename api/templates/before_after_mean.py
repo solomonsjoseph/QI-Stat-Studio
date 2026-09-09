@@ -28,6 +28,10 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
     df, pre_val = _norm_group(df, group_col, pre_val)
     _, post_val = _norm_group(df, group_col, post_val)
+    in_group = df[group_col].isin([pre_val, post_val])
+    n_excluded_other_group = int((~in_group).sum())
+    selected = df[in_group]
+    n_excluded_missing = int(selected[value_col].isna().sum())
     pre = df[df[group_col] == pre_val][value_col].dropna()
     post = df[df[group_col] == post_val][value_col].dropna()
 
@@ -59,6 +63,15 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     plt.close(fig)
     fig_b64 = base64.b64encode(buf.getvalue()).decode()
 
+    exclusion_note = (
+        f" {n_excluded_missing} record{' was' if n_excluded_missing == 1 else 's were'} excluded "
+        f"because {value_col} was missing or could not be parsed."
+        + (
+            f" {n_excluded_other_group} record{' was' if n_excluded_other_group == 1 else 's were'} excluded "
+            f"because {group_col} did not match either the pre- or post-intervention label."
+            if n_excluded_other_group else ""
+        )
+    )
     methods = (
         f"An independent samples {test_used} was used to compare {value_col} "
         f"between the pre-intervention (n={len(pre)}) and post-intervention (n={len(post)}) periods. "
@@ -68,19 +81,20 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         f" The {effect_label} (post minus pre) is reported with a 95% confidence interval."
         + (f" The interval was computed from a systematic sample of {HL_SUBSAMPLE_PER_GROUP} values per "
            f"period because the full pairwise comparison exceeded the computation limit." if subsampled else "")
+        + exclusion_note
     )
     direction = "decreased" if post.mean() < pre.mean() else "increased"
     result_summary = (
         f"{value_col} {direction} from {pre.mean():.2f} (pre) to {post.mean():.2f} (post). "
         f"{effect_label_sentence_case} {effect:+.2f} (95% CI {eff_lo:.2f} to {eff_hi:.2f}). "
-        f"{test_used}: p={p_value:.4f}."
+        f"{test_used}: p={p_value:.4f}.{exclusion_note}"
     )
 
     sig = "statistically significant" if float(p_value) < 0.05 else "not statistically significant"
     interpretation = (
         f"{value_col} {direction} from {pre.mean():.2f} before the intervention to {post.mean():.2f} after. "
         f"The {effect_label} is {effect:+.2f} (95% CI {eff_lo:.2f} to {eff_hi:.2f}). "
-        f"This difference was {sig} ({test_used}: p={float(p_value):.4f}). "
+        f"This difference was {sig} ({test_used}: p={float(p_value):.4f}).{exclusion_note} "
         f"[Edit this paragraph to describe what this finding means for your QI project and patients.]"
     )
     return {
@@ -98,4 +112,6 @@ def run_before_after_mean(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         "effect_ci": [round(float(eff_lo), 4), round(float(eff_hi), 4)],
         "effect_label": effect_label,
         "ci_method": "Pooled-variance t interval" if test_used == "Two-sample t-test" else "Hodges-Lehmann with Moses interval",
+        "n_excluded_missing": n_excluded_missing,
+        "n_excluded_other_group": n_excluded_other_group,
     }

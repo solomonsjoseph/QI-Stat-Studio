@@ -118,6 +118,30 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             f"{test_line}"
         )
 
+
+    if template == "before_after_paired":
+        id_col = params.get("id_col", "patient_id")
+        gc = params.get("group_col", "period")
+        vc = params.get("value_col", "value")
+        pre = params.get("pre_val", "pre")
+        post = params.get("post_val", "post")
+        used = _test_used(result)
+        if used == "Paired t-test":
+            test_line = "t.test(paired$post, paired$pre, paired=TRUE)"
+            comment = "# Runtime decision: Paired t-test"
+        elif used == "Wilcoxon signed-rank test":
+            test_line = "wilcox.test(paired$post, paired$pre, paired=TRUE)"
+            comment = "# Runtime decision: Wilcoxon signed-rank test"
+        else:
+            test_line = "t.test(paired$post, paired$pre, paired=TRUE)  # or wilcox.test if differences not normal"
+            comment = "# Runtime decision unavailable; choose test after assumption checks"
+        return (
+            f"{comment}\n"
+            f"pre_df <- df[df${gc} == '{pre}', c('{id_col}', '{vc}')]\n"
+            f"post_df <- df[df${gc} == '{post}', c('{id_col}', '{vc}')]\n"
+            f"paired <- merge(pre_df, post_df, by='{id_col}', suffixes=c('.pre', '.post'))\n"
+            f"{test_line}"
+        )
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         fmt = _r_date_bucket_fmt(params.get("freq"))
@@ -241,6 +265,13 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
         exact = " /STATISTICS=CHISQ /METHOD=EXACT" if used == "Fisher's exact test" else " /STATISTICS=CHISQ"
         return f"* Runtime decision: {used}.\nCROSSTABS /TABLES={gc} BY {oc}{exact} /CELLS=COUNT ROW COLUMN."
 
+
+    if template == "before_after_paired":
+        vc = params.get("value_col", "value")
+        used = _test_used(result) or "Paired t-test"
+        if used == "Wilcoxon signed-rank test":
+            return f"* Runtime decision: {used}.\nNPAR TESTS /WILCOXON={vc}_post WITH {vc}_pre (PAIRED)."
+        return f"* Runtime decision: {used}.\nT-TEST PAIRS={vc}_post WITH {vc}_pre (PAIRED) /CRITERIA=CI(.95)."
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         source_num = params.get("source_numerator_col")
@@ -328,6 +359,13 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         option = " / FISHER" if used == "Fisher's exact test" else " / CHISQ"
         return f"/* Runtime decision: {used}. */\nPROC FREQ DATA=df;\nTABLES {gc}*{oc}{option};\nRUN;"
 
+
+    if template == "before_after_paired":
+        vc = params.get("value_col", "value")
+        used = _test_used(result) or "Paired t-test"
+        if used == "Wilcoxon signed-rank test":
+            return f"/* Runtime decision: {used}. */\nDATA diff_data; SET df; diff = {vc}_post - {vc}_pre; RUN;\nPROC UNIVARIATE DATA=diff_data;\nVAR diff;\nRUN;"
+        return f"/* Runtime decision: {used}. */\nPROC TTEST DATA=df;\nPAIRED {vc}_post*{vc}_pre;\nRUN;"
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         source_num = params.get("source_numerator_col")
@@ -365,6 +403,7 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         bucket = _sas_date_bucket(params)
         return (
             f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, {denom_expr} AS denom "
+
             f"FROM df GROUP BY date_bucket; "
             f"SELECT sum(num)/sum(denom) INTO :pbar FROM monthly; QUIT;\n"
             f"DATA monthly; SET monthly; p=num/denom; pbar=&pbar.; "

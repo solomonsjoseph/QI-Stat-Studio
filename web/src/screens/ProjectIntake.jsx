@@ -4,8 +4,6 @@ import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
 
-const COL_TYPE_OPTIONS = ['Number', 'Category', 'Date', 'ID', 'Yes/No']
-
 function errorMessage(err) {
   return `${err.message || 'Could not save project'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
 }
@@ -20,14 +18,12 @@ export default function ProjectIntake() {
   const { ctx, update, next } = useApp()
   const [title, setTitle] = useState(ctx.projectTitle || '')
   const [desc, setDesc] = useState(ctx.projectDesc || '')
+  const [deadline, setDeadline] = useState(ctx.deadline || '')
   const [file, setFile] = useState(null)
   const [dictionary, setDictionary] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [phiViolations, setPhiViolations] = useState(null)
-  const [intakeResult, setIntakeResult] = useState(null)
-  const [colTypes, setColTypes] = useState({})
 
   async function submit(e) {
     e.preventDefault()
@@ -35,15 +31,25 @@ export default function ProjectIntake() {
     setError('')
     setPhiViolations(null)
     try {
-      const result = await api.createProjectIntake({ title, description: desc, file, dictionary })
-      setIntakeResult(result)
-      setColTypes(result.upload.col_types || {})
+      const result = await api.createProjectIntake({
+        title,
+        description: desc,
+        file,
+        dictionary,
+        deadline: deadline || null,
+      })
       update({
         projectId: result.project.id,
         projectTitle: result.project.title,
         projectDesc: result.project.description || '',
+        deadline: result.project.deadline || deadline || '',
         uploadId: result.upload.id,
+        colTypes: result.upload.col_types || {},
+        qualityFlags: result.upload.quality_flags || [],
+        rowCount: result.upload.preview_rows?.length || 0,
+        profile: result.upload.dataset_profile || result.profile || {},
       })
+      next()
     } catch (err) {
       if (err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
         setPhiViolations(err.fieldErrors)
@@ -55,90 +61,6 @@ export default function ProjectIntake() {
     }
   }
 
-  async function confirmTypes(e) {
-    e.preventDefault()
-    setSaving(true)
-    setError('')
-    try {
-      await api.confirmColTypes(intakeResult.upload.id, colTypes)
-      update({
-        colTypes,
-        qualityFlags: intakeResult.upload.quality_flags || [],
-        rowCount: intakeResult.upload.preview_rows?.length,
-        missingPct: {},
-      })
-      next()
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (intakeResult) {
-    const previewRows = intakeResult.upload.preview_rows || []
-    const previewColumns = previewRows.length ? Object.keys(previewRows[0] || {}) : []
-    return (
-      <div className="screen">
-        <PageIntro step="description" title="Confirm Column Types" lead="Review the detected column types and correct any that are wrong." />
-        {error && <p role="alert" className="alert-error mb-4">{error}</p>}
-        {saving && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving column types…</p>}
-        {previewRows.length > 0 && (
-          <section className="card mb-6" aria-labelledby="data-preview-heading">
-            <h2 id="data-preview-heading" className="mb-3 font-medium text-ink">Data preview (first 5 rows)</h2>
-            <div className="overflow-x-auto">
-              <table className="table-clean">
-                <thead>
-                  <tr>{previewColumns.map(col => <th key={col}>{col}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {previewRows.map((row, idx) => (
-                    <tr key={idx}>
-                      {previewColumns.map(col => (
-                        <td key={col}>{row[col] === null || row[col] === undefined || row[col] === '' ? '—' : String(row[col])}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-        <form onSubmit={confirmTypes}>
-          <div className="mb-6 overflow-x-auto">
-            <table className="table-clean">
-              <thead>
-                <tr><th>Column</th><th>Type</th></tr>
-              </thead>
-              <tbody>
-                {Object.entries(intakeResult.upload.col_types || {}).map(([col]) => (
-                  <tr key={col}>
-                    <td className="font-mono">{col}</td>
-                    <td>
-                      <label className="sr-only" htmlFor={`type-${col}`}>Type for {col}</label>
-                      <select id={`type-${col}`} value={colTypes[col] || 'Category'} onChange={e => setColTypes(t => ({ ...t, [col]: e.target.value }))} disabled={saving} className="input min-w-32">
-                        {COL_TYPE_OPTIONS.map(o => <option key={o}>{o}</option>)}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => { setIntakeResult(null); setFile(null); setDictionary(null); setColTypes({}) }} disabled={saving} className="btn-secondary">
-              Start over
-            </button>
-            <button type="submit" disabled={saving} className="btn-primary">
-              {saving && <Spinner />}
-              {saving ? 'Saving…' : 'Confirm Types →'}
-            </button>
-          </div>
-        </form>
-      </div>
-    )
-  }
-
   return (
     <div className="screen max-w-xl">
       <PageIntro
@@ -146,35 +68,73 @@ export default function ProjectIntake() {
         title="Tell us about your project."
         lead="In one or two sentences, what is your QA/QI project about? Then upload your dataset and its data dictionary."
       />
-      <div className="alert-warn mb-6">
-        Do not upload files containing patient names, MRNs, or other direct identifiers. We scan every upload and reject anything that looks like PHI.
+
+      <div className="alert-info mb-6">
+        This prototype is not HIPAA compliant. Do not upload files containing patient names, MRNs, or other identifying information.
       </div>
+
       {phiViolations && (
         <div role="alert" className="alert-error mb-4">
-          <p className="font-medium">We can't process this file — it may contain patient-identifying information:</p>
+          <p className="font-medium">
+            We can't process this file because it may contain patient-identifying information. Remove all names, MRNs, and other PHI, then upload it again.
+          </p>
           <ul className="mt-2 list-disc pl-5">
             {Object.entries(phiViolations).map(([col, messages]) => (
-              <li key={col}><span className="font-mono">{col}</span>: {messages.join(' ')}</li>
+              <li key={col}>
+                <span className="font-mono">{col === 'dictionary' ? 'Data Dictionary' : col}</span>: {Array.isArray(messages) ? messages.join(' ') : String(messages)}
+              </li>
             ))}
           </ul>
-          <p className="mt-2">Remove these and upload again.</p>
+          <button
+            type="button"
+            onClick={() => {
+              setFile(null)
+              setDictionary(null)
+              setPhiViolations(null)
+            }}
+            className="btn-secondary mt-3 text-xs"
+          >
+            Remove file and choose another
+          </button>
         </div>
       )}
+
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}
       {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving project, scanning for PHI, and analyzing your data…</p>}
+
       <form onSubmit={submit} className="card flex flex-col gap-4">
         <label htmlFor="project-title" className="label">Project Title</label>
-        <input id="project-title" className="input" value={title} onChange={e => setTitle(e.target.value)} disabled={loading} required />
+        <input
+          id="project-title"
+          className="input"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          disabled={loading}
+          required
+        />
 
-        <label htmlFor="project-description" className="label">Project Description</label>
+        <label htmlFor="project-description" className="label">Project Description (minimum 40 characters)</label>
         <textarea
           id="project-description"
           className="input min-h-32"
           value={desc}
           onChange={e => setDesc(e.target.value)}
-          placeholder="Describe your QI initiative in one or two sentences..."
+          placeholder="Describe your QI initiative in one or two sentences (aim, setting, what you are trying to improve)..."
           disabled={loading}
           required
+        />
+        {desc.length > 0 && desc.trim().length < 40 && (
+          <p className="text-xs text-ink-faint">{40 - desc.trim().length} more character(s) needed</p>
+        )}
+
+        <label htmlFor="project-deadline" className="label">Target Completion / Abstract Deadline (optional)</label>
+        <input
+          id="project-deadline"
+          type="date"
+          className="input"
+          value={deadline}
+          onChange={e => setDeadline(e.target.value)}
+          disabled={loading}
         />
 
         <label htmlFor="data-file" className="label">Dataset (CSV or Excel)</label>
@@ -188,7 +148,7 @@ export default function ProjectIntake() {
         />
         {file && <p className="text-sm text-ink-soft">Selected: <span className="font-medium text-ink">{file.name}</span> ({formatFileSize(file)})</p>}
 
-        <label htmlFor="data-dictionary" className="label">Data Dictionary (PDF, Word, or text — required)</label>
+        <label htmlFor="data-dictionary" className="label">Data Dictionary (PDF, Word, or text — optional)</label>
         <input
           id="data-dictionary"
           type="file"
@@ -198,10 +158,14 @@ export default function ProjectIntake() {
           disabled={loading}
         />
         {dictionary && <p className="text-sm text-ink-soft">Selected: <span className="font-medium text-ink">{dictionary.name}</span> ({formatFileSize(dictionary)})</p>}
-        <p className="text-sm text-ink-faint">We require a data dictionary so we understand your columns from documentation rather than guessing from raw values.</p>
+        <p className="text-sm text-ink-faint">Optional — attaching one helps the AI read your columns correctly instead of guessing from raw values.</p>
 
         <div className="flex flex-wrap gap-3 pt-2">
-          <button type="submit" disabled={loading || !file || !dictionary} className="btn-primary">
+          <button
+            type="submit"
+            disabled={loading || !file || desc.trim().length < 40}
+            className="btn-primary"
+          >
             {loading && <Spinner />}
             {loading ? 'Processing…' : 'Continue'}
           </button>

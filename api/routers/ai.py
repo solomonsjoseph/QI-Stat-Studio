@@ -1,52 +1,60 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
 import litellm
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
 
-from api.auth import get_current_user
-from api.config import settings
-from api.database import get_db
-from api.intake_schema import validate_answers
-from api.middleware.phi_scrubber import scrub_text
-from api.analysis_schemas import TEMPLATE_PARAM_MODELS
-from api.routers.analyze import _ALL as ANALYSIS_TEMPLATES
-from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
+from api.ai_prompts import (
+    CLARIFY_SYSTEM_V1,
+    COLLECTION_SYSTEM_V1,
+    INTERPRET_SYSTEM_V1,
+    OVERRIDE_SYSTEM_V1,
+    PROMPT_VERSIONS,
+    RECOMMEND_SYSTEM_V1,
+)
+from api.dataset_profile import get_upload_profile
 from api.models_api import (
+    AnalysisPlanItem,
     AnalysisPlanRequest,
     AnalysisPlanResponse,
     ChatRequest,
     ChatResponse,
     ClarifyRequest,
     ClarifyResponse,
-    IntakeAnswerAIRequest,
-    IntakeAnswerAIResponse,
-    IntakePrefillRequest,
-    IntakePrefillResponse,
+    InterpretResultsResponse,
+    OverridePlanRequest,
+    OverridePlanResponse,
+    ProjectDesign,
+    RecommendPlanModel,
+    RunInterpretation,
     ScrubPreviewRequest,
     ScrubPreviewResponse,
 )
+from api.routers.projects import advance_phase, require_phase
+from api.routers.analyze import check_plan_item
+from api.project_design import DESIGN_FIELDS, get_field_value, merge_ai_design
+
+from api.auth import get_current_user
+from api.config import settings
+from api.database import get_db
+from api.middleware.phi_scrubber import scrub_text
+from api.analysis_schemas import TEMPLATE_PARAM_MODELS
+from api.routers.analyze import _ALL as ANALYSIS_TEMPLATES
+from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.audit import log_action, safe_diagnostic_message
-from api.models_db import AIUsageEvent, Project, Upload, User
+from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
-
-class _IntakePrefillDraft(BaseModel):
-    q2: Any = None
-    q3: Any = None
-    q4: Any = None
-    q5: Any = None
-    q6: Any = None
-    q7: Any = None
-
-    model_config = ConfigDict(extra="ignore")
 
 
 def _require_project_access(db: Session, project_id: int, user: User) -> Project:
@@ -81,9 +89,46 @@ _MODEL_PREFIXES = {
 }
 
 
+def _untrusted(text: str) -> str:
+    return f"<untrusted_data>\n{text}\n</untrusted_data>"
+
+
+def _drop_irrelevant_questions(message: str, design: ProjectDesign | None) -> str:
+    if not message:
+        return message
+
+    drop_intervention = not (design and design.intervention and design.intervention.present)
+    drop_pairing = not (design and design.pairing_id_column)
+
+    lines = message.splitlines()
+    kept_lines = []
+    for line in lines:
+        if drop_intervention and re.search(r"intervention\s+date", line, re.I):
+            continue
+        if drop_pairing and re.search(r"\b(paired|pairing)\b", line, re.I):
+            continue
+        kept_lines.append(line)
+
+    result = "\n".join(kept_lines)
+    if len(lines) <= 1 and ("." in message or "?" in message):
+        sentences = re.split(r"(?<=[.?!])\s+", result)
+        kept_sentences = []
+        for s in sentences:
+            if drop_intervention and re.search(r"intervention\s+date", s, re.I):
+                continue
+            if drop_pairing and re.search(r"\b(paired|pairing)\b", s, re.I):
+                continue
+            kept_sentences.append(s)
+        result = " ".join(kept_sentences)
+
+    return result.strip()
+
+
 def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
     """Resolve (provider, api_key, api_base, default_model) for the configured AI provider."""
     provider = (get_runtime_setting(db, "ai_provider") or settings.ai_provider or "openrouter").strip().lower()
+    if provider == "stub":
+        return "stub", "stub", None, "stub"
     if provider == "openai":
         model = get_runtime_setting(db, "openai_model") or settings.openai_model
         return provider, settings.openai_api_key or None, None, model
@@ -105,6 +150,10 @@ def _llm_completion(
     reasoning_effort: str | None = None,
 ):
     """Route a chat completion through litellm's unified, OpenAI-compatible interface."""
+    if provider == "stub":
+        from api import ai_stub
+
+        return ai_stub.canned_response(messages)
     kwargs: dict[str, Any] = {
         "model": f"{_MODEL_PREFIXES[provider]}{model}",
         "messages": messages,
@@ -155,6 +204,49 @@ def _llm_completion_nonempty(
         return content
     raise RuntimeError("empty_llm_response")
 
+
+def _validated_completion(
+    provider: str,
+    api_key: str | None,
+    api_base: str | None,
+    model: str,
+    messages: list[dict[str, str]],
+    model_cls: type[Any],
+    max_tokens: int = 1500,
+    reasoning_effort: str | None = "low",
+) -> Any:
+    """Wrap _llm_completion_nonempty, parse JSON via _extract_json_object, validate into model_cls.
+
+    On ValidationError or unparseable JSON, retries ONCE with an appended corrective user message
+    quoting the validation error. On second failure raises HTTPException(502, safe_diagnostic_message('ai_invalid_response')).
+    """
+    content = _llm_completion_nonempty(
+        provider, api_key, api_base, model, messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort
+    )
+    try:
+        data = _extract_json_object(content)
+        if data:
+            return model_cls.model_validate(data)
+        err_msg = "Output was not valid JSON"
+    except Exception as exc:
+        err_msg = str(exc)
+
+    corrective_msg = (
+        f"Your previous response did not match the required JSON schema:\n{err_msg}\n"
+        "Please respond with valid JSON matching the schema exactly, with no additional commentary."
+    )
+    retry_messages = list(messages) + [{"role": "user", "content": corrective_msg}]
+
+    try:
+        retry_content = _llm_completion_nonempty(
+            provider, api_key, api_base, model, retry_messages, max_tokens=max_tokens, reasoning_effort="minimal"
+        )
+        retry_data = _extract_json_object(retry_content)
+        if not retry_data:
+            raise ValueError("Retry response was not valid JSON")
+        return model_cls.model_validate(retry_data)
+    except Exception:
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_invalid_response"))
 
 def _record_ai_usage(
     db: Session,
@@ -234,41 +326,14 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
     return ChatResponse(content=content, phi_redacted=total_redactions > 0, redaction_count=total_redactions)
 
 
-@router.post("/intake-prefill", response_model=IntakePrefillResponse)
-def intake_prefill(req: IntakePrefillRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    _require_project_access(db, req.project_id, user)
-
-    clean_description, redaction_count = scrub_text(req.description)
-    if redaction_count > 0:
-        log_action(db, req.project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "intake_prefill"})
-    provider, api_key, api_base, default_model = _provider_settings(db)
-    if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
-
-    selected_model = default_model
-    prompt = (
-        "Return JSON only with optional keys q2, q3, q4, q5, q6, q7 for this QI project. "
-        "Use canonical answer text when confident. q7 may be {\"description\":\"...\",\"date\":\"YYYY-MM-DD\"}. "
-        "Known short labels are acceptable only for q2/q3 and will be normalized. "
-        f"Project description: {clean_description}"
-    )
-    try:
-        resp = _llm_completion(provider, api_key, api_base, selected_model, [{"role": "user", "content": prompt}])
-        content = resp.choices[0].message.content
-    except Exception:
-        db.add(AIUsageEvent(user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=len(clean_description), completion_chars=0, status="error"))
-        db.commit()
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
-    draft = _IntakePrefillDraft.model_validate(_extract_json_object(content)).model_dump(exclude_none=True)
-    answers, _ = validate_answers(draft, drop_unmatched=True)
-    return IntakePrefillResponse(answers=answers, phi_redacted=redaction_count > 0, redaction_count=redaction_count)
-
 
 @router.post("/scrub-preview", response_model=ScrubPreviewResponse)
 def scrub_preview(req: ScrubPreviewRequest, user: User = Depends(get_current_user)):
     """Local, non-LLM PHI check for chat input: lets the frontend show a redacted
-    preview and require a second explicit send before anything reaches the AI."""
-    clean, count = scrub_text(req.text)
+    preview and require a second explicit send before anything reaches the AI.
+    Preserves dates (redact_dates=False), matching /ai/clarify's actual send -- an
+    intervention start date is operationally relevant QI content, not PHI."""
+    clean, count = scrub_text(req.text, redact_dates=False)
     return ScrubPreviewResponse(text=clean, redacted=count > 0, count=count)
 
 
@@ -281,46 +346,40 @@ def _latest_active_upload(db: Session, project_id: int) -> Upload | None:
     )
 
 
-_CLARIFY_SYSTEM_PROMPT = """You are helping a medical resident (not a statistician) clarify a quality-improvement (QI) project definition before analysis. You NEVER see raw patient data values -- only column names, column types, and the data dictionary text below. Do not ask the resident for patient names, MRNs, or other identifying information.
-
-Project title (current): {title}
-Project description (current): {description}
-Dataset columns and types: {col_types}
-Data dictionary: {dictionary_text}
-
-Your job this turn:
-- If the conversation is just starting, restate your understanding of the project and propose an improved, more specific title and description based on the context above.
-- Identify the aim, intervention (if any), population, primary outcome, secondary outcomes, comparison, and time structure.
-- Ask ONE targeted follow-up question at a time for anything vague or missing. Only ask about an intervention date if there is an intervention.
-- Only set "confirmed" to true once you and the resident have reached a specific, complete project definition covering at minimum the aim, primary outcome, and time structure.
-
-Respond with JSON only, no prose outside the JSON, in exactly this shape:
-{{"message": "<your reply to the resident>", "reasoning": "<one or two sentences of your reasoning for this turn>", "suggested_title": "<string or null>", "suggested_description": "<string or null>", "confirmed": <true or false>, "design": {{"aim": "...", "intervention": "... or null", "population": "...", "primary_outcome": "...", "secondary_outcomes": ["..."], "comparison": "...", "time_structure": "..."}}}}"""
-
-
-class _ClarifyDraft(BaseModel):
+class ClarifyResponseModel(BaseModel):
     message: str = ""
     reasoning: str | None = None
     suggested_title: str | None = None
     suggested_description: str | None = None
     confirmed: bool = False
-    design: dict[str, Any] = {}
+    sufficient_to_continue: bool = False
+    design: ProjectDesign = Field(default_factory=ProjectDesign)
 
     model_config = ConfigDict(extra="ignore")
-
 
 @router.post("/clarify/{project_id}", response_model=ClarifyResponse)
 def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = _require_project_access(db, project_id, user)
+    require_phase(db, project, "clarify")
 
     state = json.loads(project.ai_clarification_state) if project.ai_clarification_state else {"turns": [], "confirmed": False}
     turns = state.get("turns", [])
 
     if req.confirm:
-        # Resident explicitly accepted the AI's rewrite -- that acceptance is itself
-        # the resident's sign-off, so it confirms deterministically without another
-        # LLM round-trip (which could second-guess an already-made decision).
         project.ai_clarification_state = json.dumps({"turns": turns, "confirmed": True})
+        advance_phase(db, project, "review")
+        if project.ai_project_design:
+            try:
+                d_dict = json.loads(project.ai_project_design)
+                status_map = d_dict.setdefault("status", {})
+                for path in DESIGN_FIELDS:
+                    val = get_field_value(d_dict, path)
+                    if val not in (None, "", False, {}):
+                        if status_map.get(path) != "user-corrected":
+                            status_map[path] = "user-confirmed"
+                project.ai_project_design = json.dumps(d_dict)
+            except Exception:
+                pass
         db.commit()
         last_ai_turn = next((t for t in reversed(turns) if t["role"] == "ai"), {})
         return ClarifyResponse(
@@ -328,6 +387,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
             reasoning=last_ai_turn.get("reasoning"),
             confirmed=True,
             turns=turns,
+            design=json.loads(project.ai_project_design) if project.ai_project_design else None,
         )
 
     _enforce_ai_rate_limit(db, user)
@@ -339,20 +399,22 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
     clean_message = None
     redaction_count = 0
     if req.message:
-        clean_message, redaction_count = scrub_text(req.message)
+        clean_message, redaction_count = scrub_text(req.message, redact_dates=False)
         if redaction_count > 0:
             log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_clarify"})
         turns.append({"role": "user", "content": clean_message})
 
     upload = _latest_active_upload(db, project_id)
-    col_types = json.loads(upload.col_types) if upload and upload.col_types else {}
+    profile = get_upload_profile(upload) if upload else {}
+    profile_json = json.dumps(profile, indent=2)
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
+    dictionary_text_truncated = dictionary_text[:4000]
 
-    system_prompt = _CLARIFY_SYSTEM_PROMPT.format(
+    system_prompt = CLARIFY_SYSTEM_V1.format(
         title=project.title or "(untitled)",
         description=project.description or "(no description yet)",
-        col_types=json.dumps(col_types),
-        dictionary_text=dictionary_text,
+        dataset_profile=_untrusted(profile_json),
+        dictionary_text=_untrusted(dictionary_text_truncated),
     )
     messages = [{"role": "system", "content": system_prompt}]
     for turn in turns:
@@ -362,35 +424,102 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
 
     prompt_chars = sum(len(m["content"]) for m in messages)
     try:
-        content = _llm_completion_nonempty(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
+        resp_model: ClarifyResponseModel = _validated_completion(
+            provider, api_key, api_base, default_model, messages, ClarifyResponseModel, max_tokens=1500
+        )
+    except HTTPException:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
-    draft = _ClarifyDraft.model_validate(_extract_json_object(content))
-    if not draft.message.strip():
-        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
-    turns.append({"role": "ai", "content": draft.message, "reasoning": draft.reasoning})
+    cleaned_message = _drop_irrelevant_questions(resp_model.message, resp_model.design)
+    if not cleaned_message:
+        cleaned_message = "Could you tell me more about what you are aiming to improve?"
 
-    project.ai_clarification_state = json.dumps({"turns": turns, "confirmed": draft.confirmed})
-    if draft.design:
-        existing_design = json.loads(project.ai_project_design) if project.ai_project_design else {}
-        existing_design.update({k: v for k, v in draft.design.items() if v not in (None, "", [])})
-        project.ai_project_design = json.dumps(existing_design)
+    turns.append({"role": "ai", "content": cleaned_message, "reasoning": resp_model.reasoning})
+    project.ai_clarification_state = json.dumps({"turns": turns, "confirmed": resp_model.confirmed})
+
+    existing_design_dict = json.loads(project.ai_project_design or "{}") if project.ai_project_design else {}
+    merged_design = merge_ai_design(resp_model.design, existing_design_dict)
+    project.ai_project_design = json.dumps(merged_design.model_dump())
     db.commit()
 
-    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(cleaned_message), status="ok")
 
     return ClarifyResponse(
-        message=draft.message,
-        reasoning=draft.reasoning,
-        suggested_title=draft.suggested_title,
-        suggested_description=draft.suggested_description,
-        confirmed=draft.confirmed,
+        message=cleaned_message,
+        reasoning=resp_model.reasoning,
+        suggested_title=resp_model.suggested_title,
+        suggested_description=resp_model.suggested_description,
+        confirmed=resp_model.confirmed,
         turns=turns,
+        design=merged_design.model_dump(),
     )
 
+
+@router.post("/collection-guidance/{project_id}")
+def ai_collection_guidance(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    project = _require_project_access(db, project_id, user)
+    require_phase(db, project, "clarify")
+    design_dict = json.loads(project.ai_project_design or "{}")
+    design = ProjectDesign.model_validate(design_dict)
+
+    upload = _latest_active_upload(db, project_id)
+    if not upload:
+        return {"recommendations": [], "generated_at": datetime.utcnow().isoformat()}
+
+    from api.collection_guidance import deterministic_recommendations
+    from api.upload_utils import load_upload_dataframe
+
+    try:
+        df = load_upload_dataframe(upload)
+    except Exception:
+        df = pd.DataFrame()
+
+    profile = get_upload_profile(upload)
+    rules_recs = deterministic_recommendations(design, df, profile)
+
+    ai_recs: list[dict[str, Any]] = []
+    provider, api_key, api_base, default_model = _provider_settings(db)
+    if api_key or provider == "local":
+        try:
+            _enforce_ai_rate_limit(db, user)
+            system_prompt = COLLECTION_SYSTEM_V1.format(
+                design=_untrusted(json.dumps(design.model_dump(), indent=2)),
+                dataset_profile=_untrusted(json.dumps(profile, indent=2)),
+                dictionary_text=_untrusted((upload.dictionary_text or "(none)")[:4000]),
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "Review project design and profile for collection recommendations."},
+            ]
+            prompt_chars = sum(len(m["content"]) for m in messages)
+            content = _llm_completion_nonempty(
+                provider, api_key, api_base, default_model, messages, max_tokens=1000, reasoning_effort="low"
+            )
+            parsed = _extract_json_object(content)
+            raw_ai_items = parsed.get("recommendations", [])
+            rule_ids = {r["id"] for r in rules_recs}
+            for item in raw_ai_items:
+                if isinstance(item, dict) and item.get("id") and item.get("id") not in rule_ids:
+                    item["source"] = "ai"
+                    ai_recs.append(item)
+            _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
+        except Exception:
+            pass
+
+    combined = rules_recs + ai_recs
+    now_iso = datetime.utcnow().isoformat()
+    project.data_collection_notes = json.dumps({"recommendations": combined, "generated_at": now_iso})
+    db.commit()
+
+    return {"recommendations": combined, "generated_at": now_iso}
 
 def _method_library_text() -> str:
     lines = []
@@ -404,45 +533,50 @@ def _method_library_text() -> str:
     return "\n".join(lines)
 
 
-_RECOMMEND_SYSTEM_PROMPT = """You are recommending a complete statistical analysis plan for a medical resident's quality-improvement (QI) project. You may recommend and combine multiple analyses -- never force a single choice -- but ONLY from this fixed library of implemented, executable methods (never propose anything outside this list, never invent a new method):
-
-{method_library}
-
-Confirmed project design: {design}
-Dataset columns and types: {col_types}
-Data dictionary: {dictionary_text}
-
-Your job this turn:
-- Recommend every analysis from the library above that is genuinely relevant given the project design (e.g. a pre/post project may need descriptive_summary AND run_chart AND before_after_mean together; a simple one-period project may need only descriptive_summary).
-- For each recommended analysis, infer its exact parameters (real column names from the dataset above) as confidently as you can. Leave a parameter out only if you genuinely cannot infer it.
-- Briefly explain why each analysis is recommended and what question it answers.
-- If the resident denies an analysis or asks for something different, adjust the plan and explain the change.
-- Only set "confirmed" to true once the resident has explicitly agreed to the final plan.
-
-Respond with JSON only, no prose outside the JSON, in exactly this shape:
-{{"message": "<your reply to the resident>", "reasoning": "<one or two sentences of your reasoning for this turn>", "confirmed": <true or false>, "analyses": [{{"template": "<one of the library ids above>", "rationale": "<why this analysis, briefly>", "parameters": {{"<param name>": "<inferred column name or value>"}}}}]}}"""
-
-
-class _AnalysisPlanItemDraft(BaseModel):
-    template: str
-    rationale: str | None = None
-    parameters: dict[str, Any] = {}
-
-    model_config = ConfigDict(extra="ignore")
-
-
-class _AnalysisPlanDraft(BaseModel):
-    message: str = ""
-    reasoning: str | None = None
-    confirmed: bool = False
-    analyses: list[_AnalysisPlanItemDraft] = []
-
-    model_config = ConfigDict(extra="ignore")
-
-
 @router.post("/recommend-plan/{project_id}", response_model=AnalysisPlanResponse)
 def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     project = _require_project_access(db, project_id, user)
+    require_phase(db, project, "plan")
+
+    if req.confirm:
+        # Resident's explicit confirmation of the (possibly edited) plan is itself
+        # the sign-off -- persist deterministically, no LLM round-trip.
+        upload = _latest_active_upload(db, project_id)
+        from api.upload_utils import load_upload_dataframe
+        try:
+            df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+        except Exception:
+            df = pd.DataFrame()
+
+        confirmed_analyses: list[AnalysisPlanItem] = []
+        for idx, item_dict in enumerate(req.analyses or []):
+            item = AnalysisPlanItem.model_validate(item_dict)
+            if not item.id:
+                item.id = f"{item.template}-{idx + 1}"
+            check = check_plan_item(db, project, upload, df, item.template, item.parameters)
+            item.executable = check["ok"]
+            item.errors = check["errors"]
+            item.missing_params = check["missing_params"]
+            item.parameters = check["parameters"]
+            confirmed_analyses.append(item)
+
+        state = json.loads(project.ai_analysis_plan) if project.ai_analysis_plan else {}
+        turns = state.get("turns", [])
+        project.ai_analysis_plan = json.dumps({
+            "turns": turns,
+            "confirmed": True,
+            "analyses": [a.model_dump() for a in confirmed_analyses],
+            "stale": False,
+        })
+        db.commit()
+        return AnalysisPlanResponse(
+            message="Plan confirmed.",
+            reasoning=None,
+            confirmed=True,
+            analyses=confirmed_analyses,
+            turns=turns,
+        )
+
     _enforce_ai_rate_limit(db, user)
 
     provider, api_key, api_base, default_model = _provider_settings(db)
@@ -461,15 +595,20 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         turns.append({"role": "user", "content": clean_message})
 
     upload = _latest_active_upload(db, project_id)
-    col_types = json.loads(upload.col_types) if upload and upload.col_types else {}
+    profile = get_upload_profile(upload) if upload else {}
+    profile_json = json.dumps(profile, indent=2)
+    quality_flags_raw = json.loads(upload.quality_flags) if upload and upload.quality_flags else []
+    quality_findings = json.dumps(quality_flags_raw, indent=2)
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
+    dictionary_text_truncated = dictionary_text[:4000]
     design = json.loads(project.ai_project_design) if project.ai_project_design else {}
 
-    system_prompt = _RECOMMEND_SYSTEM_PROMPT.format(
+    system_prompt = RECOMMEND_SYSTEM_V1.format(
         method_library=_method_library_text(),
-        design=json.dumps(design) if design else "(not yet clarified)",
-        col_types=json.dumps(col_types),
-        dictionary_text=dictionary_text,
+        design=_untrusted(json.dumps(design, indent=2)),
+        dataset_profile=_untrusted(profile_json),
+        quality_findings=_untrusted(quality_findings),
+        dictionary_text=_untrusted(dictionary_text_truncated),
     )
     messages = [{"role": "system", "content": system_prompt}]
     for turn in turns:
@@ -479,103 +618,242 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
 
     prompt_chars = sum(len(m["content"]) for m in messages)
     try:
-        content = _llm_completion_nonempty(provider, api_key, api_base, default_model, messages, max_tokens=1500, reasoning_effort="low")
+        resp_model: RecommendPlanModel = _validated_completion(
+            provider, api_key, api_base, default_model, messages, RecommendPlanModel, max_tokens=2000
+        )
+    except HTTPException:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
-    draft = _AnalysisPlanDraft.model_validate(_extract_json_object(content))
-    if not draft.message.strip():
-        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
-    analyses = [a.model_dump() for a in draft.analyses if a.template in ANALYSIS_TEMPLATES]
-    turns.append({"role": "ai", "content": draft.message, "reasoning": draft.reasoning})
+    from api.upload_utils import load_upload_dataframe
+    try:
+        df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+    except Exception:
+        df = pd.DataFrame()
 
-    project.ai_analysis_plan = json.dumps({"turns": turns, "confirmed": draft.confirmed, "analyses": analyses})
+    validated_analyses: list[AnalysisPlanItem] = []
+    for idx, item in enumerate(resp_model.analyses):
+        if item.template not in ANALYSIS_TEMPLATES:
+            continue
+        if not item.id:
+            item.id = f"{item.template}-{idx + 1}"
+        check = check_plan_item(db, project, upload, df, item.template, item.parameters)
+        item.executable = check["ok"]
+        item.errors = check["errors"]
+        item.missing_params = check["missing_params"]
+        item.parameters = check["parameters"]
+        item.needs_clarification = any(c == "low" for c in item.param_confidence.values()) or bool(item.missing_params)
+        validated_analyses.append(item)
+
+    turns.append({"role": "ai", "content": resp_model.message, "reasoning": resp_model.reasoning})
+
+    # Initial plan history written once
+    if not project.ai_plan_history:
+        project.ai_plan_history = json.dumps({
+            "initial": [a.model_dump() for a in validated_analyses],
+            "overrides": [],
+            "revised": [],
+        })
+
+    project.ai_analysis_plan = json.dumps({
+        "turns": turns,
+        "confirmed": resp_model.confirmed,
+        "analyses": [a.model_dump() for a in validated_analyses],
+        "stale": False,
+    })
     db.commit()
 
-    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(resp_model.message), status="ok")
 
     return AnalysisPlanResponse(
-        message=draft.message,
-        reasoning=draft.reasoning,
-        confirmed=draft.confirmed,
-        analyses=analyses,
+        message=resp_model.message,
+        reasoning=resp_model.reasoning,
+        confirmed=resp_model.confirmed,
+        analyses=validated_analyses,
         turns=turns,
     )
 
 
-_INTAKE_ANSWER_TASKS = {
-    "radio": 'Pick the single option from the list above that best matches the resident\'s explanation. Set "value" to that option\'s text EXACTLY as written above (character-for-character, from the Options list). If none fit confidently, set "value" to null and "resolved" to false.',
-    "number": 'Extract the integer count implied by the explanation. Set "value" to that integer. If not determinable, set "value" to null and "resolved" to false.',
-    "date": 'Extract a single date in YYYY-MM-DD format implied by the explanation. If not determinable, set "value" to null and "resolved" to false.',
-    "intervention": 'Extract both a short intervention description and a start date. Set "value" to {"description": "...", "date": "YYYY-MM-DD" or null}. Always set a description (rephrase the resident\'s own words if needed); if no date is mentioned, set date to null but still set "resolved" to true as long as the description is clear.',
-}
-
-_INTAKE_ANSWER_SYSTEM_PROMPT = """You are helping a medical resident answer one intake question about their QI project by interpreting their free-text explanation. Never ask for or expect patient names, MRNs, or other identifying information.
-
-Question: "{question_text}"
-Question type: {question_type}
-{options_block}
-
-Resident's explanation: "{message}"
-
-Task: {task}
-
-Respond with JSON only: {{"value": <string, number, object, or null>, "message": "<one short sentence confirming what you picked, or a brief clarifying follow-up if you could not determine an answer>", "resolved": <true or false>}}"""
-
-
-class _IntakeAnswerDraft(BaseModel):
-    value: Any = None
-    message: str = ""
-    resolved: bool = False
-
-    model_config = ConfigDict(extra="ignore")
-
-
-@router.post("/intake-answer/{project_id}", response_model=IntakeAnswerAIResponse)
-def ai_intake_answer(project_id: int, req: IntakeAnswerAIRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    _require_project_access(db, project_id, user)
+@router.post("/override-plan/{project_id}", response_model=OverridePlanResponse)
+def ai_override_plan(
+    project_id: int,
+    body: OverridePlanRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    project = _require_project_access(db, project_id, user)
+    require_phase(db, project, "plan")
     _enforce_ai_rate_limit(db, user)
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
         raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
 
-    # date/intervention questions are specifically asking for a project-level date
-    # (intervention date, abstract deadline) -- that date is the answer being
-    # extracted, not incidental text that might be a patient's DOB, so it must
-    # survive scrubbing. Names/MRNs/SSNs/phones/emails/addresses are still redacted.
-    redact_dates = req.question_type not in ("date", "intervention")
-    clean_message, redaction_count = scrub_text(req.message, redact_dates=redact_dates)
+    clean_instruction, redaction_count = scrub_text(body.instruction)
     if redaction_count > 0:
-        log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_intake_answer"})
+        log_action(db, project_id, "phi_redacted", {"redaction_count": redaction_count, "source": "ai_override_plan"})
 
-    options_block = f"Options: {json.dumps(req.options)}" if req.options else ""
-    system_prompt = _INTAKE_ANSWER_SYSTEM_PROMPT.format(
-        question_text=req.question_text,
-        question_type=req.question_type,
-        options_block=options_block,
-        message=clean_message,
-        task=_INTAKE_ANSWER_TASKS[req.question_type],
+    upload = _latest_active_upload(db, project_id)
+    profile = get_upload_profile(upload) if upload else {}
+    profile_json = json.dumps(profile, indent=2)
+    design = json.loads(project.ai_project_design) if project.ai_project_design else {}
+    current_plan = json.loads(project.ai_analysis_plan) if project.ai_analysis_plan else {}
+
+    system_prompt = OVERRIDE_SYSTEM_V1.format(
+        method_library=_method_library_text(),
+        design=_untrusted(json.dumps(design, indent=2)),
+        dataset_profile=_untrusted(profile_json),
+        current_plan=_untrusted(json.dumps(current_plan.get("analyses", []), indent=2)),
+        instruction=_untrusted(clean_instruction),
     )
-    messages = [{"role": "user", "content": system_prompt}]
-    prompt_chars = len(system_prompt)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Please revise the plan according to this instruction: {clean_instruction}"},
+    ]
+
+    prompt_chars = sum(len(m["content"]) for m in messages)
     try:
-        content = _llm_completion_nonempty(provider, api_key, api_base, default_model, messages, max_tokens=600, reasoning_effort="low")
+        resp_model: OverridePlanResponse = _validated_completion(
+            provider, api_key, api_base, default_model, messages, OverridePlanResponse, max_tokens=2000
+        )
+    except HTTPException:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
-    draft = _IntakeAnswerDraft.model_validate(_extract_json_object(content))
-    value = draft.value
-    if req.question_type == "radio" and value is not None and req.options and value not in req.options:
-        value = None
-        draft.resolved = False
+    from api.upload_utils import load_upload_dataframe
+    try:
+        df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+    except Exception:
+        df = pd.DataFrame()
 
-    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
-    return IntakeAnswerAIResponse(
-        value=value,
-        message=draft.message or "Could you say a bit more?",
-        resolved=bool(draft.resolved and value is not None),
+    validated_analyses: list[AnalysisPlanItem] = []
+    for idx, item in enumerate(resp_model.analyses):
+        if item.template not in ANALYSIS_TEMPLATES:
+            continue
+        if not item.id:
+            item.id = f"{item.template}-{idx + 1}"
+        check = check_plan_item(db, project, upload, df, item.template, item.parameters)
+        item.executable = check["ok"]
+        item.errors = check["errors"]
+        item.missing_params = check["missing_params"]
+        item.parameters = check["parameters"]
+        item.needs_clarification = any(c == "low" for c in item.param_confidence.values()) or bool(item.missing_params)
+        validated_analyses.append(item)
+
+    # Append to overrides in history
+    history = json.loads(project.ai_plan_history or "{}") if project.ai_plan_history else {"initial": [], "overrides": [], "revised": []}
+    history.setdefault("overrides", []).append({
+        "instruction": clean_instruction,
+        "changes": resp_model.changes,
+        "analyses": [a.model_dump() for a in validated_analyses],
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    project.ai_plan_history = json.dumps(history)
+
+    # Reset confirmed flag on plan so resident re-confirms
+    current_plan["analyses"] = [a.model_dump() for a in validated_analyses]
+    current_plan["confirmed"] = False
+    current_plan["stale"] = False
+    project.ai_analysis_plan = json.dumps(current_plan)
+    db.commit()
+
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(resp_model.message), status="ok")
+
+    return OverridePlanResponse(
+        message=resp_model.message,
+        changes=resp_model.changes,
+        confirmed=False,
+        analyses=validated_analyses,
     )
+
+
+@router.post("/interpret-results/{project_id}", response_model=InterpretResultsResponse)
+def ai_interpret_results(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    project = _require_project_access(db, project_id, user)
+    require_phase(db, project, "results")
+    _enforce_ai_rate_limit(db, user)
+
+    provider, api_key, api_base, default_model = _provider_settings(db)
+    if not api_key and provider != "local":
+        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+
+    upload = _latest_active_upload(db, project_id)
+    if not upload:
+        raise HTTPException(404, "No active upload found")
+
+    runs = (
+        db.query(AnalysisRun)
+        .filter(AnalysisRun.project_id == project_id, AnalysisRun.upload_id == upload.id)
+        .order_by(AnalysisRun.created_at.asc(), AnalysisRun.id.asc())
+        .all()
+    )
+    if not runs:
+        raise HTTPException(400, "No analysis runs found for project")
+
+    _INTERPRET_FIELDS = (
+        "template", "result_summary", "p_value", "test_used", "effect_estimate",
+        "effect_ci", "odds_ratio", "risk_difference", "ucl", "lcl", "pbar",
+        "signal_detected", "trend_signal_detected", "n_pairs",
+    )
+    results_payload = []
+    for run in runs:
+        res_json = json.loads(run.result_json or "{}")
+        run_data = {k: res_json.get(k) for k in _INTERPRET_FIELDS if res_json.get(k) is not None}
+        run_data["run_id"] = run.id
+        run_data["template"] = run.template
+        results_payload.append(run_data)
+
+    ack_flags = json.loads(upload.acknowledged_flags or "[]")
+    ack_text = json.dumps(ack_flags, indent=2)
+
+    system_prompt = INTERPRET_SYSTEM_V1.format(
+        results_payload=_untrusted(json.dumps(results_payload, indent=2)),
+        acknowledged_warnings=_untrusted(ack_text),
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Please provide interpretations, limitations, and an abstract draft for these analysis results."},
+    ]
+
+    prompt_chars = sum(len(m["content"]) for m in messages)
+    try:
+        resp_model: InterpretResultsResponse = _validated_completion(
+            provider, api_key, api_base, default_model, messages, InterpretResultsResponse, max_tokens=2500
+        )
+    except HTTPException:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise
+    except Exception:
+        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
+        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+
+    # Persist interpretations onto runs
+    for interp in resp_model.interpretations:
+        r_obj = next((r for r in runs if r.id == interp.run_id), None)
+        if r_obj:
+            r_dict = json.loads(r_obj.result_json or "{}")
+            r_dict["ai_interpretation"] = interp.text
+            r_obj.result_json = json.dumps(r_dict)
+
+    # Persist narrative onto project plan
+    plan_dict = json.loads(project.ai_analysis_plan or "{}")
+    plan_dict["narrative"] = {
+        "limitations": resp_model.limitations,
+        "abstract_draft": resp_model.abstract_draft,
+    }
+    project.ai_analysis_plan = json.dumps(plan_dict)
+    db.commit()
+
+    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(resp_model.abstract_draft), status="ok")
+
+    return resp_model

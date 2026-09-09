@@ -4,122 +4,30 @@ import BackButton from '../components/BackButton'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
+import { TEMPLATE_LABELS } from '../templateLabels'
+
+const DESCRIPTIVE_TEMPLATES = new Set(['descriptive_summary', 'run_chart', 'p_chart', 'u_c_chart'])
+const STATISTICAL_TEMPLATES = new Set(['before_after_mean', 'before_after_pct', 'before_after_paired'])
 
 function errorMessage(err, fallback = 'Analysis failed') {
   return `${err.message || fallback}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
 }
 
-export default function Results() {
-  const { ctx, update, next, prev } = useApp()
-  const initialResult = ctx.results?.result_summary ? ctx.results : null
-  const initialInterpretation = ctx.aiInterpretation || initialResult?.interpretation || ''
-  const [result, setResult] = useState(initialResult)
-  const [aiText, setAiText] = useState(initialInterpretation)
-  const [phiBanner, setPhiBanner] = useState(false)
-  const [error, setError] = useState('')
-  const [attempt, setAttempt] = useState(0)
-  const [interpretationLoading, setInterpretationLoading] = useState(false)
-  const [interpretationError, setInterpretationError] = useState('')
-  useEffect(() => {
-    if (result) return
-    let cancelled = false
-    setError('')
-    api.runAnalysis(ctx.projectId, ctx.uploadId, ctx.template, ctx.params)
-      .then(async (r) => {
-        if (cancelled) return
-        setResult(r)
-        const fallbackInterpretation = r.interpretation || ''
-        setAiText(fallbackInterpretation)
-        update({
-          runId: r.run_id || r.id,
-          template: r.template || ctx.template,
-          resultSummary: r.result_summary,
-          results: r,
-          ...(fallbackInterpretation ? { aiInterpretation: fallbackInterpretation } : {}),
-        })
-        setInterpretationLoading(true)
-        setInterpretationError('')
-        try {
-          const chatResp = await api.chat(ctx.projectId, [{
-            role: 'user',
-            content: `Write a 2-sentence plain-language interpretation of this QI result for a medical resident: ${r.result_summary}. Template: ${r.template || ctx.template}.`,
-          }])
-          if (cancelled) return
-          setAiText(chatResp.content)
-          if (chatResp.phi_redacted) setPhiBanner(true)
-          update({ aiInterpretation: chatResp.content })
-        } catch (err) {
-          if (!cancelled) setInterpretationError(errorMessage(err, 'Could not generate AI interpretation'))
-        } finally {
-          if (!cancelled) setInterpretationLoading(false)
-        }
-      })
-      .catch(err => { if (!cancelled) setError(errorMessage(err)) })
-    return () => { cancelled = true }
-  }, [ctx.projectId, ctx.uploadId, ctx.template, ctx.params, attempt])
-
-  if (error) {
-    return (
-      <div className="screen" role="alert">
-        <PageIntro step="results" title="Results" />
-        <div className="alert-error">
-          <p className="mb-4">{error}</p>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setError('')
-                setResult(null)
-                setAttempt(a => a + 1)
-              }}
-              className="btn-primary"
-            >
-              Try again
-            </button>
-            <BackButton onClick={prev}>← Back to column mapping</BackButton>
-          </div>
-        </div>
-      </div>
-    )
-  }
-  if (!result) {
-    return (
-      <div className="screen flex items-center justify-center gap-2 text-sm text-ink-soft" aria-live="polite">
-        <Spinner />
-        Running your analysis — this usually takes 5–30 seconds.
-      </div>
-    )
-  }
-
-  const continueToEdit = () => {
-    const fallbackInterpretation = aiText || result.interpretation || ''
-    if (fallbackInterpretation && fallbackInterpretation !== ctx.aiInterpretation) {
-      update({ aiInterpretation: fallbackInterpretation })
-    }
-    next()
-  }
+function ResultCard({ run }) {
+  const templateLabel = TEMPLATE_LABELS[run.template] || run.template
+  const interpretation = run.ai_interpretation || run.interpretation
 
   return (
-    <div className="screen">
-      <PageIntro step="results" title="Results" />
+    <section className="card mb-4" aria-labelledby={`run-${run.run_id}-heading`}>
+      <h3 id={`run-${run.run_id}-heading`} className="mb-1 font-medium text-ink">{templateLabel}</h3>
+      {run.result_summary && <p className="text-sm leading-6 text-ink-soft mb-3">{run.result_summary}</p>}
 
-      {phiBanner && (
-        <div className="alert-warn mb-4">
-          Some text was automatically de-identified before being sent to the AI. No PHI left this server.
-        </div>
-      )}
-
-      <section className="card mb-4" aria-labelledby="results-summary-heading">
-        <h2 id="results-summary-heading" className="mb-1 font-medium text-ink">Summary</h2>
-        <p className="text-sm leading-6 text-ink-soft">{result.result_summary}</p>
-      </section>
-
-      {result.table && result.table.length > 0 && (
-        <div className="mb-4 overflow-x-auto">
+      {run.table && run.table.length > 0 && (
+        <div className="mb-3 overflow-x-auto">
           <table className="table-clean">
             <thead>
               <tr>
-                {Object.keys(result.table[0]).map(k => (
+                {Object.keys(run.table[0]).map(k => (
                   <th key={k} className="capitalize">
                     {({
                       mean_ci_low: 'Mean CI low',
@@ -132,7 +40,7 @@ export default function Results() {
               </tr>
             </thead>
             <tbody>
-              {result.table.map((row, i) => (
+              {run.table.map((row, i) => (
                 <tr key={i}>
                   {Object.values(row).map((v, j) => (
                     <td key={j}>{v == null ? '—' : String(v)}</td>
@@ -144,32 +52,165 @@ export default function Results() {
         </div>
       )}
 
-      {result.figure_base64 && (
-        <div className="card mb-4 p-2">
-          <img src={`data:image/png;base64,${result.figure_base64}`} alt="Analysis figure" className="w-full rounded-lg" />
+      {run.figure_base64 && (
+        <div className="mb-3 p-2 border border-line rounded-lg">
+          <img src={`data:image/png;base64,${run.figure_base64}`} alt={`${templateLabel} figure`} className="w-full rounded-lg" />
         </div>
       )}
 
-      {aiText && (
-        <div className="alert-info mb-4">
-          <h2 className="mb-1 font-medium">AI Interpretation</h2>
-          <p>{aiText}</p>
-        </div>
-      )}
-
-      {interpretationLoading && (
-        <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Preparing AI interpretation…</p>
-      )}
-
-      {interpretationError && (
-        <p role="alert" className="alert-error mb-4">
-          Could not generate AI interpretation: {interpretationError}
+      {(run.n_dropped_unpaired != null || run.n_pairs != null) && (
+        <p className="text-xs text-ink-faint mb-2">
+          {run.n_pairs != null && `${run.n_pairs} paired observation(s). `}
+          {run.n_dropped_unpaired != null && run.n_dropped_unpaired > 0 && `${run.n_dropped_unpaired} record(s) excluded (unpaired).`}
         </p>
       )}
 
-      <div className="mb-6 text-sm text-ink-soft"><p>{result.methods}</p></div>
+      {interpretation && (
+        <div className="alert-info mb-2">
+          <p className="text-sm">{interpretation}</p>
+        </div>
+      )}
 
-      <button type="button" onClick={continueToEdit} className="btn-primary">Edit & Review</button>
+      {run.methods && <p className="text-xs text-ink-faint">{run.methods}</p>}
+    </section>
+  )
+}
+
+export default function Results() {
+  const { ctx, update, next, prev } = useApp()
+  const [runs, setRuns] = useState(ctx.runs?.length ? ctx.runs : [])
+  const [failures, setFailures] = useState([])
+  const [narrative, setNarrative] = useState(null)
+  const [loading, setLoading] = useState(!ctx.runs?.length)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    if (ctx.runs?.length) {
+      // Already hydrated from resume -- do not re-execute the plan.
+      setRuns(ctx.runs)
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+    setError('')
+
+    async function runAndInterpret() {
+      try {
+        const analyses = (ctx.analysisPlan || []).map(a => ({ template: a.template, parameters: a.parameters }))
+        const runResp = await api.runPlan(ctx.projectId, ctx.uploadId, analyses)
+        if (cancelled) return
+        setFailures(runResp.failures || [])
+
+        let interpretations = {}
+        let narrativeData = null
+        try {
+          const interpResp = await api.interpretResults(ctx.projectId)
+          interpretations = Object.fromEntries((interpResp.interpretations || []).map(i => [i.run_id, i.text]))
+          narrativeData = { limitations: interpResp.limitations || [], abstract_draft: interpResp.abstract_draft || '' }
+        } catch {
+          // Interpretation is advisory -- results still render without it.
+        }
+
+        if (cancelled) return
+        const mergedRuns = (runResp.runs || []).map(r => ({ ...r, ai_interpretation: interpretations[r.run_id] || r.ai_interpretation }))
+        setRuns(mergedRuns)
+        setNarrative(narrativeData)
+        update({ runs: mergedRuns, abstractDraft: narrativeData?.abstract_draft || '' })
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    runAndInterpret()
+    return () => { cancelled = true }
+  }, [ctx.projectId, ctx.uploadId, attempt])
+
+  if (error) {
+    return (
+      <div className="screen" role="alert">
+        <PageIntro step="results" title="Results" />
+        <div className="alert-error">
+          <p className="mb-4">{error}</p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setError('')
+                setRuns([])
+                setAttempt(a => a + 1)
+              }}
+              className="btn-primary"
+            >
+              Try again
+            </button>
+            <BackButton onClick={prev}>← Back to plan</BackButton>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="screen flex items-center justify-center gap-2 text-sm text-ink-soft" aria-live="polite">
+        <Spinner />
+        Running your analyses — this usually takes 5–30 seconds.
+      </div>
+    )
+  }
+
+  const descriptiveRuns = runs.filter(r => DESCRIPTIVE_TEMPLATES.has(r.template))
+  const statisticalRuns = runs.filter(r => STATISTICAL_TEMPLATES.has(r.template))
+  const otherRuns = runs.filter(r => !DESCRIPTIVE_TEMPLATES.has(r.template) && !STATISTICAL_TEMPLATES.has(r.template))
+
+  return (
+    <div className="screen">
+      <PageIntro step="results" title="Results" />
+
+      {failures.length > 0 && (
+        <div className="alert-error mb-4">
+          <h2 className="mb-2 font-medium">Some analyses could not be run</h2>
+          {failures.map((f, i) => (
+            <div key={i} className="mb-2">
+              <p className="font-medium">{TEMPLATE_LABELS[f.template] || f.template}</p>
+              {(f.errors || []).map((e, j) => <p key={j} className="text-sm">{e}</p>)}
+            </div>
+          ))}
+          <button type="button" onClick={prev} className="btn-secondary mt-2 text-xs">Back to plan</button>
+        </div>
+      )}
+
+      {descriptiveRuns.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-3 font-semibold text-ink text-lg">What the data show (descriptive)</h2>
+          {descriptiveRuns.map(r => <ResultCard key={r.run_id} run={r} />)}
+        </section>
+      )}
+
+      {statisticalRuns.length > 0 && (
+        <section className="mb-6">
+          <h2 className="mb-3 font-semibold text-ink text-lg">Statistical tests</h2>
+          {statisticalRuns.map(r => <ResultCard key={r.run_id} run={r} />)}
+        </section>
+      )}
+
+      {otherRuns.map(r => <ResultCard key={r.run_id} run={r} />)}
+
+      {narrative?.limitations?.length > 0 && (
+        <div className="alert-warn mb-6">
+          <h2 className="mb-1 font-medium">Limitations</h2>
+          <ul className="list-disc pl-5 text-sm">
+            {narrative.limitations.map((l, i) => <li key={i}>{l}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <button type="button" onClick={next} className="btn-primary">Edit & Review</button>
     </div>
   )
 }

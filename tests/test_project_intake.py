@@ -32,21 +32,25 @@ def test_intake_creates_project_and_upload_together_in_one_request(auth_client):
         assert upload is not None
         assert upload.project_id == project.id
         assert upload.dictionary_filename == "dictionary.txt"
-        assert upload.phi_scan_status == "clean"
+        assert upload.phi_scan_status == "passed"
 
 
-def test_intake_requires_a_dictionary_file(auth_client):
+def test_intake_allows_omitting_dictionary_file(auth_client):
     response = auth_client.post(
         "/projects/intake",
         data={"title": "No dictionary", "description": "desc"},
         files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["upload"]["id"] is not None
 
     with SessionLocal() as db:
-        assert db.query(Project).count() == 0
-
+        upload = db.get(Upload, body["upload"]["id"])
+        assert upload is not None
+        assert upload.dictionary_filename is None
+        assert upload.phi_scan_status == "passed"
 
 def test_intake_rejects_phi_and_creates_no_project_or_upload(auth_client):
     response = _intake(auth_client, dataset=b"patient_name,mrn,age\nJane Doe,100234,72\nJohn Smith,100567,65\n")

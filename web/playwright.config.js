@@ -9,6 +9,7 @@ const backendEnv = [
   'SECRET_KEY=e2e-secret-key',
   `DB_URL=sqlite:///./${e2eDb}`,
   'OPENROUTER_API_KEY=',
+  'AI_PROVIDER=stub',
   'PYTHONPATH=.',
 ].join(' ')
 

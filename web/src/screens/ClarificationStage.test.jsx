@@ -5,13 +5,23 @@ import ClarificationStage from './ClarificationStage'
 import { AppCtx } from '../App'
 
 const { apiMock } = vi.hoisted(() => ({
-  apiMock: { getProject: vi.fn(), clarify: vi.fn(), confirmClarification: vi.fn(), scrubPreview: vi.fn(), updateProject: vi.fn() },
+  apiMock: {
+    getProject: vi.fn(),
+    clarify: vi.fn(),
+    confirmClarification: vi.fn(),
+    scrubPreview: vi.fn(),
+    updateProject: vi.fn(),
+    updateDesign: vi.fn(),
+    collectionGuidance: vi.fn(),
+  },
 }))
 vi.mock('../api', () => ({ api: apiMock }))
 
 beforeEach(() => {
-  apiMock.getProject.mockResolvedValue({ id: 1, ai_clarification_state: null })
+  apiMock.getProject.mockResolvedValue({ id: 1, ai_clarification_state: null, ai_project_design: null })
   apiMock.confirmClarification.mockResolvedValue({ confirmed: true })
+  apiMock.collectionGuidance.mockResolvedValue({ recommendations: [] })
+  apiMock.scrubPreview.mockResolvedValue({ redacted: false, text: '' })
 })
 
 afterEach(() => {
@@ -21,7 +31,13 @@ afterEach(() => {
 
 function renderScreen(ctxOverrides = {}) {
   const value = {
-    ctx: { projectId: 1, projectTitle: 'Falls prevention pilot', projectDesc: 'We tried a new tool.', ...ctxOverrides },
+    ctx: {
+      projectId: 1,
+      projectTitle: 'Falls QI',
+      projectDesc: 'Reduce falls on 3W',
+      colTypes: { month: 'Date', falls: 'Number' },
+      ...ctxOverrides,
+    },
     update: vi.fn(),
     next: vi.fn(),
     prev: vi.fn(),
@@ -34,155 +50,135 @@ function renderScreen(ctxOverrides = {}) {
   return value
 }
 
-describe('ClarificationStage', () => {
-  it('keeps Continue from advancing until the AI confirms agreement, opening the panel and starting the conversation instead', async () => {
+describe('ClarificationStage with design editor', () => {
+  it('loads opening turn and renders understanding card with provenance chips', async () => {
     apiMock.clarify.mockResolvedValue({
-      message: "Here's what I understood...",
-      reasoning: 'Checked the dataset schema.',
-      suggested_title: 'Better title',
-      suggested_description: 'Better description',
+      message: "1. What is your intervention?\n2. What is your primary outcome?",
+      reasoning: "Reviewing project context.",
       confirmed: false,
-      turns: [{ role: 'ai', content: "Here's what I understood...", reasoning: 'Checked the dataset schema.' }],
+      design: {
+        aim: "Reduce falls by 30%",
+        population: "Inpatients on 3W",
+        plain_restatement: "Tracking monthly falls on 3W over time.",
+        status: { aim: "inferred", population: "inferred" },
+      },
+      turns: [{ role: "ai", content: "1. What is your intervention?\n2. What is your primary outcome?" }],
     })
-    const user = userEvent.setup()
-    const value = renderScreen()
+    renderScreen()
 
-    await waitFor(() => expect(apiMock.getProject).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText(/Here is my understanding of your project/)).toBeInTheDocument()
+    expect(await screen.findByText('Reduce falls by 30%')).toBeInTheDocument()
+    expect(screen.getByText('Tracking monthly falls on 3W over time.')).toBeInTheDocument()
+    expect(screen.getAllByText('Inferred by AI').length).toBeGreaterThanOrEqual(1)
 
-    await waitFor(() => expect(apiMock.clarify).toHaveBeenCalledWith(1, null))
-    expect(await screen.findByRole('dialog', { name: 'AI Clarification' })).toBeInTheDocument()
-    expect(screen.getByText(/Here's what I understood/)).toBeInTheDocument()
-    expect(value.next).not.toHaveBeenCalled()
+    // Numbered questions rendered as form inputs
+    expect(screen.getByLabelText(/What is your intervention\?/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/What is your primary outcome\?/)).toBeInTheDocument()
   })
 
-  it('unlocks Continue as soon as the resident accepts the suggestion, and Continue then advances', async () => {
+  it('submits form answers joined as numbered list', async () => {
     apiMock.clarify.mockResolvedValue({
-      message: "Here's what I understood...",
+      message: "1. What is your intervention?\n2. What is your primary outcome?",
       confirmed: false,
-      suggested_title: 'Better title',
-      suggested_description: 'Better description',
-      turns: [{ role: 'ai', content: "Here's what I understood..." }],
+      turns: [{ role: "ai", content: "1. What is your intervention?\n2. What is your primary outcome?" }],
     })
-    apiMock.updateProject.mockResolvedValue({})
-    const user = userEvent.setup()
-    const value = renderScreen()
-
-    // First Continue click: nothing accepted yet, must not advance -- opens the panel instead.
-    await waitFor(() => expect(apiMock.getProject).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await screen.findByDisplayValue('Better title')
-    expect(value.next).not.toHaveBeenCalled()
-
-    // Resident accepts the suggestion -- that's their own sign-off, Continue unlocks immediately.
-    await user.click(screen.getByRole('button', { name: 'Accept' }))
-    await waitFor(() => expect(apiMock.confirmClarification).toHaveBeenCalledWith(1))
-
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(value.next).toHaveBeenCalled()
-  })
-
-  it('shows Accept/Dismiss for a suggested title and description, applying it via updateProject on Accept', async () => {
-    apiMock.clarify.mockResolvedValue({
-      message: 'Proposed rewrite',
-      confirmed: false,
-      suggested_title: 'Fall-Risk Screening Impact on Falls Rate, Unit 3W',
-      suggested_description: 'Clarified description.',
-      turns: [{ role: 'ai', content: 'Proposed rewrite' }],
-    })
-    apiMock.updateProject.mockResolvedValue({})
-    const user = userEvent.setup()
-    const value = renderScreen()
-
-    await user.click(screen.getByRole('button', { name: 'Chat with AI' }))
-    await screen.findByDisplayValue('Fall-Risk Screening Impact on Falls Rate, Unit 3W')
-
-    await user.click(screen.getByRole('button', { name: 'Accept' }))
-
-    await waitFor(() => {
-      expect(apiMock.updateProject).toHaveBeenCalledWith(1, {
-        title: 'Fall-Risk Screening Impact on Falls Rate, Unit 3W',
-        description: 'Clarified description.',
-      })
-    })
-    expect(value.update).toHaveBeenCalledWith({
-      projectTitle: 'Fall-Risk Screening Impact on Falls Rate, Unit 3W',
-      projectDesc: 'Clarified description.',
-    })
-
-    // Accepting is the resident's own sign-off -- it confirms deterministically,
-    // unlocking Continue without waiting on another AI turn.
-    await waitFor(() => expect(apiMock.confirmClarification).toHaveBeenCalledWith(1))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled())
-  })
-
-  it('redacts PHI in the chat input and requires a second Share click before sending', async () => {
-    apiMock.clarify.mockResolvedValue({
-      message: 'ok',
-      confirmed: false,
-      turns: [{ role: 'ai', content: 'ok' }],
-    })
-    apiMock.scrubPreview.mockResolvedValue({ text: '[REDACTED] was screened', redacted: true, count: 1 })
     const user = userEvent.setup()
     renderScreen()
 
-    await user.click(screen.getByRole('button', { name: 'Chat with AI' }))
-    await waitFor(() => expect(apiMock.clarify).toHaveBeenCalledTimes(1)) // the AI's opening move
-    await user.type(screen.getByPlaceholderText('Type your message...'), 'patient Jane Doe was screened')
-    await user.click(screen.getByRole('button', { name: 'Share' }))
+    const q1Input = await screen.findByLabelText(/What is your intervention\?/)
+    const q2Input = screen.getByLabelText(/What is your primary outcome\?/)
 
-    expect(await screen.findByText(/We removed what looked like PHI/)).toBeInTheDocument()
-    expect(apiMock.clarify).toHaveBeenCalledTimes(1) // still just the opening move -- redaction blocked the send
+    await user.type(q1Input, 'Fall risk assessment tool')
+    await user.type(q2Input, 'Monthly falls count')
 
-    await user.click(screen.getByRole('button', { name: 'Share' }))
-    await waitFor(() => expect(apiMock.clarify).toHaveBeenCalledWith(1, '[REDACTED] was screened'))
+    apiMock.clarify.mockResolvedValueOnce({
+      message: "Got it. Your definition looks complete.",
+      confirmed: true,
+      turns: [
+        { role: "ai", content: "1. What is your intervention?\n2. What is your primary outcome?" },
+        { role: "user", content: "1. Fall risk assessment tool\n2. Monthly falls count" },
+        { role: "ai", content: "Got it. Your definition looks complete." },
+      ],
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Submit Answers' }))
+
+    await waitFor(() => {
+      expect(apiMock.clarify).toHaveBeenCalledWith(1, '1. Fall risk assessment tool\n2. Monthly falls count')
+    })
   })
 
-  it('lets Continue proceed immediately once the AI has already confirmed agreement', async () => {
+  it('allows editing definition and saves via updateDesign', async () => {
     apiMock.getProject.mockResolvedValue({
       id: 1,
-      ai_clarification_state: { turns: [{ role: 'ai', content: 'Agreed.' }], confirmed: true },
+      ai_project_design: { aim: "Old Aim", status: { aim: "inferred" } },
     })
+    apiMock.clarify.mockResolvedValue({
+      message: "Reviewing...",
+      confirmed: false,
+      turns: [{ role: "ai", content: "Reviewing..." }],
+    })
+    apiMock.updateDesign.mockResolvedValue({
+      ai_project_design: { aim: "User Corrected Aim", status: { aim: "user-corrected" } },
+    })
+
     const user = userEvent.setup()
     const value = renderScreen()
 
-    await waitFor(() => {
-      expect(screen.queryByText(/Chat with the AI to confirm/)).not.toBeInTheDocument()
-    })
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    const editBtn = await screen.findByRole('button', { name: 'Edit Definition' })
+    await user.click(editBtn)
 
-    expect(apiMock.clarify).not.toHaveBeenCalled()
-    expect(value.next).toHaveBeenCalled()
+    const aimInput = screen.getByLabelText('Aim')
+    await user.clear(aimInput)
+    await user.type(aimInput, 'User Corrected Aim')
+
+    await user.click(screen.getByRole('button', { name: 'Save Definition' }))
+
+    await waitFor(() => {
+      expect(apiMock.updateDesign).toHaveBeenCalledWith(1, expect.objectContaining({ aim: 'User Corrected Aim' }))
+      expect(value.update).toHaveBeenCalledWith(expect.objectContaining({ design: expect.anything() }))
+    })
   })
 
-  it('lets the resident edit the AI suggested title/description before accepting', async () => {
-    apiMock.clarify.mockResolvedValue({
-      message: 'Proposed rewrite',
-      confirmed: false,
-      suggested_title: 'AI suggested title',
-      suggested_description: 'AI suggested description.',
-      turns: [{ role: 'ai', content: 'Proposed rewrite' }],
+  it('renders staleness banner when clarification state is marked stale', async () => {
+    apiMock.getProject.mockResolvedValue({
+      id: 1,
+      ai_clarification_state: { turns: [], confirmed: false, stale: true },
     })
-    apiMock.updateProject.mockResolvedValue({})
+    apiMock.clarify.mockResolvedValue({ message: "Hello", turns: [{ role: "ai", content: "Hello" }] })
+    renderScreen()
+
+    expect(await screen.findByText(/Your project inputs changed/)).toBeInTheDocument()
+  })
+
+  it('confirms and calls collectionGuidance on confirm button click', async () => {
+    apiMock.getProject.mockResolvedValue({
+      id: 1,
+      ai_clarification_state: {
+        turns: [
+          { role: "ai", content: "1" }, { role: "user", content: "1" },
+          { role: "ai", content: "2" }, { role: "user", content: "2" },
+          { role: "ai", content: "3" }, { role: "user", content: "3" },
+          { role: "ai", content: "4" }, { role: "user", content: "4" },
+        ],
+        confirmed: false,
+      },
+    })
+    apiMock.collectionGuidance.mockResolvedValue({ recommendations: [{ id: "guidance-1" }] })
+
     const user = userEvent.setup()
     const value = renderScreen()
 
-    await user.click(screen.getByRole('button', { name: 'Chat with AI' }))
-    const titleInput = await screen.findByDisplayValue('AI suggested title')
-    await user.clear(titleInput)
-    await user.type(titleInput, 'My edited title')
+    const confirmBtn = await screen.findByRole('button', { name: /Confirm project definition/ })
+    expect(confirmBtn).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Accept' }))
+    await user.click(confirmBtn)
 
     await waitFor(() => {
-      expect(apiMock.updateProject).toHaveBeenCalledWith(1, {
-        title: 'My edited title',
-        description: 'AI suggested description.',
-      })
-    })
-    expect(value.update).toHaveBeenCalledWith({
-      projectTitle: 'My edited title',
-      projectDesc: 'AI suggested description.',
+      expect(apiMock.confirmClarification).toHaveBeenCalledWith(1)
+      expect(apiMock.collectionGuidance).toHaveBeenCalledWith(1)
+      expect(value.update).toHaveBeenCalledWith(expect.objectContaining({ collectionRecs: [{ id: "guidance-1" }] }))
+      expect(value.next).toHaveBeenCalled()
     })
   })
 })

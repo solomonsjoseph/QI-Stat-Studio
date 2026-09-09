@@ -27,9 +27,15 @@ function deferred() {
 function mentorPayload(overrides = {}) {
   return {
     project: { title: 'Mentor Project', description: 'Reduce falls on Ward A.' },
-    methods: 'Weekly fall counts were reviewed.',
-    result_summary: 'Falls decreased after the intervention.',
-    table: [{ week: '1', falls: 4 }],
+    results: [
+      {
+        run_id: 1,
+        template: 'run_chart',
+        methods: 'Weekly fall counts were reviewed.',
+        result_summary: 'Falls decreased after the intervention.',
+        table: [{ week: '1', falls: 4 }],
+      },
+    ],
     limitations: [],
     comments: [],
     ...overrides,

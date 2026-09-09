@@ -53,8 +53,10 @@ def _validate_value(spec: SettingSpec, value: str) -> str:
         return str(parsed)
     if spec.key == "ai_provider":
         normalized = value.strip().lower()
-        if normalized not in ("openrouter", "openai", "local"):
-            raise HTTPException(status_code=400, detail="ai_provider must be one of: openrouter, openai, local")
+        if normalized not in ("openrouter", "openai", "local", "stub"):
+            raise HTTPException(status_code=400, detail="ai_provider must be one of: openrouter, openai, local, stub")
+        if normalized == "stub" and settings.environment == "production":
+            raise HTTPException(status_code=400, detail="ai_provider 'stub' is test-only and cannot be enabled when environment=production")
         return normalized
     if spec.key == "cors_origins":
         text = value.strip()

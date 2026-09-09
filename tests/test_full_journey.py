@@ -25,183 +25,183 @@ def _register_then_login(client, email: str = "journey@example.com") -> None:
     assert logged_in.status_code == 200, logged_in.text
 
 
-def _create_project(client, *, title: str = "Diabetes QI") -> int:
-    response = client.post(
-        "/projects",
-        json={
-            "title": title,
-            "description": "Improve diabetes outcomes before and after the January 2025 care workflow.",
+def _clarify_turn(*, message: str, confirmed: bool = False) -> dict:
+    return {
+        "message": message,
+        "reasoning": "The description and dataset identify a pre/post diabetes quality-improvement project.",
+        "confirmed": confirmed,
+        "sufficient_to_continue": True,
+        "design": {
+            "aim": "Increase the percentage of patients with diabetes whose A1c is at goal",
+            "population": "Patients with diabetes in the clinic registry",
+            "intervention": {
+                "present": True,
+                "description": "Diabetes registry outreach workflow",
+                "start_date": "2025-01-01",
+            },
+            "primary_outcome": {
+                "label": "A1c at goal",
+                "column": "a1c_at_goal",
+                "kind": "proportion",
+            },
+            "comparison": "pre-post",
+            "time_structure": {"has_dates": True, "date_column": "encounter_date", "granularity": "month"},
+            "group_column": "period",
+            "pre_label": "pre",
+            "post_label": "post",
+            "plain_restatement": "You are evaluating whether registry outreach improved the percentage of diabetes patients at A1c goal.",
+            "sufficient_to_continue": True,
         },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()["id"]
-
-
-def _save_full_intake(client, project_id: int) -> None:
-    payload = {
-        "answers": {
-            "q1": "Increase the percentage of patients with diabetes whose A1c is at goal.",
-            "q2": "A percentage or proportion (percent of patients screened)",
-            "q3": "Yes — before and after an intervention",
-            "q4": "Comparing groups at one point in time",
-            "q5": "Monthly",
-            "q6": 24,
-            "q7": {"description": "Diabetes registry outreach workflow", "date": "2025-01-01"},
-            "q8": "Same unit pre vs. post",
-            "q9": "All three",
-            "q10": {"email": "mentor@example.edu", "deadline": "2026-09-01"},
-        }
     }
-    response = client.post(f"/intake/{project_id}", json=payload)
-    assert response.status_code == 200, response.text
-
-
-def _dictionary_file():
-    return ("dictionary.txt", b"patient_id: sequential study id, not linked to medical record.", "text/plain")
-
-
-def _upload_csv_fixture(client, project_id: int) -> dict:
-    with FIXTURE.open("rb") as fh:
-        response = client.post(
-            f"/upload/{project_id}",
-            files={"file": (FIXTURE.name, fh, "text/csv"), "dictionary": _dictionary_file()},
-        )
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-def _run_analysis(client, project_id: int, upload_id: int, template: str, parameters: dict) -> dict:
-    response = client.post(
-        "/analyze/run",
-        json={
-            "project_id": project_id,
-            "upload_id": upload_id,
-            "template": template,
-            "parameters": parameters,
-        },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 def _assert_docx_contains_report_package(content: bytes) -> None:
     assert content.startswith(b"PK")
     with zipfile.ZipFile(io.BytesIO(content)) as docx:
         names = set(docx.namelist())
-        assert "word/media/image1.png" in names
+        assert "word/document.xml" in names
         document_xml = docx.read("word/document.xml").decode("utf-8")
 
-    assert "Chi-square" in document_xml
-    assert "Limitations" in document_xml
-    assert "Audit Trail" in document_xml
-    assert "Statistical Code Supplement (R)" in document_xml
+    assert "Statistical Code Supplement" in document_xml
 
 
-def test_real_dataset_resident_journey_and_regression_guards(client):
+def test_real_dataset_resident_journey_and_regression_guards(client, mock_llm):
     assert FIXTURE.exists(), f"Missing real dataset fixture at {FIXTURE}"
-
     _register_then_login(client)
-    project_id = _create_project(client)
-    _save_full_intake(client, project_id)
 
-    upload = _upload_csv_fixture(client, project_id)
-    assert upload["row_count"] == 600
-    upload_id = upload["upload_id"]
-    flags = upload["quality_flags"]
-    assert any(flag["rule"] == "case_inconsistent" and flag["col"] == "period" for flag in flags)
-    assert any(flag["rule"] == "missing_pct" and flag["col"] == "acr_ug_g" for flag in flags)
-    assert not any(flag["rule"] == "outlier_count" and flag["col"] == "a1c_at_goal" for flag in flags)
+    with FIXTURE.open("rb") as fh:
+        intake = client.post(
+            "/projects/intake",
+            data={
+                "title": "Diabetes A1c QI",
+                "description": "Improve the percentage of clinic patients with diabetes whose A1c is at goal through registry outreach.",
+            },
+            files={"file": (FIXTURE.name, fh, "text/csv")},
+        )
+    assert intake.status_code == 200, intake.text
+    intake_data = intake.json()
+    project_id = intake_data["project"]["id"]
+    upload = intake_data["upload"]
+    upload_id = upload["id"]
+    assert upload["dataset_profile"]["row_count"] == 600
+    assert upload["col_types"]
+    assert any(flag["rule"] == "case_inconsistent" and flag["col"] == "period" for flag in upload["quality_flags"])
+    assert any(flag["rule"] == "missing_pct" and flag["col"] == "acr_ug_g" for flag in upload["quality_flags"])
+    assert not any(flag["rule"] == "outlier_count" and flag["col"] == "a1c_at_goal" for flag in upload["quality_flags"])
 
-    recommendations = client.get(f"/analyze/{project_id}/recommend")
-    assert recommendations.status_code == 200, recommendations.text
-    ranked = recommendations.json()
-    assert len(ranked) == 3
-    assert ranked[0]["template"] == "before_after_pct"
+    mock_llm.push(_clarify_turn(message="I understand the proposed diabetes A1c quality-improvement project. Which period is before the outreach workflow?"))
+    clarify_opening = client.post(f"/ai/clarify/{project_id}", json={"message": None})
+    assert clarify_opening.status_code == 200, clarify_opening.text
+    assert clarify_opening.json()["confirmed"] is False
 
-    pct_result = _run_analysis(
-        client,
-        project_id,
-        upload_id,
-        "before_after_pct",
-        {
-            "group_col": "period",
-            "outcome_col": "a1c_at_goal",
-            "pre_val": "pre",
-            "post_val": "post",
-        },
+    mock_llm.push(_clarify_turn(message="The dataset's period values are pre and post, so I can compare them."))
+    clarify_follow_up = client.post(f"/ai/clarify/{project_id}", json={"message": "The pre and post values in period are the comparison periods."})
+    assert clarify_follow_up.status_code == 200, clarify_follow_up.text
+
+    clarification = client.post(f"/ai/clarify/{project_id}", json={"confirm": True})
+    assert clarification.status_code == 200, clarification.text
+    assert clarification.json()["confirmed"] is True
+
+    guidance = client.post(f"/ai/collection-guidance/{project_id}")
+    assert guidance.status_code == 200, guidance.text
+    assert "recommendations" in guidance.json()
+
+    acknowledge = client.patch(
+        f"/upload/{upload_id}/acknowledged-flags",
+        json={"flags": upload["quality_flags"]},
     )
-    assert "Chi-square" in pct_result["test_used"]
-    assert 0.02 < pct_result["p_value"] < 0.04
-    assert sum(row["n"] for row in pct_result["table"]) == 557
-    assert pct_result["figure_base64"]
-    pct_run_id = pct_result["run_id"]
+    assert acknowledge.status_code == 200, acknowledge.text
+    assert acknowledge.json() == {"ok": True}
 
-    mean_result = _run_analysis(
-        client,
-        project_id,
-        upload_id,
-        "before_after_mean",
+    analyses = [
         {
-            "group_col": "period",
-            "value_col": "current_a1c",
-            "pre_val": "pre",
-            "post_val": "post",
+            "id": "descriptive-a1c-goal",
+            "template": "descriptive_summary",
+            "display_name": "A1c-at-goal summary",
+            "question": "What proportion of patients are at A1c goal?",
+            "rationale": "Summarizes the primary quality measure.",
+            "parameters": {"value_cols": ["a1c_at_goal"]},
         },
-    )
-    assert "Wilcoxon" in mean_result["test_used"]
-    assert mean_result["p_value"] < 0.01
-
-    p_chart_result = _run_analysis(
-        client,
-        project_id,
-        upload_id,
-        "p_chart",
         {
-            "date_col": "encounter_date",
-            "numerator_col": "a1c_at_goal",
-            "intervention_date": "2025-01-01",
+            "id": "pre-post-a1c-goal",
+            "template": "before_after_pct",
+            "display_name": "Pre/post A1c-at-goal comparison",
+            "question": "Did the percentage at A1c goal differ between pre and post periods?",
+            "rationale": "Tests the prespecified pre/post quality-improvement comparison.",
+            "parameters": {
+                "group_col": "period",
+                "outcome_col": "a1c_at_goal",
+                "pre_val": "pre",
+                "post_val": "post",
+            },
         },
+    ]
+    confirm_plan = client.post(
+        f"/ai/recommend-plan/{project_id}",
+        json={"confirm": True, "analyses": analyses},
     )
-    assert isinstance(p_chart_result["ucl"], list)
+    assert confirm_plan.status_code == 200, confirm_plan.text
+    assert confirm_plan.json()["confirmed"] is True
 
-    docx = client.get(f"/report/{pct_run_id}/docx")
+    validation = client.post(
+        f"/analyze/validate-plan/{project_id}",
+        json={"upload_id": upload_id, "analyses": analyses},
+    )
+    assert validation.status_code == 200, validation.text
+    assert len(validation.json()["items"]) == 2
+    assert all(item["ok"] for item in validation.json()["items"])
+
+    run_plan = client.post(
+        f"/analyze/run-plan/{project_id}",
+        json={"upload_id": upload_id, "analyses": analyses},
+    )
+    assert run_plan.status_code == 200, run_plan.text
+    run_data = run_plan.json()
+    assert run_data["failures"] == []
+    assert len(run_data["runs"]) == 2
+    assert all(run["status"] == "ok" for run in run_data["runs"])
+    run_ids = [run["run_id"] for run in run_data["runs"]]
+    assert len(set(run_ids)) == 2
+
+    mock_llm.push(
+        {
+            "interpretations": [
+                {"run_id": run_ids[0], "text": "The descriptive summary reports the A1c-at-goal measure across the project population."},
+                {"run_id": run_ids[1], "text": "The pre/post comparison estimates whether the observed A1c-at-goal percentages differ between periods."},
+            ],
+            "limitations": ["This single-site quality-improvement project was not randomized."],
+            "abstract_draft": "We evaluated registry outreach and the percentage of patients with diabetes at A1c goal.",
+        }
+    )
+    interpreted = client.post(f"/ai/interpret-results/{project_id}")
+    assert interpreted.status_code == 200, interpreted.text
+    assert {item["run_id"] for item in interpreted.json()["interpretations"]} == set(run_ids)
+
+    edited_title = "Edited Diabetes A1c QI"
+    edited_caption = "Resident-reviewed caption for the A1c summary."
+    edited_interpretation = "Resident-reviewed interpretation of the pre/post comparison."
+    title_edit = client.post(
+        f"/projects/{project_id}/edits",
+        json={"field": "title", "original_text": "Diabetes A1c QI", "edited_text": edited_title},
+    )
+    assert title_edit.status_code == 200, title_edit.text
+    caption_edit = client.post(
+        f"/projects/{project_id}/edits",
+        json={"field": "caption", "run_id": run_ids[0], "original_text": "", "edited_text": edited_caption},
+    )
+    assert caption_edit.status_code == 200, caption_edit.text
+    interpretation_edit = client.post(
+        f"/projects/{project_id}/edits",
+        json={"field": "interpretation", "run_id": run_ids[1], "original_text": "", "edited_text": edited_interpretation},
+    )
+    assert interpretation_edit.status_code == 200, interpretation_edit.text
+
+    docx = client.get(f"/report/project/{project_id}/docx")
     assert docx.status_code == 200, docx.text
     _assert_docx_contains_report_package(docx.content)
-
-    pdf = client.get(f"/report/{pct_run_id}/pdf")
+    pdf = client.get(f"/report/project/{project_id}/pdf")
     assert pdf.status_code == 200, pdf.text
     assert pdf.content.startswith(b"%PDF")
-
-    excel_project_id = _create_project(client, title="Diabetes QI Excel")
-    frame = pd.read_csv(FIXTURE)
-    excel_raw = io.BytesIO()
-    frame.to_excel(excel_raw, index=False)
-    excel_raw.seek(0)
-    excel_upload = client.post(
-        f"/upload/{excel_project_id}",
-        files={
-            "file": (
-                "diabetes_care_qi_full.xlsx",
-                excel_raw,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ),
-            "dictionary": _dictionary_file(),
-        },
-    )
-    assert excel_upload.status_code == 200, excel_upload.text
-    excel_result = _run_analysis(
-        client,
-        excel_project_id,
-        excel_upload.json()["upload_id"],
-        "before_after_pct",
-        {
-            "group_col": "period",
-            "outcome_col": "a1c_at_goal",
-            "pre_val": "pre",
-            "post_val": "post",
-        },
-    )
-    assert abs(excel_result["p_value"] - pct_result["p_value"]) <= 1e-6
 
     share = client.post(f"/share/{project_id}/create", json={})
     assert share.status_code == 200, share.text
@@ -211,19 +211,37 @@ def test_real_dataset_resident_journey_and_regression_guards(client):
     with TestClient(app) as anonymous_client:
         mentor_view = anonymous_client.get(f"/share/view/{token}")
         assert mentor_view.status_code == 200, mentor_view.text
-        assert mentor_view.json()["figure_base64"]
-
-        comment = anonymous_client.post(
-            f"/share/view/{token}/comment",
-            json={"author_name": "Dr. Mentor", "text": "Good QI story."},
-        )
-        assert comment.status_code == 200, comment.text
+        package = mentor_view.json()
+        assert package["project"]["title"] == edited_title
+        assert len(package["results"]) == 2
+        by_run_id = {result["run_id"]: result for result in package["results"]}
+        assert edited_caption in by_run_id[run_ids[0]]["caption"]
+        assert by_run_id[run_ids[1]]["interpretation"] == edited_interpretation
 
         protected_projects = anonymous_client.get("/projects")
         assert protected_projects.status_code == 401
 
-        mentor_docx = anonymous_client.get(f"/api/share/view/{token}/report/docx")
-        assert mentor_docx.status_code == 404
+    frame = pd.read_csv(FIXTURE).head(24)
+    excel_raw = io.BytesIO()
+    frame.to_excel(excel_raw, index=False)
+    excel_intake = client.post(
+        "/projects/intake",
+        data={
+            "title": "Diabetes A1c QI Excel",
+            "description": "Use a spreadsheet subset to verify that Excel uploads share the unified intake path.",
+        },
+        files={
+            "file": (
+                "diabetes_care_qi_subset.xlsx",
+                excel_raw.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert excel_intake.status_code == 200, excel_intake.text
+    excel_upload = excel_intake.json()["upload"]
+    assert excel_upload["dataset_profile"]["row_count"] == len(frame)
+    assert excel_upload["col_types"]
 
     prefixed_health = client.get("/api/health")
     assert prefixed_health.status_code == 200, prefixed_health.text

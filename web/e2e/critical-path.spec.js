@@ -3,32 +3,37 @@ import { writeFile } from 'node:fs/promises'
 
 const e2eEnabled = process.env.QISS_E2E === '1'
 
+async function answerClarificationQuestions(page, expectedAiTurnCount) {
+  await page.locator('#q-1').fill('A fall-risk assessment protocol with intentional rounding.')
+  await page.locator('#q-2').fill('The protocol began in January 2025.')
+  await page.getByRole('button', { name: 'Submit Answers' }).click()
+  await expect(page.getByText('AI Advisor', { exact: true })).toHaveCount(expectedAiTurnCount)
+}
+
 test.describe('critical resident workflow', () => {
   test.skip(!e2eEnabled, 'Set QISS_E2E=1 to run the live backend/frontend critical path.')
 
-  test('resident completes analysis, creates mentor share, and mentor comments', async ({ page }, testInfo) => {
+  test('resident completes the AI-guided workflow and creates a report share link', async ({ page }, testInfo) => {
     const email = `resident-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`
-    const csvPath = testInfo.outputPath('resident-run-chart.csv')
+    const csvPath = testInfo.outputPath('monthly-falls.csv')
     await writeFile(
       csvPath,
       [
-        'month,wait_days',
-        '2025-01-01,12',
-        '2025-02-01,11',
-        '2025-03-01,10',
-        '2025-04-01,9',
-        '2025-05-01,8',
-        '2025-06-01,7',
-        '2025-07-01,7',
-        '2025-08-01,6',
-        '2025-09-01,6',
-        '2025-10-01,5',
-        '2025-11-01,5',
-        '2025-12-01,4',
+        'month,falls,patient_days',
+        '2025-01-01,4,1000',
+        '2025-02-01,3,1025',
+        '2025-03-01,5,1010',
+        '2025-04-01,2,1030',
+        '2025-05-01,3,1045',
+        '2025-06-01,2,1020',
+        '2025-07-01,4,1050',
+        '2025-08-01,3,1060',
+        '2025-09-01,2,1040',
+        '2025-10-01,3,1070',
+        '2025-11-01,2,1055',
+        '2025-12-01,1,1080',
       ].join('\n'),
     )
-    const dictionaryPath = testInfo.outputPath('resident-run-chart-dictionary.txt')
-    await writeFile(dictionaryPath, 'month: calendar month of the observation.\nwait_days: median scheduling wait time in days.\n')
 
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'QI Stat Studio' })).toBeVisible()
@@ -42,86 +47,73 @@ test.describe('critical resident workflow', () => {
     await page.getByRole('button', { name: 'Start New Project' }).click()
 
     await expect(page.getByRole('heading', { name: 'Tell us about your project.' })).toBeVisible()
-    await page.getByLabel('Project Title').fill('Resident run chart project')
-    await page.getByLabel('Project Description').fill('Track monthly median wait days after a scheduling improvement.')
+    await expect(page.getByText('This prototype is not HIPAA compliant.')).toBeVisible()
+    await page.getByLabel('Project Title').fill('Monthly inpatient falls')
+    await page.getByLabel('Project Description').fill(
+      'We are reducing inpatient falls through a fall-risk assessment and intentional rounding protocol.',
+    )
     await page.getByLabel('CSV or Excel dataset').setInputFiles(csvPath)
-    await page.getByLabel('Data dictionary file').setInputFiles(dictionaryPath)
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    await expect(page.getByRole('heading', { name: 'Confirm Column Types' })).toBeVisible()
-    await page.getByLabel('Type for month').selectOption('Date')
-    await page.getByLabel('Type for wait_days').selectOption('Number')
-    await page.getByRole('button', { name: /Confirm Types/ }).click()
+    await expect(page.getByRole('heading', { name: 'Project Clarification' })).toBeVisible()
+    await expect(page.getByText('Tracking monthly inpatient falls normalized by patient days over time.')).toBeVisible()
+    await expect(page.getByText('AI Advisor', { exact: true })).toHaveCount(1)
 
-    await expect(page.getByRole('heading', { name: 'Intake Questions' })).toBeVisible()
-    await page.getByLabel('An average or median value (average LDL)').check()
-    await page.getByRole('button', { name: /Next/ }).click()
+    // The stub asks the same two questions each turn. Four AI turns unlock the
+    // resident-controlled confirmation path rather than relying on AI confirmation.
+    await answerClarificationQuestions(page, 2)
+    await answerClarificationQuestions(page, 3)
+    await answerClarificationQuestions(page, 4)
 
-    await page.getByLabel("No — I'm just describing one time period").check()
-    await page.getByRole('button', { name: /Next/ }).click()
-
-    await page.getByLabel('Tracking over time (months, weeks, days)').check()
-    await page.getByRole('button', { name: /Next/ }).click()
-
-    await page.getByLabel('Monthly').check()
-    await page.getByRole('button', { name: /Next/ }).click()
-
-    await page.getByRole('spinbutton', { name: 'How many time points (or rows) do you have?' }).fill('12')
-    await page.getByRole('button', { name: /Next/ }).click()
-
-    await page.getByLabel('R', { exact: true }).check()
-    await page.getByRole('button', { name: /Next/ }).click()
-
-    await page.getByLabel('Submission deadline').fill('2026-10-15')
-    await page.getByRole('button', { name: 'Continue' }).click()
+    await expect(page.getByRole('button', { name: 'Confirm project definition →' })).toBeEnabled()
+    await page.getByRole('button', { name: 'Confirm project definition →' }).click()
 
     await expect(page.getByRole('heading', { name: 'Data Review' })).toBeVisible()
-    for (const checkbox of await page.getByRole('checkbox').all()) {
-      await checkbox.check()
+    await expect(page.getByRole('heading', { name: 'What else you may need to collect' })).toBeVisible()
+    await expect(page.getByText('Track fall severity or injury level')).toBeVisible()
+
+    const warningCheckboxes = page.getByRole('checkbox')
+    for (let index = 0; index < await warningCheckboxes.count(); index += 1) {
+      await warningCheckboxes.nth(index).check()
     }
+    await expect(page.getByRole('button', { name: 'Continue to Analysis Selection' })).toBeEnabled()
     await page.getByRole('button', { name: 'Continue to Analysis Selection' }).click()
 
-    await expect(page.getByRole('heading', { name: 'Choose Your Analysis' })).toBeVisible()
-    await page.getByRole('button', { name: /Run Chart/ }).click()
+    await expect(page.getByRole('heading', { name: 'Analysis Plan' })).toBeVisible()
+    await expect(page.getByText('Summary of Monthly Counts and Patient Days')).toBeVisible()
+    await expect(page.getByText('Monthly Fall Rate (U Chart)')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled()
     await page.getByRole('button', { name: 'Continue' }).click()
 
-    await expect(page.getByRole('heading', { name: 'Map Your Columns' })).toBeVisible()
-    await page.getByLabel('Date column').selectOption('month')
-    await page.getByLabel('Value column').selectOption('wait_days')
-    await page.getByRole('button', { name: 'Run Analysis' }).click()
+    await expect(page.getByRole('heading', { name: 'Final Confirmation' })).toBeVisible()
+    await expect(page.getByText('value_cols')).toBeVisible()
+    await expect(page.getByText('denominator_col')).toBeVisible()
+    await page.getByRole('button', { name: 'Run these analyses' }).click()
 
     await expect(page.getByRole('heading', { name: 'Results' })).toBeVisible()
-    await expect(page.getByAltText('Analysis figure')).toBeVisible()
-    await expect(page.getByRole('button', { name: /Edit & Review|Preparing interpretation/ })).toBeEnabled()
-    await page.getByRole('button', { name: /Edit & Review|Preparing interpretation/ }).click()
+    await expect(page.getByRole('heading', { name: 'What the data show (descriptive)' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Descriptive Summary' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'u/c-Chart' })).toBeVisible()
+    await page.getByRole('button', { name: 'Edit & Review' }).click()
 
     await expect(page.getByRole('heading', { name: 'Edit & Review' })).toBeVisible()
-    await page.getByLabel('Report Title').fill('Resident-approved run chart report')
-    await page.getByLabel('Figure Caption').fill('Monthly wait days declined over the project year.')
-    await page.getByLabel('Interpretation').fill('Wait days declined after the scheduling workflow stabilized.')
+    await page.getByLabel('Report Title').fill('Resident-approved inpatient falls report')
+    await page.getByLabel('Figure Caption').first().fill('Monthly inpatient falls and patient-day exposure.')
     await page.getByRole('button', { name: 'Save & Continue' }).click()
 
     await expect(page.getByRole('heading', { name: 'Download & Share' })).toBeVisible()
     await page.getByRole('button', { name: 'Generate report' }).click()
-    await expect(page.getByRole('link', { name: 'Download Word (.docx)' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Download PDF' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Download Word (.docx)' })).toHaveAttribute(
+      'href',
+      /\/api\/report\/project\/\d+\/docx$/,
+    )
+    await expect(page.getByRole('link', { name: 'Download PDF' })).toHaveAttribute(
+      'href',
+      /\/api\/report\/project\/\d+\/pdf$/,
+    )
+
+    await page.getByLabel('Mentor Email (optional)').fill('mentor@example.edu')
     await page.getByRole('button', { name: 'Share with mentor' }).click()
-    const shareLink = await page.locator('code').innerText()
-    expect(shareLink).toContain('/mentor/')
-
-    await page.goto(shareLink)
-    await expect(page.getByRole('heading', { name: 'Mentor Comments' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Resident-approved run chart report' })).toBeVisible()
-    await expect(page.getByText('Monthly wait days declined over the project year.')).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Download Word Report' })).toHaveCount(0)
-    await expect(page.getByRole('link', { name: 'Download PDF Report' })).toHaveCount(0)
-
-    await page.getByLabel('Your name').fill('Dr Mentor')
-    await page.getByLabel('Email (optional, used if you edit your comment later)').fill('mentor@example.edu')
-    await page.getByLabel('Comment', { exact: true }).fill('Looks ready to share with faculty.')
-    await page.getByRole('button', { name: 'Send Comment' }).click()
-
-    await expect(page.getByText('Comment submitted.')).toBeVisible()
-    await expect(page.getByText('Looks ready to share with faculty.')).toBeVisible()
+    await expect(page.locator('code')).toHaveText(/\/mentor\//)
   })
 })

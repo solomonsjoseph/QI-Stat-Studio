@@ -149,3 +149,69 @@ def test_fib4_score_dq_message_does_not_use_generic_wording():
     fib4_flags = [f for f in flags if f["col"] == "fib4_score" and f["rule"] == "missing_pct"]
     assert len(fib4_flags) == 1
     assert "if this is your outcome column" not in fib4_flags[0]["msg"]
+
+
+def test_new_rules_and_metadata_emitted():
+    n = 21
+    df = pd.DataFrame({
+        "padded_col": ["  val1", "val2  ", "val3"] * 7,
+        "mixed_col": (["12", "15", "text_label", "another_text"] * 5) + ["99"],
+        "total_days": [10, 0, 15] * 7,  # nonpositive denominator (0)
+        "num_infections": [12, 5, 2] * 7,  # numerator exceeds denominator row 0 (12 > 10)
+        "bin_col": ["yes", "no", "maybe"] * 7,  # third value
+        "sparse_cat": ["A"] * 20 + ["B"],  # B has 1 row (<5)
+        "future_date": ["2099-01-01"] * n,
+    })
+    col_types = {
+        "padded_col": "Category",
+        "mixed_col": "Category",
+        "total_days": "Number",
+        "num_infections": "Number",
+        "bin_col": "Yes/No",
+        "sparse_cat": "Category",
+        "future_date": "Date",
+    }
+    flags = run_data_quality(df, col_types)
+    rules = {f["rule"] for f in flags}
+
+    assert "whitespace_padding" in rules
+    assert "mixed_types" in rules
+    assert "nonpositive_denominator" in rules
+    assert "numerator_exceeds_denominator" in rules
+    assert "binary_out_of_range" in rules
+    assert "sparse_category" in rules
+    assert "unexpected_date_range" in rules
+    assert "insufficient_time_points" in rules
+
+    # Check rich metadata presence
+    for f in flags:
+        assert "why" in f and len(f["why"]) > 0
+        assert "suggestion" in f and len(f["suggestion"]) > 0
+        assert "blocks" in f
+
+    nonpos = next(f for f in flags if f["rule"] == "nonpositive_denominator")
+    assert nonpos["blocks"] == "p_chart, u_c_chart"
+    assert nonpos["severity"] == "ERROR"
+
+    num_exc = next(f for f in flags if f["rule"] == "numerator_exceeds_denominator")
+    assert num_exc["blocks"] == "p_chart"
+    assert num_exc["severity"] == "ERROR"
+
+
+def test_duplicate_rows_detected():
+    df = pd.DataFrame({
+        "a": [1, 1, 2],
+        "b": ["x", "x", "y"],
+    })
+    flags = run_data_quality(df, {"a": "Number", "b": "Category"})
+    rules = {f["rule"] for f in flags}
+    assert "duplicate_rows" in rules
+
+
+def test_malformed_fixture_emits_case_whitespace_and_mixed_type_rules():
+    df = pd.read_csv("tests/fixtures/malformed_dates_mixed_case.csv")
+    flags = quality_flags(df)
+
+    assert any(f["col"] == "period" and f["rule"] == "case_inconsistent" for f in flags)
+    assert any(f["col"] == "metric" and f["rule"] == "whitespace_padding" for f in flags)
+    assert any(f["col"] == "metric" and f["rule"] == "mixed_types" for f in flags)

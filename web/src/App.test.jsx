@@ -20,7 +20,6 @@ vi.mock('./api', () => ({ api: apiMock }))
 vi.mock('./screens/Auth', () => ({ default: () => <h1>Auth screen</h1> }))
 vi.mock('./screens/ProjectIntake', () => ({ default: () => <h1>Screen description</h1> }))
 vi.mock('./screens/ClarificationStage', () => ({ default: () => <h1>Screen clarify</h1> }))
-vi.mock('./screens/IntakeQuestions', () => ({ default: () => <h1>Screen intake</h1> }))
 vi.mock('./screens/DataReview', () => ({ default: () => <h1>Screen review</h1> }))
 vi.mock('./screens/AnalysisPlanStage', () => ({ default: () => <h1>Screen analysis</h1> }))
 vi.mock('./screens/Results', () => ({ default: () => <h1>Screen results</h1> }))
@@ -31,9 +30,9 @@ vi.mock('./screens/MentorView', () => ({ default: ({ token }) => <h1>Mentor {tok
 function resumePayload({ id, currentScreen }) {
   return {
     project: { id, title: `Project ${id}`, description: 'A resident QI project' },
-    answers: { q1: 'Aim statement' },
     latest_upload: { id: 20, col_types: { week: 'date' }, column_map: {}, quality_flags: [], acknowledged_flags: [] },
     latest_run: { id: 30, template: 'run_chart', parameters: { date_col: 'week' }, result: { result_summary: 'Improved.', interpretation: 'Server interpretation.' } },
+    runs: [{ run_id: 30, template: 'run_chart', result_summary: 'Improved.', ai_interpretation: 'Server interpretation.', caption: '' }],
     latest_share: { token: 'mentor-token' },
     current_screen: currentScreen,
   }
@@ -119,15 +118,15 @@ describe('App resume hydration', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Screen review' })).toBeInTheDocument()
-    for (const label of ['Project Intake', 'Intake', /Review/]) {
+    for (const label of ['Project Intake', 'AI Clarification', /Review/]) {
       expect(screen.getByRole('button', { name: label })).toBeEnabled()
     }
     expect(screen.getByRole('button', { name: /Results/ })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: 'Intake' }))
+    await user.click(screen.getByRole('button', { name: 'AI Clarification' }))
 
-    expect(await screen.findByRole('heading', { name: 'Screen intake' })).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/app/77/intake')
+    expect(await screen.findByRole('heading', { name: 'Screen clarify' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/77/clarify')
   })
 
   it('lets the landing project list recover from a load failure', async () => {

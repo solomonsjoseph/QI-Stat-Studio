@@ -11,13 +11,16 @@ os.environ.setdefault("FERNET_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 from api.config import settings
 from api.database import SessionLocal
-from api.models_db import AnalysisRun, FailureLog, IntakeAnswer, Project, Upload
+from api.models_db import AnalysisRun, FailureLog, Project, Upload
 
 
 def _project(client, title="Analyze Test"):
     response = client.post("/projects", json={"title": title, "description": "test"})
     assert response.status_code == 200, response.text
-    return response.json()["id"]
+    pid = response.json()["id"]
+    from tests.helpers import advance_to_phase
+    advance_to_phase(pid, "plan")
+    return pid
 
 
 def _make_encrypted_csv(client, n=18):
@@ -55,6 +58,8 @@ def _make_encrypted_csv(client, n=18):
         db.add(u)
         db.commit()
         uid = u.id
+    from tests.helpers import advance_to_phase
+    advance_to_phase(pid, "plan")
     return pid, uid
 
 
@@ -71,12 +76,8 @@ def test_run_descriptive_returns_run_id(auth_client):
     assert data["run_id"] > 0
 
 
-def test_q9_unsure_generates_all_code_supplements(auth_client):
+def test_all_code_supplements_always_generated(auth_client):
     pid, uid = _make_encrypted_csv(auth_client)
-    with SessionLocal() as db:
-        db.add(IntakeAnswer(project_id=pid, question_key="q9", answer="I'm not sure"))
-        db.commit()
-
     resp = auth_client.post("/analyze/run", json={
         "project_id": pid, "upload_id": uid,
         "template": "descriptive_summary",
@@ -89,47 +90,6 @@ def test_q9_unsure_generates_all_code_supplements(auth_client):
         assert run.code_r
         assert run.code_spss
         assert run.code_sas
-
-
-def test_q9_spss_only_excludes_r_and_sas(auth_client):
-    pid, uid = _make_encrypted_csv(auth_client)
-    with SessionLocal() as db:
-        db.add(IntakeAnswer(project_id=pid, question_key="q9", answer="SPSS"))
-        db.commit()
-
-    resp = auth_client.post("/analyze/run", json={
-        "project_id": pid, "upload_id": uid,
-        "template": "descriptive_summary",
-        "parameters": {"value_cols": ["hba1c"], "group_col": "period"},
-    })
-    assert resp.status_code == 200, resp.text
-
-    with SessionLocal() as db:
-        run = db.query(AnalysisRun).filter_by(project_id=pid).order_by(AnalysisRun.id.desc()).first()
-        assert not run.code_r
-        assert run.code_spss
-        assert not run.code_sas
-
-
-def test_q9_r_only_excludes_spss_and_sas(auth_client):
-    pid, uid = _make_encrypted_csv(auth_client)
-    with SessionLocal() as db:
-        db.add(IntakeAnswer(project_id=pid, question_key="q9", answer="R"))
-        db.commit()
-
-    resp = auth_client.post("/analyze/run", json={
-        "project_id": pid, "upload_id": uid,
-        "template": "descriptive_summary",
-        "parameters": {"value_cols": ["hba1c"], "group_col": "period"},
-    })
-    assert resp.status_code == 200, resp.text
-
-    with SessionLocal() as db:
-        run = db.query(AnalysisRun).filter_by(project_id=pid).order_by(AnalysisRun.id.desc()).first()
-        assert run.code_r
-        assert not run.code_spss
-        assert not run.code_sas
-
 
 def test_run_run_chart_returns_figure(auth_client):
     pid, uid = _make_encrypted_csv(auth_client)
@@ -253,31 +213,11 @@ def test_run_blocks_when_outcome_column_over_30pct_missing(auth_client):
     assert "missing" in resp.json()["error"]["message"].lower()
 
 
-def test_q5_freq_mapping():
-    """Q5 answer maps to the expected pandas resample freq string."""
-    from api.routers.analyze import q5_to_freq
-    assert q5_to_freq("Daily") == "D"
-    assert q5_to_freq("Weekly") == "W-MON"
-    assert q5_to_freq("Monthly") == "ME"
-    assert q5_to_freq("One row per patient") == "D"
-    assert q5_to_freq("Other") == "ME"
-    assert q5_to_freq("I'm not sure") == "ME"
-    assert q5_to_freq("") == "ME"
-
-
-def test_recommend_returns_ordered_list(auth_client):
-    """GET /analyze/{project_id}/recommend returns ordered template list."""
-    pid = _project(auth_client, "Rec Test")
-    with SessionLocal() as db:
-        db.add(IntakeAnswer(project_id=pid, question_key="q2", answer="A percentage or proportion (percent of patients screened)"))
-        db.add(IntakeAnswer(project_id=pid, question_key="q3", answer="No — I'm just describing one time period"))
-        db.add(IntakeAnswer(project_id=pid, question_key="q4", answer="Comparing groups at one point in time"))
-        db.add(IntakeAnswer(project_id=pid, question_key="q6", answer="12"))
-        db.commit()
-
-    resp = auth_client.get(f"/analyze/{pid}/recommend")
-    assert resp.status_code == 200, resp.text
-    items = resp.json()
-    assert len(items) == 3
-    assert items[0]["recommended"] is True
-    assert items[0]["template"] == "descriptive_summary"
+def test_freq_derives_from_design_granularity(auth_client):
+    from api.routers.analyze import _granularity_to_freq
+    assert _granularity_to_freq("day") == "D"
+    assert _granularity_to_freq("week") == "W"
+    assert _granularity_to_freq("month") == "ME"
+    assert _granularity_to_freq("quarter") == "QE"
+    assert _granularity_to_freq("unknown") == "ME"
+    assert _granularity_to_freq(None) == "ME"

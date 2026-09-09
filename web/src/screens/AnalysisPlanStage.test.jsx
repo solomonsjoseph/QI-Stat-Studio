@@ -1,17 +1,43 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AnalysisPlanStage from './AnalysisPlanStage'
 import { AppCtx } from '../App'
 
 const { apiMock } = vi.hoisted(() => ({
-  apiMock: { getProject: vi.fn(), recommendPlan: vi.fn(), scrubPreview: vi.fn(), updateColumnMap: vi.fn() },
+  apiMock: {
+    getProject: vi.fn(),
+    recommendPlan: vi.fn(),
+    confirmPlan: vi.fn(),
+    overridePlan: vi.fn(),
+    validatePlan: vi.fn(),
+  },
 }))
 vi.mock('../api', () => ({ api: apiMock }))
 
+function makeItem(overrides = {}) {
+  return {
+    id: 'descriptive_summary-1',
+    template: 'descriptive_summary',
+    display_name: 'Summary of Falls',
+    question: 'What was the average falls count?',
+    rationale: 'Establishes baseline distribution.',
+    parameters: { value_cols: ['falls'] },
+    param_confidence: { value_cols: 'high' },
+    assumptions: ['Non-negative counts'],
+    limitations: ['No temporal ordering'],
+    needs_clarification: false,
+    executable: true,
+    errors: [],
+    missing_params: [],
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
-  apiMock.getProject.mockResolvedValue({ id: 1, ai_analysis_plan: null })
-  apiMock.updateColumnMap.mockResolvedValue({ ok: true })
+  apiMock.getProject.mockResolvedValue({ id: 1, ai_analysis_plan: null, ai_plan_history: null })
+  apiMock.validatePlan.mockResolvedValue({ items: [], feasible_templates: ['descriptive_summary', 'run_chart'] })
+  apiMock.confirmPlan.mockResolvedValue({ confirmed: true })
 })
 
 afterEach(() => {
@@ -19,9 +45,14 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderScreen() {
+function renderScreen(ctxOverrides = {}) {
   const value = {
-    ctx: { projectId: 1, uploadId: 20, colTypes: { fall_date: 'Date', value: 'Number' } },
+    ctx: {
+      projectId: 1,
+      uploadId: 10,
+      colTypes: { month: 'Date', falls: 'Number' },
+      ...ctxOverrides,
+    },
     update: vi.fn(),
     next: vi.fn(),
     prev: vi.fn(),
@@ -34,99 +65,146 @@ function renderScreen() {
   return value
 }
 
-describe('AnalysisPlanStage', () => {
-  it('immediately requests a recommendation on mount without requiring a click, and shows multiple recommended analyses', async () => {
+describe('AnalysisPlanStage rich plan review', () => {
+  it('enables Continue only once all analyses are executable, and confirmed plan holds the full array', async () => {
+    const item1 = makeItem()
+    const item2 = makeItem({ id: 'run_chart-2', template: 'run_chart', display_name: 'Run Chart', executable: true })
     apiMock.recommendPlan.mockResolvedValue({
-      message: "Here's what I recommend...",
+      message: 'Here is your plan',
       confirmed: false,
-      analyses: [
-        { template: 'descriptive_summary', rationale: 'Baseline picture.', parameters: { value_cols: ['value'] } },
-        { template: 'run_chart', rationale: 'Shows the trend.', parameters: { date_col: 'fall_date', value_col: 'value' } },
-      ],
-      turns: [{ role: 'ai', content: "Here's what I recommend..." }],
-    })
-    renderScreen()
-
-    await waitFor(() => expect(apiMock.recommendPlan).toHaveBeenCalledWith(1, null))
-    expect(await screen.findByText('Descriptive Summary')).toBeInTheDocument()
-    expect(screen.getByText('Run Chart')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-  })
-
-  it('sends a deny message when the resident denies a recommendation and updates the plan from the reply', async () => {
-    apiMock.recommendPlan
-      .mockResolvedValueOnce({
-        message: 'Proposal',
-        confirmed: false,
-        analyses: [{ template: 'p_chart', rationale: 'not great fit', parameters: {} }],
-        turns: [{ role: 'ai', content: 'Proposal' }],
-      })
-      .mockResolvedValueOnce({
-        message: 'Removed p_chart, using run_chart instead.',
-        confirmed: false,
-        analyses: [{ template: 'run_chart', rationale: 'better fit', parameters: { date_col: 'fall_date', value_col: 'value' } }],
-        turns: [{ role: 'ai', content: 'Proposal' }, { role: 'user', content: 'Please remove the p-Chart recommendation from the plan.' }, { role: 'ai', content: 'Removed p_chart, using run_chart instead.' }],
-      })
-    const user = userEvent.setup()
-    renderScreen()
-
-    await screen.findByText('p-Chart')
-    await user.click(screen.getByRole('button', { name: 'Deny' }))
-
-    await waitFor(() => {
-      expect(apiMock.recommendPlan).toHaveBeenLastCalledWith(1, 'Please remove the p-Chart recommendation from the plan.')
-    })
-    expect(await screen.findByText('Run Chart')).toBeInTheDocument()
-    expect(screen.queryByText('p-Chart')).not.toBeInTheDocument()
-  })
-
-  it('enables Continue only once confirmed, and sets ctx.template/params from the first analysis in the confirmed plan', async () => {
-    apiMock.recommendPlan.mockResolvedValue({
-      message: 'Final plan confirmed.',
-      confirmed: true,
-      analyses: [
-        { template: 'run_chart', rationale: 'Shows the trend.', parameters: { date_col: 'fall_date', value_col: 'value' } },
-        { template: 'descriptive_summary', rationale: 'Baseline.', parameters: { value_cols: ['value'] } },
-      ],
-      turns: [{ role: 'ai', content: 'Final plan confirmed.' }],
+      analyses: [item1, item2],
+      turns: [{ role: 'ai', content: 'Here is your plan' }],
     })
     const user = userEvent.setup()
     const value = renderScreen()
 
-    const continueButton = await screen.findByRole('button', { name: 'Continue' })
-    await waitFor(() => expect(continueButton).toBeEnabled())
-    await user.click(continueButton)
+    await waitFor(() => expect(apiMock.recommendPlan).toHaveBeenCalled())
+    expect(await screen.findByText('Summary of Falls')).toBeInTheDocument()
+    expect(screen.getByText('Run Chart')).toBeInTheDocument()
 
-    expect(value.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        template: 'run_chart',
-        params: { date_col: 'fall_date', value_col: 'value' },
-        columnMap: { date_col: 'fall_date', value_col: 'value' },
-        analysisPlan: expect.arrayContaining([expect.objectContaining({ template: 'run_chart' })]),
-      }),
-    )
-    expect(value.next).toHaveBeenCalled()
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    expect(continueBtn).toBeEnabled()
+
+    await user.click(continueBtn)
+    expect(await screen.findByRole('heading', { name: 'Final Confirmation' })).toBeInTheDocument()
+
+    const runBtn = screen.getByRole('button', { name: 'Run these analyses' })
+    await user.click(runBtn)
+
+    await waitFor(() => {
+      expect(apiMock.confirmPlan).toHaveBeenCalledWith(1, expect.arrayContaining([
+        expect.objectContaining({ id: 'descriptive_summary-1' }),
+        expect.objectContaining({ id: 'run_chart-2' }),
+      ]))
+      expect(value.update).toHaveBeenCalledWith(expect.objectContaining({
+        analysisPlan: expect.arrayContaining([
+          expect.objectContaining({ template: 'descriptive_summary' }),
+          expect.objectContaining({ template: 'run_chart' }),
+        ]),
+      }))
+      expect(value.next).toHaveBeenCalled()
+    })
   })
 
-  it('redacts PHI in the chat input and requires a second Share click before sending', async () => {
+  it('removes an analysis card and updates the plan', async () => {
+    const item1 = makeItem()
+    const item2 = makeItem({ id: 'run_chart-2', template: 'run_chart', display_name: 'Run Chart' })
     apiMock.recommendPlan.mockResolvedValue({
-      message: 'ok',
+      message: 'Plan',
       confirmed: false,
-      analyses: [],
-      turns: [{ role: 'ai', content: 'ok' }],
+      analyses: [item1, item2],
+      turns: [],
     })
-    apiMock.scrubPreview.mockResolvedValue({ text: '[REDACTED] wants a t-test', redacted: true, count: 1 })
     const user = userEvent.setup()
     renderScreen()
 
-    await waitFor(() => expect(apiMock.recommendPlan).toHaveBeenCalledTimes(1))
-    await user.type(screen.getByPlaceholderText(/Ask for a different analysis/), 'patient Jane Doe wants a t-test')
-    await user.click(screen.getByRole('button', { name: 'Share' }))
+    await screen.findByText('Summary of Falls')
+    expect(screen.getByText('Run Chart')).toBeInTheDocument()
 
-    expect(await screen.findByText(/We removed what looked like PHI/)).toBeInTheDocument()
-    expect(apiMock.recommendPlan).toHaveBeenCalledTimes(1)
+    const showDetailsButtons = screen.getAllByRole('button', { name: /Show assumptions, limitations & parameters/ })
+    await user.click(showDetailsButtons[0])
 
-    await user.click(screen.getByRole('button', { name: 'Share' }))
-    await waitFor(() => expect(apiMock.recommendPlan).toHaveBeenCalledWith(1, '[REDACTED] wants a t-test'))
+    const removeBtn = screen.getByRole('button', { name: 'Remove this analysis' })
+    await user.click(removeBtn)
+
+    await waitFor(() => {
+      expect(screen.queryByText('Summary of Falls')).not.toBeInTheDocument()
+      expect(screen.getByText('Run Chart')).toBeInTheDocument()
+    })
+  })
+
+  it('adds a feasible analysis via the picker', async () => {
+    const item1 = makeItem()
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan',
+      confirmed: false,
+      analyses: [item1],
+      turns: [],
+    })
+    apiMock.validatePlan.mockResolvedValue({ items: [], feasible_templates: ['descriptive_summary', 'run_chart'] })
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Summary of Falls')
+
+    const addSelect = await screen.findByLabelText('Add an analysis')
+    await user.selectOptions(addSelect, 'run_chart')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Run Chart')).toBeInTheDocument()
+    })
+  })
+
+  it('blocks Continue while any analysis is not executable due to low confidence or missing params', async () => {
+    const blockedItem = makeItem({
+      id: 'run_chart-2',
+      template: 'run_chart',
+      display_name: 'Run Chart',
+      executable: false,
+      missing_params: ['date_col'],
+      param_confidence: { value_col: 'low' },
+    })
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan',
+      confirmed: false,
+      analyses: [makeItem(), blockedItem],
+      turns: [],
+    })
+    renderScreen()
+
+    await screen.findByText('Run Chart')
+    expect(screen.getByText('Needs your input')).toBeInTheDocument()
+
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    expect(continueBtn).toBeDisabled()
+  })
+
+  it('submits an override request and shows what changed', async () => {
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan',
+      confirmed: false,
+      analyses: [makeItem()],
+      turns: [],
+    })
+    apiMock.overridePlan.mockResolvedValue({
+      message: 'Adjusted',
+      changes: ['Added run chart for simplified timeline plotting.'],
+      confirmed: false,
+      analyses: [makeItem({ id: 'run_chart-1', template: 'run_chart', display_name: 'Run Chart' })],
+    })
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Summary of Falls')
+
+    const overrideBox = screen.getByPlaceholderText(/Use a paired test instead/)
+    await user.type(overrideBox, 'Use a run chart instead')
+    await user.click(screen.getByRole('button', { name: 'Submit request' }))
+
+    await waitFor(() => {
+      expect(apiMock.overridePlan).toHaveBeenCalledWith(1, 'Use a run chart instead')
+      expect(screen.getByText('Added run chart for simplified timeline plotting.')).toBeInTheDocument()
+    })
   })
 })

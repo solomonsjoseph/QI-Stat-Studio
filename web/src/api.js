@@ -59,12 +59,13 @@ export const api = {
 
   // Projects
   createProject: (data) => req('POST', '/projects', data),
-  createProjectIntake: async ({ title, description, file, dictionary }) => {
+  createProjectIntake: async ({ title, description, file, dictionary, deadline }) => {
     const fd = new FormData()
     fd.append('title', title)
     fd.append('description', description || '')
     fd.append('file', file)
-    fd.append('dictionary', dictionary)
+    if (dictionary) fd.append('dictionary', dictionary)
+    if (deadline) fd.append('deadline', deadline)
     const res = await fetch(`${BASE}/projects/intake`, { method: 'POST', body: fd, credentials: 'include' })
     if (!res.ok) await parseError(res, `projects/intake → ${res.status}`)
     return readResponse(res)
@@ -80,24 +81,21 @@ export const api = {
   updateProject: (id, data) => req('PATCH', `/projects/${id}`, data),
   deleteProject: (id, purge = false) => req('DELETE', `/projects/${id}${purge ? '?purge=true' : ''}`),
   resumeProject: (id) => req('GET', `/projects/${id}/resume`),
-  saveProjectEdit: (projectId, field, originalText, editedText) =>
-    req('POST', `/projects/${projectId}/edits`, { field, original_text: originalText, edited_text: editedText }),
+  saveProjectEdit: (projectId, field, originalText, editedText, runId = null) =>
+    req('POST', `/projects/${projectId}/edits`, { field, original_text: originalText, edited_text: editedText, run_id: runId }),
+  updateDesign: (projectId, design) => req('PUT', `/projects/${projectId}/design`, design),
 
-  // Intake
-  saveAnswers: (projectId, answers) => req('POST', `/intake/${projectId}`, { answers }),
-  getAnswers: (projectId) => req('GET', `/intake/${projectId}`),
-
-  // AI clarification
+  // AI clarification & guidance
   scrubPreview: (text) => req('POST', '/ai/scrub-preview', { text }),
   clarify: (projectId, message) => req('POST', `/ai/clarify/${projectId}`, { message: message || null }),
   confirmClarification: (projectId) => req('POST', `/ai/clarify/${projectId}`, { confirm: true }),
+  collectionGuidance: (projectId) => req('POST', `/ai/collection-guidance/${projectId}`),
 
-  // AI analysis-plan recommendation
+  // AI analysis-plan recommendation & override
   recommendPlan: (projectId, message) => req('POST', `/ai/recommend-plan/${projectId}`, { message: message || null }),
-
-  // AI intake-question answering
-  intakeAnswerAI: (projectId, payload) => req('POST', `/ai/intake-answer/${projectId}`, payload),
-
+  confirmPlan: (projectId, analyses) => req('POST', `/ai/recommend-plan/${projectId}`, { confirm: true, analyses }),
+  overridePlan: (projectId, instruction) => req('POST', `/ai/override-plan/${projectId}`, { instruction }),
+  interpretResults: (projectId) => req('POST', `/ai/interpret-results/${projectId}`),
   // Upload
   upload: async (projectId, file) => {
     const fd = new FormData()
@@ -106,8 +104,8 @@ export const api = {
     if (!res.ok) await parseError(res, `upload → ${res.status}`)
     return readResponse(res)
   },
-  confirmColTypes: (uploadId, colTypes, columnMap = {}) =>
-    req('PUT', `/upload/${uploadId}/column-types`, { col_types: colTypes, column_map: columnMap }),
+  confirmColTypes: (uploadId, colTypes, columnMap = {}, columnRoles = {}) =>
+    req('PUT', `/upload/${uploadId}/column-types`, { col_types: colTypes, column_map: columnMap, column_roles: columnRoles }),
   saveAcknowledgedFlags: (uploadId, flags) =>
     req('PATCH', `/upload/${uploadId}/acknowledged-flags`, { flags }),
   listUploads: (projectId) => req('GET', `/upload/project/${projectId}`),
@@ -120,24 +118,24 @@ export const api = {
     return readResponse(res)
   },
   deleteUpload: (uploadId) => req('DELETE', `/upload/${uploadId}`),
-  updateColumnMap: (uploadId, colTypes, columnMap) =>
-    req('PUT', `/upload/${uploadId}/column-types`, { col_types: colTypes, column_map: columnMap }),
+  updateColumnMap: (uploadId, colTypes, columnMap = {}, columnRoles = {}) =>
+    req('PUT', `/upload/${uploadId}/column-types`, { col_types: colTypes, column_map: columnMap, column_roles: columnRoles }),
 
   // Analysis
-  recommend: (projectId) => req('GET', `/analyze/${projectId}/recommend`),
+  validatePlan: (projectId, uploadId, analyses) =>
+    req('POST', `/analyze/validate-plan/${projectId}`, { upload_id: uploadId, analyses }),
+  runPlan: (projectId, uploadId, analyses) =>
+    req('POST', `/analyze/run-plan/${projectId}`, { upload_id: uploadId, analyses }),
   runAnalysis: (projectId, uploadId, template, params) =>
     req('POST', '/analyze/run', { project_id: projectId, upload_id: uploadId, template, parameters: params }),
 
   // AI
   chat: (projectId, messages, model) =>
     req('POST', '/ai/chat', { project_id: projectId, messages, model }),
-  prefillIntake: (projectId, description) =>
-    req('POST', '/ai/intake-prefill', { project_id: projectId, description }),
 
   // Report
-  docxUrl: (runId) => `${BASE}/report/${runId}/docx`,
-  pdfUrl: (runId) => `${BASE}/report/${runId}/pdf`,
-
+  projectDocxUrl: (projectId) => `${BASE}/report/project/${projectId}/docx`,
+  projectPdfUrl: (projectId) => `${BASE}/report/project/${projectId}/pdf`,
   // Share
   createShare: (projectId, mentorEmail, expiresAt) =>
     req('POST', `/share/${projectId}/create`, { mentor_email: mentorEmail || null, expires_at: expiresAt || null }),

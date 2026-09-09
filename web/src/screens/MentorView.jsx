@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
+import { TEMPLATE_LABELS } from '../templateLabels'
 
 function CommentCard({ comment, token, authorEmail, load, setError }) {
   const author = comment.author_name || comment.author || 'Mentor'
@@ -135,8 +136,7 @@ export default function MentorView({ token }) {
     )
   }
 
-  const table = data.table || []
-  const tableHeaders = table.length > 0 ? Object.keys(table[0]) : []
+  const results = data.results || []
   const limitations = data.limitations || []
 
   return (
@@ -147,29 +147,46 @@ export default function MentorView({ token }) {
       {submitted && <p className="alert-ok mb-4" aria-live="polite">Comment submitted.</p>}
       {saving && <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Saving comment…</p>}
 
+      {results.map(run => {
+        const table = run.table || []
+        const tableHeaders = table.length > 0 ? Object.keys(table[0]) : []
+        return (
+          <section key={run.run_id} className="mb-8 border-b border-line pb-6">
+            <h2 className="mb-2 text-lg font-semibold text-ink">{TEMPLATE_LABELS[run.template] || run.template}</h2>
+            {run.methods && <div className="mb-4"><h3 className="mb-1 font-semibold text-ink">Methods</h3><p className="text-sm leading-6 text-ink-soft">{run.methods}</p></div>}
+            {run.result_summary && <div className="alert-info mb-4"><h3 className="mb-1 text-sm font-semibold">Result Summary</h3><p>{run.result_summary}</p></div>}
 
-      {data.methods && <section className="mb-4"><h2 className="mb-1 font-semibold text-ink">Methods</h2><p className="text-sm leading-6 text-ink-soft">{data.methods}</p></section>}
-      {data.result_summary && <section className="alert-info mb-6"><h2 className="mb-1 text-sm font-semibold">Result Summary</h2><p>{data.result_summary}</p></section>}
+            {table.length > 0 && (
+              <div className="mb-4 overflow-x-auto">
+                <h3 className="mb-2 font-semibold text-ink">Results Table</h3>
+                <table className="table-clean">
+                  <thead><tr>{tableHeaders.map(h => <th key={h}>{h}</th>)}</tr></thead>
+                  <tbody>{table.map((row, idx) => <tr key={idx}>{tableHeaders.map(h => <td key={h}>{String(row[h] ?? '')}</td>)}</tr>)}</tbody>
+                </table>
+              </div>
+            )}
 
-      {table.length > 0 && (
-        <section className="mb-6 overflow-x-auto">
-          <h2 className="mb-2 font-semibold text-ink">Results Table</h2>
-          <table className="table-clean">
-            <thead><tr>{tableHeaders.map(h => <th key={h}>{h}</th>)}</tr></thead>
-            <tbody>{table.map((row, idx) => <tr key={idx}>{tableHeaders.map(h => <td key={h}>{String(row[h] ?? '')}</td>)}</tr>)}</tbody>
-          </table>
-        </section>
-      )}
+            {run.figure_base64 && <div className="mb-4"><h3 className="mb-2 font-semibold text-ink">Figure</h3><img className="w-full rounded-lg border border-line" src={`data:image/png;base64,${run.figure_base64}`} alt="Analysis figure" />{run.caption && <p className="mt-2 text-sm text-ink-soft">{run.caption}</p>}</div>}
+            {run.interpretation && <div className="mb-4"><h3 className="mb-1 font-semibold text-ink">Interpretation</h3><p className="text-sm leading-6 text-ink-soft">{run.interpretation}</p></div>}
 
-      {data.figure_base64 && <section className="mb-6"><h2 className="mb-2 font-semibold text-ink">Figure</h2><img className="w-full rounded-lg border border-line" src={`data:image/png;base64,${data.figure_base64}`} alt="Analysis figure" />{data.caption && <p className="mt-2 text-sm text-ink-soft">{data.caption}</p>}</section>}
-      {data.interpretation && <section className="mb-6"><h2 className="mb-1 font-semibold text-ink">Interpretation</h2><p className="text-sm leading-6 text-ink-soft">{data.interpretation}</p></section>}
+            {(run.code_r || run.code_spss || run.code_sas) && (
+              <div>
+                <h3 className="mb-2 font-semibold text-ink">Code Supplement</h3>
+                {run.code_r && <pre className="mb-2 overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{run.code_r}</pre>}
+                {run.code_spss && <pre className="mb-2 overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{run.code_spss}</pre>}
+                {run.code_sas && <pre className="overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{run.code_sas}</pre>}
+              </div>
+            )}
+          </section>
+        )
+      })}
+
+      {results.length === 0 && <p className="mb-6 text-sm text-ink-soft">No analysis results are available yet.</p>}
 
       <section className="mb-6">
         <h2 className="mb-1 font-semibold text-ink">Limitations</h2>
         {limitations.length > 0 ? <ul className="list-disc pl-5 text-sm leading-6 text-ink-soft">{limitations.map((item, idx) => <li key={idx}>{item.msg || item.message || JSON.stringify(item)}</li>)}</ul> : <p className="text-sm text-ink-soft">No data quality issues were flagged for this dataset.</p>}
       </section>
-
-      {(data.code_r || data.code_spss || data.code_sas) && <section className="mb-6"><h2 className="mb-2 font-semibold text-ink">Code Supplement</h2>{data.code_r && <pre className="mb-2 overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{data.code_r}</pre>}{data.code_spss && <pre className="mb-2 overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{data.code_spss}</pre>}{data.code_sas && <pre className="overflow-x-auto rounded-lg border border-line bg-gray-950 p-3 text-xs text-gray-50">{data.code_sas}</pre>}</section>}
 
       <section className="border-t border-line pt-6">
         <h2 className="mb-3 font-semibold text-ink">Mentor Comments</h2>
