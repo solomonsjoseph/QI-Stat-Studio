@@ -180,6 +180,36 @@ describe('AnalysisPlanStage rich plan review', () => {
     expect(continueBtn).toBeDisabled()
   })
 
+  it('blocks Continue for a low-confidence executable item until the user acknowledges it', async () => {
+    const lowConfidenceItem = makeItem({
+      id: 'run_chart-2',
+      template: 'run_chart',
+      display_name: 'Run Chart',
+      executable: true,
+      needs_clarification: true,
+      param_confidence: { value_col: 'low' },
+    })
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan',
+      confirmed: false,
+      analyses: [makeItem(), lowConfidenceItem],
+      turns: [],
+    })
+    const user = userEvent.setup()
+    renderScreen()
+
+    await screen.findByText('Run Chart')
+    const continueBtn = screen.getByRole('button', { name: 'Continue' })
+    expect(continueBtn).toBeDisabled()
+
+    const showDetailsButtons = screen.getAllByRole('button', { name: /Show assumptions, limitations & parameters/ })
+    await user.click(showDetailsButtons[1])
+    const ackBtn = screen.getByRole('button', { name: "I've reviewed this" })
+    await user.click(ackBtn)
+
+    await waitFor(() => expect(continueBtn).toBeEnabled())
+  })
+
   it('submits an override request and shows what changed', async () => {
     apiMock.recommendPlan.mockResolvedValue({
       message: 'Plan',

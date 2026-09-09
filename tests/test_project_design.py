@@ -113,3 +113,12 @@ def test_descriptive_fixture_has_no_intervention_date_and_strips_question():
         "What outcome are you measuring?\nWhen is the intervention date?",
         design,
     ) == "What outcome are you measuring?"
+
+
+def test_intervention_questions_stripped_regardless_of_exact_phrasing():
+    design = ProjectDesign(intervention={"present": False})
+    differently_worded = "What outcome are you measuring?\nWhat change did you implement on the unit?"
+    assert _drop_irrelevant_questions(differently_worded, design) == "What outcome are you measuring?"
+
+    also_worded = "What outcome are you measuring?\nWhen did you roll out the new protocol?"
+    assert _drop_irrelevant_questions(also_worded, design) == "What outcome are you measuring?"

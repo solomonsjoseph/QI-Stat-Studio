@@ -93,6 +93,42 @@ def _untrusted(text: str) -> str:
     return f"<untrusted_data>\n{text}\n</untrusted_data>"
 
 
+_CAUSAL_CLAIM_RE = re.compile(
+    r"\b(caused|causes|causing|proves?|demonstrates?\s+that|results?\s+in|led\s+to|due\s+to\s+the\s+intervention)\b",
+    re.I,
+)
+_ABSOLUTE_NULL_CLAIM_RE = re.compile(
+    r"\bno\s+(difference|effect|change|impact)\b(?!\s*that\s+(is|was)\s+statistically)",
+    re.I,
+)
+
+
+def _flag_overstated_claims(text: str, p_values: list[float]) -> list[str]:
+    """Deterministic backstop for the LLM's causal/significance-language instructions.
+
+    Flags text for human review; never edits or blocks it. p_values >= 0.05
+    means a non-significant result exists somewhere in the run set, so an
+    unqualified "no difference/effect" claim is an overstatement worth a
+    second look rather than a true null result.
+    """
+    flags = []
+    if not text:
+        return flags
+    if _CAUSAL_CLAIM_RE.search(text):
+        flags.append("Possible causal-language overstatement (QI projects should not claim causation).")
+    if any(p is not None and p >= 0.05 for p in p_values) and _ABSOLUTE_NULL_CLAIM_RE.search(text):
+        flags.append("Possible overstatement of a non-significant result as a definitive null finding.")
+    return flags
+
+
+_INTERVENTION_TOPIC_RE = re.compile(
+    r"intervention\s+date|what\s+(change|intervention)|when\s+did\s+you\s+(implement|roll\s*out|introduce|start)|"
+    r"\b(implement(ed|ation)?|roll(ed)?[\s-]?out|go[\s-]?live)\b.*\b(change|intervention)\b|"
+    r"\b(change|intervention)\b.*\b(implement(ed)?|roll(ed)?[\s-]?out|start(ed)?|introduc(ed|e))\b",
+    re.I,
+)
+
+
 def _drop_irrelevant_questions(message: str, design: ProjectDesign | None) -> str:
     if not message:
         return message
@@ -103,7 +139,7 @@ def _drop_irrelevant_questions(message: str, design: ProjectDesign | None) -> st
     lines = message.splitlines()
     kept_lines = []
     for line in lines:
-        if drop_intervention and re.search(r"intervention\s+date", line, re.I):
+        if drop_intervention and _INTERVENTION_TOPIC_RE.search(line):
             continue
         if drop_pairing and re.search(r"\b(paired|pairing)\b", line, re.I):
             continue
@@ -114,7 +150,7 @@ def _drop_irrelevant_questions(message: str, design: ProjectDesign | None) -> st
         sentences = re.split(r"(?<=[.?!])\s+", result)
         kept_sentences = []
         for s in sentences:
-            if drop_intervention and re.search(r"intervention\s+date", s, re.I):
+            if drop_intervention and _INTERVENTION_TOPIC_RE.search(s):
                 continue
             if drop_pairing and re.search(r"\b(paired|pairing)\b", s, re.I):
                 continue
@@ -408,7 +444,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
     profile = get_upload_profile(upload) if upload else {}
     profile_json = json.dumps(profile, indent=2)
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
-    dictionary_text_truncated = dictionary_text[:4000]
+    dictionary_text_truncated, _ = scrub_text(dictionary_text[:4000])
 
     system_prompt = CLARIFY_SYSTEM_V1.format(
         title=project.title or "(untitled)",
@@ -493,7 +529,7 @@ def ai_collection_guidance(
             system_prompt = COLLECTION_SYSTEM_V1.format(
                 design=_untrusted(json.dumps(design.model_dump(), indent=2)),
                 dataset_profile=_untrusted(json.dumps(profile, indent=2)),
-                dictionary_text=_untrusted((upload.dictionary_text or "(none)")[:4000]),
+                dictionary_text=_untrusted(scrub_text((upload.dictionary_text or "(none)")[:4000])[0]),
             )
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -598,9 +634,9 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
     profile = get_upload_profile(upload) if upload else {}
     profile_json = json.dumps(profile, indent=2)
     quality_flags_raw = json.loads(upload.quality_flags) if upload and upload.quality_flags else []
-    quality_findings = json.dumps(quality_flags_raw, indent=2)
+    quality_findings, _ = scrub_text(json.dumps(quality_flags_raw, indent=2))
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
-    dictionary_text_truncated = dictionary_text[:4000]
+    dictionary_text_truncated, _ = scrub_text(dictionary_text[:4000])
     design = json.loads(project.ai_project_design) if project.ai_project_design else {}
 
     system_prompt = RECOMMEND_SYSTEM_V1.format(
@@ -814,7 +850,7 @@ def ai_interpret_results(
         results_payload.append(run_data)
 
     ack_flags = json.loads(upload.acknowledged_flags or "[]")
-    ack_text = json.dumps(ack_flags, indent=2)
+    ack_text, _ = scrub_text(json.dumps(ack_flags, indent=2))
 
     system_prompt = INTERPRET_SYSTEM_V1.format(
         results_payload=_untrusted(json.dumps(results_payload, indent=2)),
@@ -837,6 +873,13 @@ def ai_interpret_results(
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
+    p_values = [rd.get("p_value") for rd in results_payload if isinstance(rd.get("p_value"), (int, float))]
+    flags: list[str] = []
+    for interp in resp_model.interpretations:
+        flags.extend(_flag_overstated_claims(interp.text, p_values))
+    flags.extend(_flag_overstated_claims(resp_model.abstract_draft, p_values))
+    resp_model.needs_review_flags = flags
+
     # Persist interpretations onto runs
     for interp in resp_model.interpretations:
         r_obj = next((r for r in runs if r.id == interp.run_id), None)
@@ -850,6 +893,7 @@ def ai_interpret_results(
     plan_dict["narrative"] = {
         "limitations": resp_model.limitations,
         "abstract_draft": resp_model.abstract_draft,
+        "needs_review_flags": resp_model.needs_review_flags,
     }
     project.ai_analysis_plan = json.dumps(plan_dict)
     db.commit()

@@ -298,6 +298,7 @@ class InterpretResultsResponse(BaseModel):
     interpretations: list[RunInterpretation] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     abstract_draft: str = ""
+    needs_review_flags: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 

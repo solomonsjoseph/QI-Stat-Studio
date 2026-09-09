@@ -174,11 +174,15 @@ export default function AnalysisPlanStage() {
   }
 
   function updateParam(analysisId, paramKey, value) {
-    const next = analyses.map(a => a.id === analysisId ? { ...a, parameters: { ...a.parameters, [paramKey]: value } } : a)
+    const next = analyses.map(a => a.id === analysisId ? { ...a, parameters: { ...a.parameters, [paramKey]: value }, needs_clarification: false } : a)
     setAnalyses(next)
     const key = `${analysisId}`
     clearTimeout(debounceRef.current[key])
     debounceRef.current[key] = setTimeout(() => refreshValidation(next), 400)
+  }
+
+  function acknowledgeClarification(analysisId) {
+    setAnalyses(prev => prev.map(a => a.id === analysisId ? { ...a, needs_clarification: false } : a))
   }
 
   async function submitOverride() {
@@ -206,7 +210,7 @@ export default function AnalysisPlanStage() {
     refreshValidation(planHistoryInitial)
   }
 
-  const allExecutable = analyses.length > 0 && analyses.every(a => a.executable)
+  const allExecutable = analyses.length > 0 && analyses.every(a => a.executable && !a.needs_clarification)
 
   function goToFinalConfirm() {
     setShowFinalConfirm(true)
@@ -288,8 +292,8 @@ export default function AnalysisPlanStage() {
                     <p className="font-medium text-ink">{a.display_name || a.template}</p>
                     {a.question && <p className="text-sm text-ink-soft mt-0.5">{a.question}</p>}
                   </div>
-                  <span className={a.executable ? 'text-xs font-medium text-emerald-700' : 'text-xs font-medium text-amber-700'}>
-                    {a.executable ? 'Ready' : 'Needs your input'}
+                  <span className={a.executable && !a.needs_clarification ? 'text-xs font-medium text-emerald-700' : 'text-xs font-medium text-amber-700'}>
+                    {a.executable && !a.needs_clarification ? 'Ready' : 'Needs your input'}
                   </span>
                 </div>
 
@@ -299,6 +303,15 @@ export default function AnalysisPlanStage() {
                   <div className="alert-warn mt-2 text-xs">
                     {a.errors?.map((e, i) => <p key={i}>{e}</p>)}
                     {a.missing_params?.length > 0 && <p>Missing: {a.missing_params.join(', ')}</p>}
+                  </div>
+                )}
+
+                {a.executable && a.needs_clarification && (
+                  <div className="alert-warn mt-2 text-xs flex items-center justify-between gap-2">
+                    <span>The AI was not confident about one or more parameters above. Review them before running.</span>
+                    <button type="button" onClick={() => acknowledgeClarification(a.id)} className="btn-secondary text-xs whitespace-nowrap">
+                      I've reviewed this
+                    </button>
                   </div>
                 )}
 

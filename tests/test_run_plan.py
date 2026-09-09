@@ -55,6 +55,40 @@ def test_batch_execution_all_ok_and_persistence(auth_client):
         assert "executed_at" in plan
 
 
+def test_stale_plan_is_rejected_even_if_confirmed(auth_client):
+    _register(auth_client, "stale_run@example.com")
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Stale Plan Test", "description": "Testing stale plan rejection"},
+        files={"file": ("data.csv", b"month,falls,patient_days\n2024-01,2,100\n2024-02,3,110\n2024-03,1,105\n", "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    pid = resp.json()["project"]["id"]
+    uid = resp.json()["upload"]["id"]
+
+    advance_to_phase(pid, "plan")
+    with SessionLocal() as db:
+        p = db.get(Project, pid)
+        p.ai_analysis_plan = json.dumps({"confirmed": True, "stale": True})
+        u = db.get(Upload, uid)
+        u.acknowledged_flags = u.quality_flags
+        db.commit()
+
+    plan_payload = {
+        "upload_id": uid,
+        "analyses": [
+            {"template": "descriptive_summary", "parameters": {"value_cols": ["falls", "patient_days"]}},
+        ],
+    }
+    run_resp = auth_client.post(f"/analyze/run-plan/{pid}", json=plan_payload)
+    assert run_resp.status_code == 409
+    data = run_resp.json()
+    assert "stale" in data["error"]["message"].lower()
+
+    with SessionLocal() as db:
+        assert db.query(AnalysisRun).filter_by(project_id=pid).count() == 0
+
+
 def test_one_item_failure_does_not_abort_batch(auth_client):
     _register(auth_client, "batch_partial@example.com")
     resp = auth_client.post(

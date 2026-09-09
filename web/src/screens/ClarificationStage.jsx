@@ -529,14 +529,19 @@ export default function ClarificationStage() {
               </button>
 
               {(aiTurnCount >= 4 || design.sufficient_to_continue) && (
-                <button
-                  type="button"
-                  onClick={handleConfirmAndProceed}
-                  disabled={loading}
-                  className="btn-primary text-xs"
-                >
-                  Confirm project definition →
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <p className="text-xs text-ink-soft max-w-xs text-right">
+                    Confirming marks every field above (aim, population, outcome, comparison, etc.) as reviewed by you. Edit any field first if it is wrong.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleConfirmAndProceed}
+                    disabled={loading}
+                    className="btn-primary text-xs"
+                  >
+                    Confirm project definition →
+                  </button>
+                </div>
               )}
             </div>
           </form>

@@ -39,15 +39,6 @@ def _active_share_or_404(token: str, db: Session) -> MentorShare:
 
 
 
-def _latest_run(project_id: int, db: Session) -> AnalysisRun | None:
-    return (
-        db.query(AnalysisRun)
-        .filter(AnalysisRun.project_id == project_id)
-        .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
-        .first()
-    )
-
-
 def _share_url(request: Request, token: str) -> str:
     base = str(request.base_url).rstrip("/")
     return f"{base}/mentor/{token}"

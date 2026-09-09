@@ -90,6 +90,127 @@ def test_interpret_results_endpoint(auth_client):
         assert "Background" in narrative.get("abstract_draft", "")
 
 
+def test_interpret_results_scrubs_acknowledged_flags_before_sending_to_llm(auth_client):
+    _register(auth_client, "scrub_ack_flags@example.com")
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Scrub Ack Test", "description": "Testing ack-flag scrubbing"},
+        files={"file": ("data.csv", b"month,falls\n2024-01,2\n2024-02,3\n2024-03,1\n", "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    pid = resp.json()["project"]["id"]
+    uid = resp.json()["upload"]["id"]
+
+    advance_to_phase(pid, "plan")
+    with SessionLocal() as db:
+        p = db.get(Project, pid)
+        p.ai_analysis_plan = json.dumps({"confirmed": True})
+        u = db.get(Upload, uid)
+        u.acknowledged_flags = u.quality_flags
+        db.commit()
+
+    plan_payload = {
+        "upload_id": uid,
+        "analyses": [{"template": "descriptive_summary", "parameters": {"value_cols": ["falls"]}}],
+    }
+    run_resp = auth_client.post(f"/analyze/run-plan/{pid}", json=plan_payload)
+    assert run_resp.status_code == 200
+    run_id = run_resp.json()["runs"][0]["run_id"]
+
+    with SessionLocal() as db:
+        u = db.get(Upload, uid)
+        leaking_flags = json.dumps([
+            {"col": "clinician", "rule": "sparse_category", "msg": "level(s) with < 5 rows: {'SSN 123-45-6789': 2}"}
+        ])
+        u.quality_flags = leaking_flags
+        u.acknowledged_flags = leaking_flags
+        db.commit()
+
+    mock_llm_reply = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=json.dumps({
+                        "interpretations": [{"run_id": run_id, "text": "Stable rates."}],
+                        "limitations": [],
+                        "abstract_draft": "Stable rates observed.",
+                    })
+                )
+            )
+        ]
+    )
+
+    with patch("api.routers.ai.litellm.completion", return_value=mock_llm_reply) as mocked_completion:
+        interp_resp = auth_client.post(f"/ai/interpret-results/{pid}")
+        assert interp_resp.status_code == 200, interp_resp.text
+
+    system_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
+    assert "123-45-6789" not in system_content
+
+
+def test_causal_and_overstated_null_language_is_flagged_for_review(auth_client):
+    _register(auth_client, "flagged_language@example.com")
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Flag Test", "description": "Testing overstatement guardrail"},
+        files={"file": ("data.csv", b"month,falls\n2024-01,2\n2024-02,3\n2024-03,1\n", "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    pid = resp.json()["project"]["id"]
+    uid = resp.json()["upload"]["id"]
+
+    advance_to_phase(pid, "plan")
+    with SessionLocal() as db:
+        p = db.get(Project, pid)
+        p.ai_analysis_plan = json.dumps({"confirmed": True})
+        u = db.get(Upload, uid)
+        u.acknowledged_flags = u.quality_flags
+        db.commit()
+
+    plan_payload = {
+        "upload_id": uid,
+        "analyses": [{"template": "descriptive_summary", "parameters": {"value_cols": ["falls"]}}],
+    }
+    run_resp = auth_client.post(f"/analyze/run-plan/{pid}", json=plan_payload)
+    assert run_resp.status_code == 200
+    run_id = run_resp.json()["runs"][0]["run_id"]
+
+    with SessionLocal() as db:
+        run = db.get(AnalysisRun, run_id)
+        result = json.loads(run.result_json)
+        result["p_value"] = 0.42  # non-significant, so an unqualified null claim is an overstatement
+        run.result_json = json.dumps(result)
+        db.commit()
+
+    mock_llm_reply = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content=json.dumps({
+                        "interpretations": [
+                            {"run_id": run_id, "text": "The intervention caused a reduction in falls with no difference remaining."},
+                        ],
+                        "limitations": ["Single site."],
+                        "abstract_draft": "The change caused fewer falls and proves the program works.",
+                    })
+                )
+            )
+        ]
+    )
+
+    with patch("api.routers.ai.litellm.completion", return_value=mock_llm_reply):
+        interp_resp = auth_client.post(f"/ai/interpret-results/{pid}")
+        assert interp_resp.status_code == 200, interp_resp.text
+        data = interp_resp.json()
+        assert any("causal" in f.lower() for f in data["needs_review_flags"])
+        assert any("non-significant" in f.lower() or "overstatement" in f.lower() for f in data["needs_review_flags"])
+
+    with SessionLocal() as db:
+        p = db.get(Project, pid)
+        plan = json.loads(p.ai_analysis_plan)
+        assert plan["narrative"]["needs_review_flags"]
+
+
 def test_resume_and_mentor_view_surface_ai_interpretation_not_placeholder(auth_client):
     _register(auth_client, "interpret_precedence@example.com")
     resp = auth_client.post(

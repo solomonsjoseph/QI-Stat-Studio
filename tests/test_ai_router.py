@@ -705,6 +705,34 @@ def test_recommend_plan_retries_once_when_the_model_returns_empty_content_then_s
     assert mocked_completion.call_count == 2
 
 
+def test_recommend_plan_scrubs_dictionary_text_and_quality_findings_before_sending_to_llm(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    with SessionLocal() as db:
+        db.add(
+            Upload(
+                project_id=project_id,
+                filename="data.csv",
+                original_filename="data.csv",
+                status="active",
+                col_types=json.dumps({"value": "Number"}),
+                dictionary_text="value: falls per month. Contact SSN 123-45-6789 for questions.",
+                quality_flags=json.dumps([
+                    {"col": "clinician", "rule": "sparse_category", "msg": "level(s) with < 5 rows: {'SSN 123-45-6789': 2}"}
+                ]),
+            )
+        )
+        db.commit()
+
+    with patch("api.routers.ai.litellm.completion", return_value=_plan_reply()) as mocked_completion:
+        response = client.post(f"/ai/recommend-plan/{project_id}", json={})
+
+    assert response.status_code == 200, response.text
+    system_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
+    assert "123-45-6789" not in system_content
+
+
 def test_recommend_plan_fails_loud_instead_of_persisting_a_blank_turn_when_still_empty_after_retry(client, monkeypatch):
     _set_openrouter_provider()
     project_id = _project_id(client)

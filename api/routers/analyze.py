@@ -320,6 +320,9 @@ def run_plan(
     if not plan_dict.get("confirmed"):
         raise HTTPException(status_code=409, detail={"message": "Analysis plan must be explicitly confirmed before running.", "required_phase": "plan"})
 
+    if plan_dict.get("stale"):
+        raise HTTPException(status_code=409, detail={"message": "The analysis plan is stale because an upstream input changed. Re-confirm the plan before running.", "required_phase": "plan"})
+
     if _has_unacknowledged_flags(upload):
         raise HTTPException(status_code=409, detail={"message": "All data quality warnings must be acknowledged before execution.", "required_phase": "plan"})
 
