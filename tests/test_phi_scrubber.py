@@ -14,7 +14,7 @@ def _create_project(client) -> int:
 
 def test_redacts_person_name_when_ner_available():
     result, count = scrub_text("Patient John Smith was admitted")
-    if phi_scrubber._nlp is None:
+    if phi_scrubber._get_nlp() is None:
         assert result == "Patient John Smith was admitted"
         assert count == 0
     else:
@@ -61,6 +61,7 @@ def test_clean_text_unchanged():
 
 def test_regex_fallback_redacts_mrn_email_and_dates_when_spacy_missing(monkeypatch):
     monkeypatch.setattr(phi_scrubber, "_nlp", None)
+    monkeypatch.setattr(phi_scrubber, "_nlp_loaded", True)
 
     result, count = scrub_text("MRN 1234567 email a@example.org visit 02/03/2024 followup 2024-03-04")
 
@@ -73,6 +74,7 @@ def test_regex_fallback_redacts_mrn_email_and_dates_when_spacy_missing(monkeypat
 
 def test_regex_fallback_redacts_street_addresses(monkeypatch):
     monkeypatch.setattr(phi_scrubber, "_nlp", None)
+    monkeypatch.setattr(phi_scrubber, "_nlp_loaded", True)
 
     result, count = scrub_text("Patient lives at 123 Main Street and attends clinic")
 

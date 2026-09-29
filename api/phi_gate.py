@@ -5,20 +5,14 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 import pandas as pd
-import spacy
 
 from api.middleware.phi_scrubber import (
     _VALUE_CATEGORY_PATTERNS,
+    _get_nlp,
     scan_dataframe_for_phi,
 )
 
 logger = logging.getLogger(__name__)
-
-try:
-    _nlp = spacy.load("en_core_web_sm")
-except Exception as exc:
-    _nlp = None
-    logger.warning("spaCy PHI NER model unavailable in phi_gate: %s", exc)
 
 PhiStatus = Literal["pending", "passed", "blocked", "error"]
 
@@ -77,9 +71,10 @@ def scan_document_text(text: str) -> list[PhiFinding]:
                 )
             )
 
-    # Person-name check via spaCy NER
-    if _nlp is not None:
-        doc = _nlp(text)
+    # Person-name check via spaCy NER (shared lazy load with the text scrubber)
+    nlp = _get_nlp()
+    if nlp is not None:
+        doc = nlp(text)
         has_person = any(ent.label_ == "PERSON" and _is_valid_person_entity(ent) for ent in doc.ents)
         if has_person:
             findings.append(

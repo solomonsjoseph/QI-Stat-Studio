@@ -6,7 +6,6 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
-import litellm
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -57,6 +56,22 @@ from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+class _LiteLLMProxy:
+    """Import litellm on first use. Eager import can take minutes on slow filesystems."""
+
+    _mod = None
+
+    def __getattr__(self, name: str):
+        if type(self)._mod is None:
+            import litellm as _litellm
+
+            type(self)._mod = _litellm
+        return getattr(type(self)._mod, name)
+
+
+litellm = _LiteLLMProxy()
 
 
 

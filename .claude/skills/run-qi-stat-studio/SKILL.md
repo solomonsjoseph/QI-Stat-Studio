@@ -38,6 +38,10 @@ make e2e    # Playwright critical path (servers must be running)
 
 - Prefer `make stub` / `npx vite --host 127.0.0.1` — bare Vite may bind `[::1]` only and break `127.0.0.1:5173`.
 - `QISS_E2E=1` is required or the critical-path spec skips.
-- First backend start can take 15–30s (spaCy load); poll `/health`.
+- `/health` should answer once the app finishes importing; litellm and spaCy
+  load lazily on first AI/PHI-NER use. Cold import on networked filesystems can
+  still take a minute or two — `scripts/dev.sh` waits up to 300s.
+- Prefer no `--reload` for `make stub|real` (default). Set `DEV_RELOAD=1` if you
+  want auto-reload.
 - spaCy 3.8 model vs 3.7.4 warning is harmless.
 - Clean machine: `pip install -r requirements.txt && python -m spacy download en_core_web_sm && cd web && npm install`.

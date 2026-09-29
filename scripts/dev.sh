@@ -11,23 +11,52 @@ case "${1:-}" in
 esac
 
 alembic upgrade head
-trap 'kill 0' EXIT INT TERM
 
-# Bind IPv4 explicitly; wait until the worker is actually accepting (spaCy load can take 30-90s).
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000 &
-echo "waiting for backend /health (first start can take up to ~90s for spaCy)..."
-for i in $(seq 1 90); do
-  if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then
+BACKEND_PID=""
+FRONTEND_PID=""
+
+cleanup() {
+  # Kill only our children. `kill 0` takes down the whole process group and can
+  # segfault make on some hosts when the wait loop exits early.
+  if [[ -n "${FRONTEND_PID}" ]]; then kill "${FRONTEND_PID}" 2>/dev/null || true; fi
+  if [[ -n "${BACKEND_PID}" ]]; then kill "${BACKEND_PID}" 2>/dev/null || true; fi
+  wait "${FRONTEND_PID}" 2>/dev/null || true
+  wait "${BACKEND_PID}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Default: no --reload. Reloader + WatchFiles on networked filesystems can keep
+# /health unreachable for minutes while the worker imports. Set DEV_RELOAD=1 to
+# opt in. litellm and spaCy load lazily on first use.
+UVICORN_ARGS=(api.main:app --host 127.0.0.1 --port 8000)
+if [[ "${DEV_RELOAD:-0}" == "1" ]]; then
+  UVICORN_ARGS+=(--reload)
+fi
+uvicorn "${UVICORN_ARGS[@]}" &
+BACKEND_PID=$!
+
+WAIT_SECS="${DEV_HEALTH_WAIT:-300}"
+echo "waiting for backend /health (up to ${WAIT_SECS}s)..."
+for i in $(seq 1 "${WAIT_SECS}"); do
+  if ! kill -0 "${BACKEND_PID}" 2>/dev/null; then
+    echo "backend process exited before becoming healthy. Check uvicorn output above." >&2
+    exit 1
+  fi
+  if curl -sf --max-time 2 http://127.0.0.1:8000/health >/dev/null 2>&1; then
     echo "backend ready http://127.0.0.1:8000"
     break
   fi
-  if [[ "$i" -eq 90 ]]; then
-    echo "backend failed to become healthy in 90s. Check uvicorn output above." >&2
+  if [[ "$i" -eq "${WAIT_SECS}" ]]; then
+    echo "backend failed to become healthy in ${WAIT_SECS}s. Check uvicorn output above." >&2
     exit 1
+  fi
+  if (( i % 15 == 0 )); then
+    echo "  still waiting (${i}s)..."
   fi
   sleep 1
 done
 
 (cd web && npx vite --host 127.0.0.1 --port 5173) &
+FRONTEND_PID=$!
 echo "frontend http://127.0.0.1:5173  mode=${AI_PROVIDER:-from .env}"
 wait

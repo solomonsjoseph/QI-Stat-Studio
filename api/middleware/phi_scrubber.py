@@ -6,15 +6,29 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import pandas as pd
-import spacy
 
 logger = logging.getLogger(__name__)
 
-try:
-    _nlp = spacy.load("en_core_web_sm")
-except Exception as exc:  # pragma: no cover - environment-dependent startup branch
-    _nlp = None
-    logger.warning("spaCy PHI NER model unavailable; regex PHI scrubber remains active: %s", exc)
+# Lazy: importing/loading spaCy+torch at module import blocks uvicorn startup for
+# 30-90s+ on some hosts and makes /health unreachable until the model is ready.
+_nlp = None
+_nlp_loaded = False
+
+
+def _get_nlp():
+    """Load en_core_web_sm once on first PHI NER use; None if unavailable."""
+    global _nlp, _nlp_loaded
+    if _nlp_loaded:
+        return _nlp
+    _nlp_loaded = True
+    try:
+        import spacy
+
+        _nlp = spacy.load("en_core_web_sm")
+    except Exception as exc:  # pragma: no cover - environment-dependent startup branch
+        _nlp = None
+        logger.warning("spaCy PHI NER model unavailable; regex PHI scrubber remains active: %s", exc)
+    return _nlp
 
 _PATTERNS = [
     r"\bMRN[:\s#]*\d{5,10}\b",
@@ -59,9 +73,10 @@ def scrub_text(text: str, redact_dates: bool = True) -> Tuple[str, int]:
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         count += len(matches)
         text = re.sub(pattern, "[REDACTED]", text, flags=re.IGNORECASE)
-    if _nlp is None:
+    nlp = _get_nlp()
+    if nlp is None:
         return text, count
-    doc = _nlp(text)
+    doc = nlp(text)
     ner_labels = {"PERSON", "DATE", "ORG"} if redact_dates else {"PERSON", "ORG"}
     spans = [ent for ent in doc.ents if ent.label_ in ner_labels]
     for ent in reversed(spans):
