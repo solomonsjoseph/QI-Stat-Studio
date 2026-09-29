@@ -16,45 +16,23 @@ built with Sphinx. See **Documentation** below to build and browse it.
 **Prerequisites:** Python 3.10+ (3.11 recommended), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
 
 ```bash
-# 1. Install backend dependencies
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-
-# 2. Configure the environment
-cp .env.example .env
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-# paste the generated key into .env as FERNET_KEY
-
-# 3. Create the database schema
-alembic upgrade head
-
-# 4. Run the backend
-uvicorn api.main:app --reload
+pip install -r requirements.txt && python -m spacy download en_core_web_sm
+cd web && npm install && cd ..
+cp .env.example .env   # set FERNET_KEY; for real AI also set the provider key
+make stub              # or: make real
 ```
 
-In a second shell:
-
-```bash
-# 5. Run the frontend
-cd web
-npm install
-npm run dev
-```
-
-Open `http://localhost:5173` and register an account. The first user ever
-registered becomes admin; everyone after that is a resident.
+Open `http://127.0.0.1:5173` and register. First account becomes admin.
 
 ## Commands
 
 | Command | Description |
 |---|---|
-| `uvicorn api.main:app --reload` | Run the backend (`http://localhost:8000`, API docs at `/docs`). |
-| `cd web && npm run dev` | Run the frontend dev server (`http://localhost:5173`). |
-| `alembic upgrade head` | Apply database migrations. |
-| `FERNET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= PYTHONPATH=. python -m pytest -q` | Run backend tests. |
-| `cd web && npm run test` | Run frontend unit tests. |
-| `cd web && npm run e2e` | Run Playwright end-to-end tests. |
-| `AI_PROVIDER=stub uvicorn api.main:app --reload` | Run the backend against the offline AI stub (deterministic, no API key or network calls) — used by Playwright e2e. |
+| `make stub` | Backend + frontend with offline AI stub (no API key). |
+| `make real` | Backend + frontend using `AI_PROVIDER` / keys from `.env`. |
+| `make test` | Backend pytest + frontend vitest. |
+| `make e2e` | Playwright critical path (servers already running). |
+| `alembic upgrade head` | Apply database migrations (also run by `make stub`/`real`). |
 | `docker build -t qi-stat-studio . && docker run -p 8000:8000 ...` | Build and run the production container. |
 
 ## Documentation
