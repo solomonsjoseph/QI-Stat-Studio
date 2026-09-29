@@ -348,6 +348,9 @@ export default function App() {
               <button type="button" onClick={() => goTo('settings')} disabled={hydrating} aria-label="Open settings" className="btn-secondary px-3 py-2">
                 <GearIcon />
               </button>
+              <button type="button" onClick={logout} className="btn-secondary px-3 py-2">
+                Sign out
+              </button>
               <button type="button" onClick={quit} className="btn-secondary px-3 py-2">
                 Quit
               </button>

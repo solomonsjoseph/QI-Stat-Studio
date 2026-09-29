@@ -79,9 +79,10 @@ to the FastAPI app directly, which is why `api/main.py` also has an
 `ApiPrefixMiddleware` that strips `/api` server-side (see
 {doc}`architecture`).
 
-While signed in locally, **Quit** in the header signs you out and stops the
-backend (`POST /dev/quit`, disabled when `environment=production`). If a
-terminal is still running Vite, press Ctrl-C there too.
+**Sign out** clears the session so you can sign in as someone else. **Quit**
+also stops the local backend (`POST /dev/quit`, disabled when
+`environment=production`). If a terminal is still running Vite after Quit,
+press Ctrl-C there too.
 
 ## 6. Register your first user
 

@@ -131,6 +131,19 @@ describe('App resume hydration', () => {
     expect(window.location.pathname).toBe('/app/77/clarify')
   })
 
+  it('signs out without stopping the backend', async () => {
+    apiMock.logout.mockResolvedValue({})
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }))
+
+    expect(apiMock.logout).toHaveBeenCalled()
+    expect(apiMock.quit).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: 'Auth screen' })).toBeInTheDocument()
+  })
+
   it('quits by stopping the backend and showing the stopped page', async () => {
     apiMock.quit.mockResolvedValue({ ok: true, stopped: true })
     apiMock.logout.mockResolvedValue({})
