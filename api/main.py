@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import uuid
 from contextlib import asynccontextmanager
 
@@ -55,6 +56,19 @@ async def lifespan(app: FastAPI):
     if settings.environment == "production" and settings.secret_key == "dev-secret-change-in-prod":
         raise RuntimeError("SECRET_KEY must be configured in production")
     settings.fernet
+
+    def _warm_phi_ner() -> None:
+        # Keep /health fast, but avoid the first upload blocking for minutes while
+        # spaCy+torch load from a slow filesystem.
+        try:
+            from api.middleware.phi_scrubber import _get_nlp
+
+            _get_nlp()
+            logger.info("phi_ner_warm_complete")
+        except Exception:
+            logger.exception("phi_ner_warm_failed")
+
+    threading.Thread(target=_warm_phi_ner, daemon=True, name="phi-ner-warm").start()
     yield
 
 

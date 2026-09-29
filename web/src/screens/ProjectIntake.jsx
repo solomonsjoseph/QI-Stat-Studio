@@ -100,7 +100,7 @@ export default function ProjectIntake() {
       )}
 
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}
-      {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving project, scanning for PHI, and analyzing your data…</p>}
+      {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving project, scanning for PHI, and analyzing your data. The first scan can take a couple of minutes while the PHI model loads…</p>}
 
       <form onSubmit={submit} className="card flex flex-col gap-4">
         <label htmlFor="project-title" className="label">Project Title</label>
