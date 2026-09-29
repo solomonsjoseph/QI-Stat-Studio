@@ -268,7 +268,7 @@ export default function AnalysisPlanStage() {
       <PageIntro
         step="analysis"
         title="Analysis Plan"
-        lead="The AI recommends analyses based on your confirmed project definition. Review, edit parameters, add or remove analyses, then confirm."
+        lead="A proposed plan is drafted from your confirmed project definition. Review, edit parameters, add or remove analyses, then confirm — you decide what runs."
       />
       {starting && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Reviewing your project and dataset…</p>}
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}

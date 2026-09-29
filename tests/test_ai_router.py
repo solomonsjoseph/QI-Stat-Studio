@@ -482,24 +482,35 @@ def test_clarify_rate_limited_like_chat(client, monkeypatch):
     assert mocked_completion.call_count == 0
 
 
-def _plan_reply(**overrides):
+
+def _explain_reply(**overrides):
     payload = {
         "message": "Here's what I recommend...",
         "reasoning": "Matched the pre/post design to descriptive and run-chart methods.",
-        "confirmed": False,
         "analyses": [
-            {"template": "descriptive_summary", "rationale": "Baseline picture.", "parameters": {"value_cols": ["value"]}},
-            {"template": "run_chart", "rationale": "Shows the trend over time.", "parameters": {"date_col": "fall_date", "value_col": "value"}},
+            {
+                "id": "descriptive_summary-1",
+                "display_name": "Summary statistics",
+                "question": "What do values look like?",
+                "rationale": "Baseline picture.",
+                "assumptions": [],
+                "limitations": [],
+            },
+            {
+                "id": "run_chart-2",
+                "display_name": "Run chart over time",
+                "question": "How does the measure trend?",
+                "rationale": "Shows the trend over time.",
+                "assumptions": [],
+                "limitations": [],
+            },
         ],
     }
     payload.update(overrides)
     return _mock_completion(json.dumps(payload))
 
 
-def test_recommend_plan_opening_turn_proposes_multiple_analyses_from_the_known_library(client, monkeypatch):
-    _set_openrouter_provider()
-    project_id = _project_id(client)
-    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+def _seed_time_series_project(project_id):
     with SessionLocal() as db:
         db.add(
             Upload(
@@ -512,53 +523,90 @@ def test_recommend_plan_opening_turn_proposes_multiple_analyses_from_the_known_l
             )
         )
         project = db.query(Project).filter_by(id=project_id).first()
-        project.ai_project_design = json.dumps({"primary_outcome": "fall rate", "time_structure": "monthly, pre/post"})
+        project.ai_project_design = json.dumps({
+            "aim": "Reduce falls",
+            "comparison": "time-series",
+            "primary_outcome": {"label": "fall rate", "column": "value", "kind": "continuous"},
+            "time_structure": {"has_dates": True, "date_column": "fall_date", "granularity": "month"},
+            "status": {
+                "primary_outcome.column": "user-confirmed",
+                "time_structure.date_column": "user-confirmed",
+            },
+        })
         db.commit()
 
-    with patch("api.routers.ai.litellm.completion", return_value=_plan_reply()) as mocked_completion:
+
+def test_recommend_plan_opening_turn_proposes_multiple_analyses_from_the_known_library(client, monkeypatch):
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    _seed_time_series_project(project_id)
+
+    with patch("api.routers.ai.litellm.completion", return_value=_explain_reply()) as mocked_completion:
         response = client.post(f"/ai/recommend-plan/{project_id}", json={})
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["confirmed"] is False
-    assert [a["template"] for a in body["analyses"]] == ["descriptive_summary", "run_chart"]
+    templates = [a["template"] for a in body["analyses"]]
+    assert "descriptive_summary" in templates
+    assert "run_chart" in templates
 
     system_content = mocked_completion.call_args.kwargs["messages"][0]["content"]
-    assert "descriptive_summary" in system_content
-    assert "before_after_mean" in system_content  # full method library present, not just the picked ones
+    assert "explaining a proposed statistical analysis plan" in system_content.lower()
+    assert "Frozen proposed analyses" in system_content or "frozen proposed analyses" in system_content.lower()
     assert "fall rate" in system_content  # confirmed project design included
 
     with SessionLocal() as db:
         project = db.get(Project, project_id)
         plan = json.loads(project.ai_analysis_plan)
         assert plan["confirmed"] is False
-        assert len(plan["analyses"]) == 2
+        assert len(plan["analyses"]) >= 2
 
 
-def test_recommend_plan_drops_any_template_outside_the_known_library(client, monkeypatch):
+def test_recommend_plan_ignores_llm_invented_templates_and_params(client, monkeypatch):
     _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    _seed_time_series_project(project_id)
 
     with patch(
         "api.routers.ai.litellm.completion",
-        return_value=_plan_reply(analyses=[
-            {"template": "descriptive_summary", "rationale": "ok", "parameters": {}},
-            {"template": "custom_mixed_effects_model", "rationale": "not real", "parameters": {}},
+        return_value=_explain_reply(analyses=[
+            {
+                "id": "descriptive_summary-1",
+                "template": "custom_mixed_effects_model",
+                "display_name": "Hacked",
+                "question": "q",
+                "rationale": "r",
+                "parameters": {"value_cols": ["invented"]},
+            },
+            {
+                "id": "ghost-99",
+                "template": "custom_mixed_effects_model",
+                "display_name": "Ghost",
+                "rationale": "not real",
+            },
         ]),
     ):
         response = client.post(f"/ai/recommend-plan/{project_id}", json={})
 
     assert response.status_code == 200, response.text
-    assert [a["template"] for a in response.json()["analyses"]] == ["descriptive_summary"]
+    templates = [a["template"] for a in response.json()["analyses"]]
+    assert "custom_mixed_effects_model" not in templates
+    assert "descriptive_summary" in templates
+    desc = next(a for a in response.json()["analyses"] if a["template"] == "descriptive_summary")
+    assert desc["display_name"] == "Hacked"  # prose overlay allowed
+    assert desc["parameters"].get("value_cols") != ["invented"]  # params stay rule-bound
 
 
 def test_recommend_plan_scrubs_phi_from_resident_message_before_sending_to_llm(client, monkeypatch):
     _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    _seed_time_series_project(project_id)
 
-    with patch("api.routers.ai.litellm.completion", return_value=_plan_reply()) as mocked_completion:
+    with patch("api.routers.ai.litellm.completion", return_value=_explain_reply()) as mocked_completion:
         response = client.post(f"/ai/recommend-plan/{project_id}", json={"message": "patient SSN 123-45-6789 wants a t-test"})
 
     assert response.status_code == 200, response.text
@@ -566,28 +614,25 @@ def test_recommend_plan_scrubs_phi_from_resident_message_before_sending_to_llm(c
     assert not any("123-45-6789" in m["content"] for m in sent_messages)
 
 
-def test_recommend_plan_accumulates_turns_and_confirms_on_agreement(client, monkeypatch):
+def test_recommend_plan_llm_confirmed_true_is_ignored_until_human_confirm(client, monkeypatch):
     _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    _seed_time_series_project(project_id)
 
-    with patch("api.routers.ai.litellm.completion", return_value=_plan_reply(confirmed=False)):
+    with patch("api.routers.ai.litellm.completion", return_value=_explain_reply()):
         first = client.post(f"/ai/recommend-plan/{project_id}", json={})
     assert first.status_code == 200, first.text
     assert first.json()["confirmed"] is False
+    analyses = first.json()["analyses"]
 
-    with patch(
-        "api.routers.ai.litellm.completion",
-        return_value=_plan_reply(confirmed=True, message="Sounds good.", analyses=[
-            {"template": "run_chart", "rationale": "Shows the trend.", "parameters": {"date_col": "fall_date", "value_col": "value"}},
-        ]),
-    ):
-        second = client.post(f"/ai/recommend-plan/{project_id}", json={"message": "just the run chart is fine"})
-    assert second.status_code == 200, second.text
-    body = second.json()
-    assert body["confirmed"] is True
-    assert [a["template"] for a in body["analyses"]] == ["run_chart"]
-    assert len(body["turns"]) == 3
+    # Even if a legacy payload tried to set confirmed, explain model ignores it; force via confirm endpoint.
+    confirm = client.post(
+        f"/ai/recommend-plan/{project_id}",
+        json={"confirm": True, "analyses": analyses},
+    )
+    assert confirm.status_code == 200, confirm.text
+    assert confirm.json()["confirmed"] is True
 
     with SessionLocal() as db:
         project = db.get(Project, project_id)
@@ -694,10 +739,11 @@ def test_recommend_plan_retries_once_when_the_model_returns_empty_content_then_s
     _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    _seed_time_series_project(project_id)
 
     with patch(
         "api.routers.ai.litellm.completion",
-        side_effect=[_mock_completion(""), _plan_reply()],
+        side_effect=[_mock_completion(""), _explain_reply()],
     ) as mocked_completion:
         response = client.post(f"/ai/recommend-plan/{project_id}", json={})
 
@@ -716,16 +762,22 @@ def test_recommend_plan_scrubs_dictionary_text_and_quality_findings_before_sendi
                 filename="data.csv",
                 original_filename="data.csv",
                 status="active",
-                col_types=json.dumps({"value": "Number"}),
+                col_types=json.dumps({"fall_date": "Date", "value": "Number"}),
                 dictionary_text="value: falls per month. Contact SSN 123-45-6789 for questions.",
                 quality_flags=json.dumps([
                     {"col": "clinician", "rule": "sparse_category", "msg": "level(s) with < 5 rows: {'SSN 123-45-6789': 2}"}
                 ]),
             )
         )
+        project = db.query(Project).filter_by(id=project_id).first()
+        project.ai_project_design = json.dumps({
+            "comparison": "time-series",
+            "primary_outcome": {"label": "falls", "column": "value", "kind": "continuous"},
+            "time_structure": {"has_dates": True, "date_column": "fall_date"},
+        })
         db.commit()
 
-    with patch("api.routers.ai.litellm.completion", return_value=_plan_reply()) as mocked_completion:
+    with patch("api.routers.ai.litellm.completion", return_value=_explain_reply()) as mocked_completion:
         response = client.post(f"/ai/recommend-plan/{project_id}", json={})
 
     assert response.status_code == 200, response.text
@@ -733,18 +785,25 @@ def test_recommend_plan_scrubs_dictionary_text_and_quality_findings_before_sendi
     assert "123-45-6789" not in system_content
 
 
-def test_recommend_plan_fails_loud_instead_of_persisting_a_blank_turn_when_still_empty_after_retry(client, monkeypatch):
+def test_recommend_plan_returns_rules_draft_when_llm_stays_empty_after_retry(client, monkeypatch):
     _set_openrouter_provider()
     project_id = _project_id(client)
     monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    _seed_time_series_project(project_id)
 
     with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("")):
         response = client.post(f"/ai/recommend-plan/{project_id}", json={})
 
-    assert response.status_code == 502
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["confirmed"] is False
+    assert len(body["analyses"]) >= 1
+    assert "proposed analysis plan" in body["message"].lower() or "drafted from project design" in (body.get("reasoning") or "").lower()
 
     with SessionLocal() as db:
         project = db.get(Project, project_id)
-        assert project.ai_analysis_plan is None
+        plan = json.loads(project.ai_analysis_plan)
+        assert plan["confirmed"] is False
+        assert len(plan["analyses"]) >= 1
 
 

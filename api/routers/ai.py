@@ -18,6 +18,7 @@ from api.ai_prompts import (
     INTERPRET_SYSTEM_V1,
     OVERRIDE_SYSTEM_V1,
     PROMPT_VERSIONS,
+    RECOMMEND_EXPLAIN_SYSTEM_V2,
     RECOMMEND_SYSTEM_V1,
 )
 from api.dataset_profile import get_upload_profile
@@ -33,6 +34,7 @@ from api.models_api import (
     OverridePlanRequest,
     OverridePlanResponse,
     ProjectDesign,
+    RecommendExplainModel,
     RecommendPlanModel,
     RunInterpretation,
     ScrubPreviewRequest,
@@ -40,6 +42,7 @@ from api.models_api import (
 )
 from api.routers.projects import advance_phase, require_phase
 from api.routers.analyze import check_plan_item
+from api.plan_builder import propose_analyses
 from api.project_design import DESIGN_FIELDS, get_field_value, merge_ai_design
 
 from api.auth import get_current_user
@@ -616,8 +619,6 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
     _enforce_ai_rate_limit(db, user)
 
     provider, api_key, api_base, default_model = _provider_settings(db)
-    if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
 
     state = json.loads(project.ai_analysis_plan) if project.ai_analysis_plan else {}
     turns = state.get("turns", [])
@@ -632,37 +633,12 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
 
     upload = _latest_active_upload(db, project_id)
     profile = get_upload_profile(upload) if upload else {}
-    profile_json = json.dumps(profile, indent=2)
     quality_flags_raw = json.loads(upload.quality_flags) if upload and upload.quality_flags else []
     quality_findings, _ = scrub_text(json.dumps(quality_flags_raw, indent=2))
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
-    dictionary_text_truncated, _ = scrub_text(dictionary_text[:4000])
-    design = json.loads(project.ai_project_design) if project.ai_project_design else {}
-
-    system_prompt = RECOMMEND_SYSTEM_V1.format(
-        method_library=_method_library_text(),
-        design=_untrusted(json.dumps(design, indent=2)),
-        dataset_profile=_untrusted(profile_json),
-        quality_findings=_untrusted(quality_findings),
-        dictionary_text=_untrusted(dictionary_text_truncated),
-    )
-    messages = [{"role": "system", "content": system_prompt}]
-    for turn in turns:
-        messages.append({"role": "assistant" if turn["role"] == "ai" else "user", "content": turn["content"]})
-    if not turns:
-        messages.append({"role": "user", "content": "(starting the conversation -- please propose your recommended analysis plan)"})
-
-    prompt_chars = sum(len(m["content"]) for m in messages)
-    try:
-        resp_model: RecommendPlanModel = _validated_completion(
-            provider, api_key, api_base, default_model, messages, RecommendPlanModel, max_tokens=2000
-        )
-    except HTTPException:
-        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise
-    except Exception:
-        _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+    dictionary_text_scrubbed, _ = scrub_text(dictionary_text[:4000])
+    design_dict = json.loads(project.ai_project_design) if project.ai_project_design else {}
+    design = ProjectDesign.model_validate(design_dict)
 
     from api.upload_utils import load_upload_dataframe
     try:
@@ -670,8 +646,10 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
     except Exception:
         df = pd.DataFrame()
 
+    # Rules propose templates + params. Human confirm is the only path to confirmed=True.
+    draft_items = propose_analyses(design, profile, df)
     validated_analyses: list[AnalysisPlanItem] = []
-    for idx, item in enumerate(resp_model.analyses):
+    for idx, item in enumerate(draft_items):
         if item.template not in ANALYSIS_TEMPLATES:
             continue
         if not item.id:
@@ -681,12 +659,102 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         item.errors = check["errors"]
         item.missing_params = check["missing_params"]
         item.parameters = check["parameters"]
-        item.needs_clarification = any(c == "low" for c in item.param_confidence.values()) or bool(item.missing_params)
+        item.needs_clarification = (
+            any(c == "low" for c in item.param_confidence.values())
+            or bool(item.missing_params)
+            or item.needs_clarification
+        )
         validated_analyses.append(item)
 
-    turns.append({"role": "ai", "content": resp_model.message, "reasoning": resp_model.reasoning})
+    default_message = (
+        "Here is a proposed analysis plan based on your confirmed project definition. "
+        "Review each analysis, edit parameters if needed, add or remove analyses, then confirm — "
+        "nothing runs until you confirm."
+    )
+    message = default_message
+    reasoning = "Drafted from project design rules; awaiting resident confirmation."
 
-    # Initial plan history written once
+    llm_available = bool(api_key) or provider in ("local", "stub")
+    prompt_chars = 0
+    if llm_available and validated_analyses:
+        frozen = [
+            {
+                "id": a.id,
+                "template": a.template,
+                "display_name": a.display_name,
+                "question": a.question,
+                "rationale": a.rationale,
+                "parameters": a.parameters,
+                "param_confidence": a.param_confidence,
+            }
+            for a in validated_analyses
+        ]
+        system_prompt = RECOMMEND_EXPLAIN_SYSTEM_V2.format(
+            design=_untrusted(json.dumps(design.model_dump(), indent=2)),
+            dataset_profile=_untrusted(json.dumps(profile, indent=2)),
+            quality_findings=_untrusted(quality_findings),
+            dictionary_text=_untrusted(dictionary_text_scrubbed),
+            proposed_analyses=_untrusted(json.dumps(frozen, indent=2)),
+        )
+        messages = [{"role": "system", "content": system_prompt}]
+        for turn in turns:
+            messages.append({"role": "assistant" if turn["role"] == "ai" else "user", "content": turn["content"]})
+        if not any(t.get("role") == "user" for t in turns):
+            messages.append({
+                "role": "user",
+                "content": "(starting — please explain this proposed analysis plan in plain language)",
+            })
+
+        prompt_chars = sum(len(m["content"]) for m in messages)
+        try:
+            resp_model: RecommendExplainModel = _validated_completion(
+                provider, api_key, api_base, default_model, messages, RecommendExplainModel, max_tokens=2000
+            )
+            if resp_model.message.strip():
+                message = resp_model.message
+            if resp_model.reasoning:
+                reasoning = resp_model.reasoning
+            by_id = {a.id: a for a in resp_model.analyses if a.id}
+            by_template = {}
+            for a in resp_model.analyses:
+                if a.template and a.template not in by_template:
+                    by_template[a.template] = a
+            for item in validated_analyses:
+                prose = by_id.get(item.id) or by_template.get(item.template)
+                if not prose:
+                    continue
+                if prose.display_name:
+                    item.display_name = prose.display_name
+                if prose.question:
+                    item.question = prose.question
+                if prose.rationale:
+                    item.rationale = prose.rationale
+                if prose.assumptions:
+                    item.assumptions = prose.assumptions
+                if prose.limitations:
+                    item.limitations = prose.limitations
+            _record_ai_usage(
+                db,
+                user_id=user.id,
+                project_id=project_id,
+                model=default_model,
+                prompt_chars=prompt_chars,
+                completion_chars=len(message),
+                status="ok",
+            )
+        except Exception:
+            _record_ai_usage(
+                db,
+                user_id=user.id,
+                project_id=project_id,
+                model=default_model,
+                prompt_chars=prompt_chars,
+                status="error",
+            )
+            # Rules draft still returned; resident can confirm without LLM prose.
+
+    turns.append({"role": "ai", "content": message, "reasoning": reasoning})
+
     if not project.ai_plan_history:
         project.ai_plan_history = json.dumps({
             "initial": [a.model_dump() for a in validated_analyses],
@@ -696,18 +764,16 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
 
     project.ai_analysis_plan = json.dumps({
         "turns": turns,
-        "confirmed": resp_model.confirmed,
+        "confirmed": False,
         "analyses": [a.model_dump() for a in validated_analyses],
         "stale": False,
     })
     db.commit()
 
-    _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(resp_model.message), status="ok")
-
     return AnalysisPlanResponse(
-        message=resp_model.message,
-        reasoning=resp_model.reasoning,
-        confirmed=resp_model.confirmed,
+        message=message,
+        reasoning=reasoning,
+        confirmed=False,
         analyses=validated_analyses,
         turns=turns,
     )

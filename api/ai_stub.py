@@ -55,37 +55,26 @@ _CANNED_CLARIFY = json.dumps({
 })
 
 _CANNED_RECOMMEND = json.dumps({
-    "message": "I recommend a P/U chart for tracking monthly fall rates alongside a descriptive baseline summary.",
+    "message": (
+        "I recommend a P/U chart for tracking monthly fall rates alongside a descriptive "
+        "baseline summary. Review the proposals below and confirm when you are ready — "
+        "nothing runs until you confirm."
+    ),
     "reasoning": "Monthly aggregate rates over time are suited for statistical process control.",
-    "confirmed": False,
     "analyses": [
         {
             "id": "descriptive_summary-1",
-            "template": "descriptive_summary",
             "display_name": "Summary of Monthly Counts and Patient Days",
             "question": "What were the average monthly falls and patient days?",
             "rationale": "Establishes basic distribution and missingness checks.",
-            "parameters": {"value_cols": ["falls", "patient_days"]},
-            "param_confidence": {"value_cols": "high"},
             "assumptions": ["Valid non-negative counts"],
             "limitations": ["Does not account for temporal ordering"],
         },
         {
             "id": "u_c_chart-2",
-            "template": "u_c_chart",
             "display_name": "Monthly Fall Rate (U Chart)",
             "question": "Did the fall rate per patient day change or exhibit special cause variation?",
             "rationale": "Accounts for varying patient days as exposure denominator.",
-            "parameters": {
-                "date_col": "month",
-                "count_col": "falls",
-                "denominator_col": "patient_days",
-            },
-            "param_confidence": {
-                "date_col": "high",
-                "count_col": "high",
-                "denominator_col": "high",
-            },
             "assumptions": ["Poisson distribution for count rates"],
             "limitations": ["Requires regular monthly intervals"],
         },
@@ -187,7 +176,7 @@ def canned_response(messages: list[dict[str, str]]) -> SimpleNamespace:
         content = _CANNED_OVERRIDE
     elif "methodology advisor reviewing" in system_text:
         content = _CANNED_COLLECTION
-    elif "recommending a complete statistical analysis plan" in system_text:
+    elif "explaining a proposed statistical analysis plan" in system_text or "recommending a complete statistical analysis plan" in system_text:
         content = _CANNED_RECOMMEND
     elif "unified interpretation of statistical results" in system_text:
         content = _canned_interpret(system_text)

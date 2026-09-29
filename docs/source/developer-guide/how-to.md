@@ -22,6 +22,15 @@ runtime by an admin from **Settings** (backed by `api/settings_registry.py`)
 without restarting the server. API keys are not: they're boot-time-only and
 never exposed through that screen (see {doc}`security`).
 
+## Analysis plan selection (rules propose, human confirms)
+
+`/ai/recommend-plan` drafts analyses with deterministic rules in
+`api/plan_builder.py` from the confirmed `ProjectDesign` and upload profile.
+The LLM only writes plain-language explanations and never selects methods or
+confirms the plan. `confirmed=True` happens only when the resident explicitly
+confirms (UI → `{confirm: true, analyses: [...]}`). Override remains an
+LLM-assisted edit path and also leaves `confirmed` false until that human step.
+
 ## Add a new statistical template
 
 A template isn't just one function; it's eight coordinated pieces. Use the

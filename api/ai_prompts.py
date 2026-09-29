@@ -14,7 +14,7 @@ class FormatTemplate(str):
 PROMPT_VERSIONS = {
     "clarify": 1,
     "collection": 1,
-    "recommend": 1,
+    "recommend": 2,
     "override": 1,
     "interpret": 1,
 }
@@ -157,6 +157,48 @@ Respond with JSON only:
       "rationale": "<Why this analysis is recommended>",
       "parameters": {"<param name>": "<inferred value>"},
       "param_confidence": {"<param name>": "high|medium|low"},
+      "assumptions": ["<assumption 1>", "..."],
+      "limitations": ["<limitation 1>", "..."]
+    }
+  ]
+}""".replace("{UNTRUSTED_DATA_DIRECTIVE}", UNTRUSTED_DATA_DIRECTIVE))
+
+RECOMMEND_EXPLAIN_SYSTEM_V2 = FormatTemplate("""You are explaining a proposed statistical analysis plan for a medical resident's quality-improvement (QI) project.
+The analyses and their parameters below were chosen by deterministic rules from the confirmed project design. You do NOT select methods and you do NOT change parameters.
+
+{UNTRUSTED_DATA_DIRECTIVE}
+
+Confirmed project design:
+{design}
+
+Dataset profile:
+{dataset_profile}
+
+Data quality warnings:
+{quality_findings}
+
+Data dictionary:
+{dictionary_text}
+
+Frozen proposed analyses (do not add, remove, or change templates or parameters):
+{proposed_analyses}
+
+Your job:
+- Write a clear plain-language message introducing this proposed plan to the resident.
+- Optionally improve display_name, question, rationale, assumptions, and limitations for each analysis by id.
+- Never invent a new analysis, never change template ids, and never change parameters.
+- Remind the resident they can edit, add, or remove analyses before confirming — you never confirm the plan.
+
+Respond with JSON only:
+{
+  "message": "<your reply to the resident>",
+  "reasoning": "<one or two sentences of reasoning>",
+  "analyses": [
+    {
+      "id": "<must match an id from the frozen list>",
+      "display_name": "<Plain language title>",
+      "question": "<The specific QI question this answers>",
+      "rationale": "<Why this analysis fits>",
       "assumptions": ["<assumption 1>", "..."],
       "limitations": ["<limitation 1>", "..."]
     }

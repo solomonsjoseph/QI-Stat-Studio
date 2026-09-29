@@ -289,6 +289,30 @@ class RecommendPlanModel(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class PlanExplainItem(BaseModel):
+    """Prose-only overlay for a rule-built plan item. Templates/params are ignored if present."""
+
+    id: str = ""
+    template: str = ""
+    display_name: str = ""
+    question: str = ""
+    rationale: str = ""
+    assumptions: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class RecommendExplainModel(BaseModel):
+    """LLM explain-only response. Never used to select templates or confirm the plan."""
+
+    message: str = ""
+    reasoning: Optional[str] = None
+    analyses: list[PlanExplainItem] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class RunInterpretation(BaseModel):
     run_id: int
     text: str
