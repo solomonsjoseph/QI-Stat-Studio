@@ -145,7 +145,7 @@ export default function DataReview() {
                 <tr key={col}>
                   <td className="font-mono">{col}</td>
                   <td>{type}</td>
-                  <td>{missingPct[col] != null ? `${missingPct[col].toFixed(1)}%` : '—'}</td>
+                  <td>{missingPct[col] != null ? `${missingPct[col].toFixed(1)}%` : '-'}</td>
                   <td>
                     <label className="sr-only" htmlFor={`role-${col}`}>Role for {col}</label>
                     <select

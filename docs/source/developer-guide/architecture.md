@@ -119,7 +119,7 @@ frontend flow: the backend independently derives "what screen should this
 project be on" from what's actually persisted, in
 `api/routers/projects.py:_derive_current_screen`. On `GET
 /projects/{id}/resume`, that function walks: has a description → has all
-required intake answers (Q2–Q6, Q9, Q10, plus Q7/Q8 unless Q3 is "No") → has
+required intake answers (Q2-Q6, Q9, Q10, plus Q7/Q8 unless Q3 is "No") → has
 an active upload → has no unacknowledged data-quality flags → has an
 analysis run → has an interpretation edit → else `download`. This
 double-checking is deliberate: it means a resident can close the browser

@@ -36,13 +36,13 @@ def _granularity_to_freq(granularity: str | None) -> str:
 _ALL = ["descriptive_summary", "before_after_mean", "before_after_pct", "before_after_paired", "run_chart", "p_chart", "u_c_chart"]
 
 _DESCRIPTIONS = {
-    "descriptive_summary": "Summarizes counts, averages, and percentages — best when describing one time period or group.",
+    "descriptive_summary": "Summarizes counts, averages, and percentages. Best for one time period or group.",
     "before_after_mean": "Compares an average value between two periods using a t-test or Wilcoxon test.",
     "before_after_pct": "Compares a proportion between two periods using chi-square or Fisher's exact test.",
     "before_after_paired": "Compares each subject's before and after value when the same subjects appear in both periods.",
-    "run_chart": "Line chart over time with median and run signals — good for <12 time points.",
-    "p_chart": "Control chart for proportions with 3-sigma control limits — best with ≥12 time points.",
-    "u_c_chart": "Control chart for rates or counts with 3-sigma control limits — best with ≥12 time points.",
+    "run_chart": "Line chart over time with median and run signals. Useful with fewer than 12 time points.",
+    "p_chart": "Control chart for proportions with 3-sigma limits. Prefer when you have 12 or more time points.",
+    "u_c_chart": "Control chart for rates or counts with 3-sigma limits. Prefer when you have 12 or more time points.",
 }
 
 

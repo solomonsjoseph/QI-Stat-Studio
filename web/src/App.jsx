@@ -131,6 +131,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [hydrating, setHydrating] = useState(false)
+  const [quitDone, setQuitDone] = useState(false)
   const headingScopeRef = useRef(null)
 
   const path = window.location.pathname
@@ -206,6 +207,24 @@ export default function App() {
     setMaxStepIdx(0)
     setScreen('landing')
     setUser(null)
+    window.history.replaceState({}, '', '/')
+  }
+  const quit = async () => {
+    let stopped = false
+    try {
+      const result = await api.quit()
+      stopped = !!result?.stopped
+    } catch {
+      // Production or already-down backend: still clear the client session.
+    }
+    await api.logout().catch(() => null)
+    window.localStorage.removeItem('qiss:lastProjectId')
+    setCtx({})
+    setMaxStepIdx(0)
+    setScreen('landing')
+    setUser(null)
+    window.history.replaceState({}, '', '/')
+    if (stopped) setQuitDone(true)
   }
 
   useEffect(() => {
@@ -287,6 +306,20 @@ export default function App() {
     return <MentorView token={token} />
   }
 
+  if (quitDone) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-6">
+        <section className="max-w-md text-center">
+          <h1 className="text-3xl font-semibold text-ink">QI Stat Studio stopped</h1>
+          <p className="mt-3 text-sm leading-6 text-ink-soft">
+            You are signed out and the local backend was shut down. You can close this tab.
+            If a terminal is still running Vite, press Ctrl-C there too.
+          </p>
+        </section>
+      </main>
+    )
+  }
+
   if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-ink-soft" aria-live="polite">
@@ -303,7 +336,7 @@ export default function App() {
   const Screen = COMPONENTS[screen] || Landing
 
   return (
-    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, resumeProject, resetProject }}>
+    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, quit, resumeProject, resetProject }}>
       <div className="min-h-screen bg-canvas">
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
@@ -315,8 +348,8 @@ export default function App() {
               <button type="button" onClick={() => goTo('settings')} disabled={hydrating} aria-label="Open settings" className="btn-secondary px-3 py-2">
                 <GearIcon />
               </button>
-              <button type="button" onClick={logout} className="btn-secondary px-3 py-2">
-                Sign out
+              <button type="button" onClick={quit} className="btn-secondary px-3 py-2">
+                Quit
               </button>
             </div>
           </div>

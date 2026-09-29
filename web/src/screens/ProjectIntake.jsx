@@ -148,7 +148,7 @@ export default function ProjectIntake() {
         />
         {file && <p className="text-sm text-ink-soft">Selected: <span className="font-medium text-ink">{file.name}</span> ({formatFileSize(file)})</p>}
 
-        <label htmlFor="data-dictionary" className="label">Data Dictionary (PDF, Word, or text — optional)</label>
+        <label htmlFor="data-dictionary" className="label">Data dictionary (PDF, Word, or text; optional)</label>
         <input
           id="data-dictionary"
           type="file"
@@ -158,7 +158,7 @@ export default function ProjectIntake() {
           disabled={loading}
         />
         {dictionary && <p className="text-sm text-ink-soft">Selected: <span className="font-medium text-ink">{dictionary.name}</span> ({formatFileSize(dictionary)})</p>}
-        <p className="text-sm text-ink-faint">Optional — attaching one helps the AI read your columns correctly instead of guessing from raw values.</p>
+        <p className="text-sm text-ink-faint">Optional. A dictionary helps the AI read your columns instead of guessing from raw values.</p>
 
         <div className="flex flex-wrap gap-3 pt-2">
           <button

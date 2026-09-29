@@ -51,14 +51,14 @@ leak state between tests, regardless of run order.
 | `test_intake_share.py` | Intake answer persistence and Q10 mentor-email auto-share/deadline behavior. |
 | `test_upload_lifecycle.py` | Upload metadata, preview rows, replace/delete, active-upload gating for analysis. |
 | `test_data_quality.py` | Every data-quality rule: case inconsistency, missingness, outliers, time gaps, duplicate IDs, message wording. |
-| `test_col_type_detection.py` | `detect_col_type` — ID/Yes-No/Number/Category/Date detection edge cases. |
+| `test_col_type_detection.py` | `detect_col_type`: ID/Yes-No/Number/Category/Date detection edge cases. |
 | `test_excel_analysis_integration.py` | `.xlsx`/`.xls` upload round-trip into analysis. |
 | `test_analyze_router.py` | `/analyze/run` and `/analyze/{id}/recommend`: template execution, code generation, failure logging, validation, recommendation ordering. |
 | `test_analysis_validation.py` | Parameter/upload validation before a template ever runs. |
-| `test_template_selection.py` | `select_template`'s full branch table — every Q2–Q6 combination that decides the recommendation. |
+| `test_template_selection.py` | `select_template`'s full branch table for every Q2-Q6 combination that decides the recommendation. |
 | `test_descriptive.py`, `test_before_after_mean.py`, `test_before_after_pct.py`, `test_time_series_templates.py` | Runtime behavior of all six templates: statistics, sub-test selection, figures, edge cases. |
 | `test_interpretation.py` | Contract test: every template must return an `interpretation` key. |
-| `test_codegen.py` | R/SPSS/SAS code generation across all six templates — asserts real code, not the "not yet implemented" placeholder. |
+| `test_codegen.py` | R/SPSS/SAS code generation across all six templates. Asserts real code, not the "not yet implemented" placeholder. |
 | `test_report.py` | DOCX/PDF auth, rendered content, intervention caption, acknowledged-flags Limitations, edit history, PHI-safe project-update sanitization. |
 | `test_share_lifecycle.py` | Share create/revoke/regenerate, mentor view/comment, scoped report downloads, deadline-reminder notifications. |
 | `test_ai_router.py` | PHI scrubbing across **all** message fields, provider/model selection, rate limiting, usage/error logging. |

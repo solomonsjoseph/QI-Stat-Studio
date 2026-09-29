@@ -217,12 +217,12 @@ export default function ClarificationStage() {
       <PageIntro
         step="clarify"
         title="Project Clarification"
-        lead="Work with the AI to clarify and confirm your project definition before selecting an analysis."
+        lead="Answer a few questions so the project definition is clear before you pick an analysis."
       />
 
       {isStale && (
         <div className="alert-warn" role="alert">
-          Your project inputs changed — review the updated project understanding or re-run clarification.
+          Your project inputs changed. Review the updated project understanding, or run clarification again.
         </div>
       )}
 

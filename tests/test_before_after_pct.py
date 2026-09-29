@@ -28,7 +28,7 @@ def test_selects_chisq_or_fisher():
 
 
 def test_norm_group_handles_mixed_case():
-    """_norm_group must be defined locally in before_after_pct.py — not imported."""
+    """_norm_group must be defined locally in before_after_pct.py, not imported from elsewhere."""
     df = pd.read_csv(FIXTURE).copy()
     df["period"] = df["period"].str.capitalize()  # "Pre", "Post"
     result = run_before_after_pct(df, PARAMS)

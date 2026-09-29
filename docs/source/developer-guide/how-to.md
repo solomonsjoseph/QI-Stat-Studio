@@ -12,7 +12,7 @@ matching credentials:
 |---|---|---|
 | `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `anthropic/claude-sonnet-4-6`) |
 | `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` (default `gpt-4o-mini`) |
-| `local` (e.g. Ollama) | — | `LOCAL_API_BASE` (default `http://localhost:11434`), `LOCAL_API_KEY`, `LOCAL_MODEL` (default `llama3.1`) |
+| `local` (e.g. Ollama) | (none) | `LOCAL_API_BASE` (default `http://localhost:11434`), `LOCAL_API_KEY`, `LOCAL_MODEL` (default `llama3.1`) |
 
 Without valid provider credentials, AI endpoints (`/ai/intake-prefill`,
 `/ai/chat`) return an "unavailable" response. Core upload/analysis/report
@@ -38,8 +38,8 @@ six existing templates in `api/templates/` as your model:
 
 1. **The runner** (`api/templates/your_template.py`): a function
    `run_your_template(df, params)` returning a dict with (at minimum) `table`,
-   `figure_base64`, `methods`, `result_summary`, and `interpretation` keys —
-   every template must include `interpretation`
+   `figure_base64`, `methods`, `result_summary`, and `interpretation` keys.
+   Every template must include `interpretation`
    (`tests/test_interpretation.py` enforces this contract across all six).
 2. **Register it**: add `"your_template": run_your_template` to
    `TEMPLATE_REGISTRY` in `api/templates/registry.py`.
@@ -142,7 +142,7 @@ Docker/production build; in local dev, Vite serves the frontend itself.
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| `FERNET_KEY` | **Yes** | none | Base64 Fernet key. `api/config.py`'s `Settings.fernet` property raises `RuntimeError` the first time it's accessed if this is empty — there is no silent fallback. |
+| `FERNET_KEY` | **Yes** | none | Base64 Fernet key. `api/config.py`'s `Settings.fernet` property raises `RuntimeError` the first time it's accessed if this is empty. There is no silent fallback. |
 | `SECRET_KEY` | Production | `dev-secret-change-in-prod` | Session cookie signing key. The app refuses to start in production (`ENVIRONMENT=production`) with the default value (`api/main.py` lifespan check). |
 | `DB_URL` / `DATABASE_URL` | No | `sqlite:///./qi_stat_studio.db` | Both env var names are accepted aliases for the same setting (`AliasChoices` in `api/config.py`); `DB_URL` wins if both are set. |
 | `AI_PROVIDER` | No | `openrouter` | `openrouter` \| `openai` \| `local`. |

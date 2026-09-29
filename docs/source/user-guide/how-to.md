@@ -14,7 +14,7 @@ closing the tab mid-workflow never leaves you at the wrong step.
 ## Fix a data-quality ERROR
 
 When Data Review shows a red **ERROR** (for example, duplicate patient IDs),
-you cannot check a box past it — the file itself must change. Click
+you cannot check a box past it. The file itself must change. Click
 **Re-upload corrected file**, fix the underlying spreadsheet, and upload it
 again from the Upload screen.
 
@@ -56,7 +56,7 @@ manage this through the API directly (`POST /share/{project_id}/revoke` /
 Mentor comments appear inline with the shared report on the mentor's review
 page. As the resident, you'll see the same comments in your project once the
 mentor posts them. Mentors can edit or delete their own comments, but they
-need to re-enter the email they originally commented with — that's what
+need to re-enter the email they originally commented with. That's what
 proves it's the same mentor, since mentors never create an account.
 
 ## Update your report before re-downloading
@@ -78,7 +78,7 @@ Admins see a **Settings** link that residents don't. It lists the current
 values for things like the clinic name shown in reports, which AI
 provider/model is active, and the AI rate limit, and lets you add or update
 one setting at a time. Secrets (API keys, the database URL, the encryption
-key) are never editable here — they live only in the server's environment
+key) are never editable here. They live only in the server's environment
 configuration; see {doc}`../developer-guide/how-to` if you're the one
 managing that deployment.
 
@@ -88,10 +88,10 @@ Two admin-only capabilities are exposed through the API rather than a
 dedicated screen, reachable at `/docs` (Swagger UI) while signed in as
 admin:
 
-- `GET /admin/failures` — a searchable log of failed analyses/uploads/AI
+- `GET /admin/failures`: a searchable log of failed analyses/uploads/AI
   calls, with enough context to help a resident (request ID, project, route)
   without exposing raw patient data.
-- `POST /notifications/deadline-reminders/run` — sends a reminder email to
+- `POST /notifications/deadline-reminders/run`: sends a reminder email to
   any mentor whose share has a deadline within the next 7 days and who
   hasn't already been reminded. Run this periodically (e.g. from a scheduled
   job) if your deployment wants automatic reminders.

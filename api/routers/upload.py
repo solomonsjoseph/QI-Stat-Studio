@@ -138,9 +138,9 @@ def run_data_quality(
                     col=col,
                     rule="missing_pct",
                     severity="WARNING",
-                    msg=f"fib4_score: {pct:.1f}% missing — often blank when MASLD screening was not done (expected behavior).",
+                    msg=f"fib4_score: {pct:.1f}% missing (often blank when MASLD screening was not done; expected).",
                     why="High missingness is expected for condition-conditional screening scores.",
-                    suggestion="Ensure blank cells reflect patients who did not meet screening criteria.",
+                    suggestion="Leave blank cells for patients who did not meet screening criteria.",
                     blocks=None,
                 )
                 continue
@@ -148,7 +148,7 @@ def run_data_quality(
                 col=col,
                 rule="missing_pct",
                 severity="WARNING",
-                msg=f"{col}: {pct:.1f}% missing — if this is your outcome column, results may be unreliable",
+                msg=f"{col}: {pct:.1f}% missing. If this is your outcome column, results may be unreliable.",
                 why="High missingness in an outcome column can bias statistical estimates and reduce power.",
                 suggestion="Verify whether missing values are expected or if data can be retrieved from records.",
                 blocks=None,
@@ -217,9 +217,9 @@ def run_data_quality(
                 col=col,
                 rule="numeric_stored_as_text",
                 severity="WARNING",
-                msg=f"{col}: looks numeric but is stored as text — check for stray characters or a mislabeled column",
+                msg=f"{col}: looks numeric but is stored as text. Check for stray characters or a mislabeled column.",
                 why="Numbers formatted as text cannot be averaged or used in statistical formulas.",
-                suggestion="Ensure the column contains only numbers and commas/spaces are removed.",
+                suggestion="Keep only numbers in the column and remove commas or spaces.",
                 blocks=None,
             )
             continue
@@ -229,7 +229,7 @@ def run_data_quality(
                 col=col,
                 rule="date_stored_as_text",
                 severity="WARNING",
-                msg=f"{col}: looks like dates but is stored as text — check for stray characters or a mislabeled column",
+                msg=f"{col}: looks like dates but is stored as text. Check for stray characters or a mislabeled column.",
                 why="Text dates cannot be ordered chronologically or aggregated by month/week.",
                 suggestion="Use a standard date format like YYYY-MM-DD.",
                 blocks=None,

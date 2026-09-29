@@ -20,7 +20,7 @@ _DISPLAY: dict[str, tuple[str, str, str]] = {
     "descriptive_summary": (
         "Summary statistics",
         "What do the key measures look like overall?",
-        "Summarizes counts, averages, and percentages — best when describing one time period or group.",
+        "Summarizes counts, averages, and percentages. Best for one time period or group.",
     ),
     "before_after_mean": (
         "Average comparison (t-test / Wilcoxon)",
@@ -40,17 +40,17 @@ _DISPLAY: dict[str, tuple[str, str, str]] = {
     "run_chart": (
         "Run chart over time",
         "How does the measure trend across time periods?",
-        "Line chart over time with median and run signals — good for <12 time points.",
+        "Line chart over time with median and run signals. Useful with fewer than 12 time points.",
     ),
     "p_chart": (
         "Percentage over time (P chart)",
         "Did the proportion show special-cause variation over time?",
-        "Control chart for proportions with 3-sigma control limits — best with ≥12 time points.",
+        "Control chart for proportions with 3-sigma limits. Prefer when you have 12 or more time points.",
     ),
     "u_c_chart": (
         "Rate or count over time (U/C chart)",
         "Did the rate or count show special-cause variation over time?",
-        "Control chart for rates or counts with 3-sigma control limits — best with ≥12 time points.",
+        "Control chart for rates or counts with 3-sigma limits. Prefer when you have 12 or more time points.",
     ),
 }
 
@@ -333,7 +333,7 @@ def propose_analyses(
     """Draft analysis plan items from design + profile. Never marks the plan confirmed."""
     frame = df if df is not None else pd.DataFrame()
     feasible = _feasible_templates(profile, frame) if profile else set()
-    # When profile has no candidate roles yet, do not hard-filter — still propose from design.
+    # When profile has no candidate roles yet, do not hard-filter; still propose from design.
     apply_feasibility = bool(feasible)
 
     items: list[AnalysisPlanItem] = []

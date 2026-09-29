@@ -1,6 +1,6 @@
 .PHONY: stub real test e2e
 
-# Offline AI stub — no API key. Open http://127.0.0.1:5173
+# Offline AI stub, no API key. Open http://127.0.0.1:5173
 stub:
 	./scripts/dev.sh stub
 

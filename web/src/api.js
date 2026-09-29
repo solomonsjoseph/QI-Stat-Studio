@@ -55,6 +55,7 @@ export const api = {
   register: (email, password) => req('POST', '/auth/register', { email, password }),
   login: (email, password) => req('POST', '/auth/login', { email, password }),
   logout: () => req('POST', '/auth/logout'),
+  quit: () => req('POST', '/dev/quit'),
   me: () => req('GET', '/auth/me'),
 
   // Projects

@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     def fernet(self) -> "_Fernet":
         if not self.fernet_key:
             raise RuntimeError(
-                'FERNET_KEY is required in .env — generate with: '
+                'FERNET_KEY is required in .env. Generate with: '
                 'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
         return _Fernet(self.fernet_key.encode())

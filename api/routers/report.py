@@ -30,7 +30,7 @@ _REPORT_EDIT_FIELDS = {"title", "caption", "interpretation"}
 
 def _esc(text: Any) -> str:
     """Escape text before handing it to ReportLab's Paragraph, which parses a small XML
-    markup subset — unescaped resident text (e.g. containing '<b>' or '&') can otherwise
+    markup subset. Unescaped resident text (e.g. containing '<b>' or '&') can otherwise
     raise a ValueError and break PDF generation."""
     return _xml_escape(str(text))
 
@@ -39,7 +39,7 @@ def _cell_text(value: Any) -> str:
     """Render a result-table cell value for DOCX/PDF export. Statistics such as
     confidence intervals are legitimately omitted (None) for small groups; show an
     em dash instead of the literal string 'None' in the resident's report."""
-    return "—" if value is None else str(value)
+    return "-" if value is None else str(value)
 
 
 def _safe_json(raw: str | None, fallback: Any):
@@ -313,7 +313,7 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
             when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
             author = comment.author_name or "Mentor"
             email = f" <{comment.author_email}>" if comment.author_email else ""
-            doc.add_paragraph(f"{when} — {author}{email}: {comment.text}")
+            doc.add_paragraph(f"{when}, {author}{email}: {comment.text}")
 
     doc.add_heading("Audit Trail", 1)
     for run, run_ctx in zip(ctx["raw_runs"], ctx["runs"]):
@@ -469,7 +469,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
             when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
             author = comment.author_name or "Mentor"
             email = f" <{comment.author_email}>" if comment.author_email else ""
-            story.append(Paragraph(_esc(f"{when} — {author}{email}: {comment.text}"), styles["Normal"]))
+            story.append(Paragraph(_esc(f"{when}, {author}{email}: {comment.text}"), styles["Normal"]))
         story.append(Spacer(1, 8))
 
     story.append(Paragraph("Audit Trail", styles["Heading2"]))
@@ -635,7 +635,7 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
             when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
             author = comment.author_name or "Mentor"
             email = f" <{comment.author_email}>" if comment.author_email else ""
-            doc.add_paragraph(f"{when} — {author}{email}: {comment.text}")
+            doc.add_paragraph(f"{when}, {author}{email}: {comment.text}")
 
     doc.add_heading("Audit Trail", 1)
     audit_rows = _base_audit_rows(run, context)
@@ -751,7 +751,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
             when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
             author = comment.author_name or "Mentor"
             email = f" <{comment.author_email}>" if comment.author_email else ""
-            story.append(Paragraph(_esc(f"{when} — {author}{email}: {comment.text}"), styles["Normal"]))
+            story.append(Paragraph(_esc(f"{when}, {author}{email}: {comment.text}"), styles["Normal"]))
         story.append(Spacer(1, 8))
 
     story.append(Paragraph("Audit Trail", styles["Heading2"]))

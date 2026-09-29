@@ -16,7 +16,7 @@ zero external infrastructure to stand up.
 
 **Decision:** SQLite via SQLAlchemy, with Alembic as the sole source of
 truth for schema (the app never calls `Base.metadata.create_all()` outside
-tests — see {doc}`data-model`).
+tests; see {doc}`data-model`).
 
 **Consequences:** Deployment is a single file plus a migration step, with no
 database server to provision or operate. `PRAGMA foreign_keys=ON` has to be
@@ -84,7 +84,7 @@ request path at all, regardless of scrubbing. It's not a substitute for
 resident discipline about what gets typed into free-text fields; the UI
 says so directly (see the {doc}`../user-guide/concepts` privacy section).
 
-## ADR-005: Mentor shares are view-only — downloads were built, then removed
+## ADR-005: Mentor shares are view-only (downloads were built, then removed)
 
 **Status:** Accepted (supersedes an earlier download-enabled design)
 
@@ -150,7 +150,7 @@ a first-class option, not an afterthought.
 
 **Decision:** All AI calls go through `litellm.completion(...)`, with
 `AI_PROVIDER` selecting OpenRouter, OpenAI, or a local OpenAI-compatible
-endpoint at runtime (admin-editable without a restart — see {doc}`how-to`).
+endpoint at runtime (admin-editable without a restart; see {doc}`how-to`).
 
 **Consequences:** Swapping providers is a settings change, not a code
 change. Core analysis functionality (upload, run charts, control charts,

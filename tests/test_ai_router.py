@@ -798,7 +798,7 @@ def test_recommend_plan_returns_rules_draft_when_llm_stays_empty_after_retry(cli
     body = response.json()
     assert body["confirmed"] is False
     assert len(body["analyses"]) >= 1
-    assert "proposed analysis plan" in body["message"].lower() or "drafted from project design" in (body.get("reasoning") or "").lower()
+    assert "draft analysis plan" in body["message"].lower() or "project design rules" in (body.get("reasoning") or "").lower()
 
     with SessionLocal() as db:
         project = db.get(Project, project_id)

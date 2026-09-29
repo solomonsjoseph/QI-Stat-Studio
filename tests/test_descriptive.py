@@ -16,7 +16,7 @@ def test_descriptive_runs_on_sample_csv():
 
 def test_descriptive_handles_missing_values():
     df = pd.read_csv(FIXTURE)
-    # fib4_score is 75% missing — must not crash
+    # fib4_score is 75% missing; must not crash
     result = run_descriptive(df, {"value_cols": ["fib4_score"]})
     assert "table" in result
 

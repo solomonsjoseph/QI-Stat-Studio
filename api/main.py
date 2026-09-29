@@ -261,10 +261,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return _error_response(500, "INTERNAL_ERROR", "Internal server error", request_id)
 
 
-from api.routers import auth, projects, upload, analyze, ai, report, share, settings_router, notifications, health  # noqa: E402,F401
+from api.routers import auth, projects, upload, analyze, ai, report, share, settings_router, notifications, health, dev  # noqa: E402,F401
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(dev.router)
 app.include_router(projects.router)
 app.include_router(upload.router)
 app.include_router(analyze.router)

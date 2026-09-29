@@ -71,7 +71,7 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     ax.step(plot_dates.values, lcl.values, where="mid", color="red", linestyle="--", label="LCL")
     if intervention_date:
         ax.axvline(pd.to_datetime(intervention_date).to_datetime64(), color="green", linestyle=":", linewidth=2, label="Intervention")
-    ax.set_title(f"{'u' if chart_type == 'u' else 'c'}-Chart — {count_col}")
+    ax.set_title(f"{'u' if chart_type == 'u' else 'c'}-Chart, {count_col}")
     ax.set_ylabel(ylabel)
     ax.set_xlabel(date_col)
     ax.legend()

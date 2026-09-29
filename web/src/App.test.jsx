@@ -8,6 +8,7 @@ const { apiMock } = vi.hoisted(() => ({
     me: vi.fn(),
     resumeProject: vi.fn(),
     logout: vi.fn(),
+    quit: vi.fn(),
     listProjects: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
@@ -42,6 +43,7 @@ beforeEach(() => {
   apiMock.me.mockResolvedValue({ email: 'resident@example.test' })
   apiMock.resumeProject.mockReset()
   apiMock.logout.mockReset()
+  apiMock.quit.mockReset()
   apiMock.listProjects.mockResolvedValue([])
   apiMock.createProject.mockReset()
   apiMock.deleteProject.mockReset()
@@ -127,6 +129,20 @@ describe('App resume hydration', () => {
 
     expect(await screen.findByRole('heading', { name: 'Screen clarify' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/app/77/clarify')
+  })
+
+  it('quits by stopping the backend and showing the stopped page', async () => {
+    apiMock.quit.mockResolvedValue({ ok: true, stopped: true })
+    apiMock.logout.mockResolvedValue({})
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Quit' }))
+
+    expect(apiMock.quit).toHaveBeenCalled()
+    expect(apiMock.logout).toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: 'QI Stat Studio stopped' })).toBeInTheDocument()
   })
 
   it('lets the landing project list recover from a load failure', async () => {

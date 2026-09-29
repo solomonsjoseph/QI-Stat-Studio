@@ -149,9 +149,9 @@ def scan_dataframe_for_phi(df: pd.DataFrame, dictionary_text: str | None = None)
         elif _DOB_COL_RE.search(col_str):
             category = "Date of Birth"
             if has_age_column:
-                message = f'"{col_str}" — remove this column, age is already available and date of birth is not needed.'
+                message = f'"{col_str}": remove this column. Age is already available, so date of birth is not needed.'
             else:
-                message = f'"{col_str}" — this is a HIPAA violation. Convert this to age (or an age range) instead of date of birth, then re-upload.'
+                message = f'"{col_str}": this is a HIPAA violation. Convert this to age (or an age range) instead of date of birth, then re-upload.'
         elif _ADDRESS_COL_RE.search(col_str):
             category = "Address"
             message = f'"{col_str}" looks like a street address column. Remove it.'

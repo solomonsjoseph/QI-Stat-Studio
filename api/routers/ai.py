@@ -667,12 +667,12 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         validated_analyses.append(item)
 
     default_message = (
-        "Here is a proposed analysis plan based on your confirmed project definition. "
-        "Review each analysis, edit parameters if needed, add or remove analyses, then confirm — "
-        "nothing runs until you confirm."
+        "Here is a draft analysis plan from your project definition. "
+        "Look over each analysis, change parameters if you need to, add or remove items, then confirm. "
+        "Nothing runs until you confirm."
     )
     message = default_message
-    reasoning = "Drafted from project design rules; awaiting resident confirmation."
+    reasoning = "Built from project design rules. Waiting for the resident to confirm."
 
     llm_available = bool(api_key) or provider in ("local", "stub")
     prompt_chars = 0
@@ -702,7 +702,7 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         if not any(t.get("role") == "user" for t in turns):
             messages.append({
                 "role": "user",
-                "content": "(starting — please explain this proposed analysis plan in plain language)",
+                "content": "(starting: explain this draft analysis plan in plain language)",
             })
 
         prompt_chars = sum(len(m["content"]) for m in messages)

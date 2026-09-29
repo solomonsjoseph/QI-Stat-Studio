@@ -6,7 +6,7 @@ to use it, but useful if something surprises you.
 ## How the app picks a recommended analysis
 
 The three ranked options on the Analysis Selection screen come from your
-Q2–Q6 answers, run through a fixed decision order, roughly in priority:
+Q2-Q6 answers, run through a fixed decision order, roughly in priority:
 
 1. Comparing more than two periods, without a time trend → **Descriptive
    Summary**.

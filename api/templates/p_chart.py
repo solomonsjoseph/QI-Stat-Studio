@@ -55,7 +55,7 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     if intervention_date:
         ax.axvline(pd.to_datetime(intervention_date).to_datetime64(), color="green", linestyle=":", linewidth=2, label="Intervention")
     denom_label = denominator_col or "n"
-    ax.set_title(f"p-Chart — {numerator_col}/{denom_label}")
+    ax.set_title(f"p-Chart, {numerator_col}/{denom_label}")
     ax.set_ylabel("Proportion (%)")
     ax.set_xlabel(date_col)
     ax.legend()

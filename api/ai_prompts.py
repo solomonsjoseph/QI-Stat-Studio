@@ -187,7 +187,7 @@ Your job:
 - Write a clear plain-language message introducing this proposed plan to the resident.
 - Optionally improve display_name, question, rationale, assumptions, and limitations for each analysis by id.
 - Never invent a new analysis, never change template ids, and never change parameters.
-- Remind the resident they can edit, add, or remove analyses before confirming — you never confirm the plan.
+- Remind the resident they can edit, add, or remove analyses before confirming. You never confirm the plan.
 
 Respond with JSON only:
 {

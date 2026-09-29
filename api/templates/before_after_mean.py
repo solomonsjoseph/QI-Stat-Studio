@@ -9,7 +9,7 @@ from api.stats_intervals import HL_SUBSAMPLE_PER_GROUP, hodges_lehmann_ci, mean_
 
 
 def _norm_group(df: pd.DataFrame, col: str, val: str) -> Tuple[pd.DataFrame, str]:
-    """Normalize string group column to lowercase stripped — handles mixed-case period values."""
+    """Normalize string group column to lowercase stripped (handles mixed-case period values)."""
     if df[col].dtype == object:
         df = df.copy()
         df[col] = df[col].str.strip().str.lower()

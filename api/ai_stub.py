@@ -56,11 +56,10 @@ _CANNED_CLARIFY = json.dumps({
 
 _CANNED_RECOMMEND = json.dumps({
     "message": (
-        "I recommend a P/U chart for tracking monthly fall rates alongside a descriptive "
-        "baseline summary. Review the proposals below and confirm when you are ready — "
-        "nothing runs until you confirm."
+        "I recommend a P/U chart for monthly fall rates plus a descriptive baseline summary. "
+        "Review the proposals below and confirm when you are ready. Nothing runs until you confirm."
     ),
-    "reasoning": "Monthly aggregate rates over time are suited for statistical process control.",
+    "reasoning": "Monthly rates over time fit statistical process control.",
     "analyses": [
         {
             "id": "descriptive_summary-1",
@@ -86,7 +85,7 @@ _CANNED_COLLECTION = json.dumps({
         {
             "id": "record-fall-severity",
             "title": "Track fall severity or injury level",
-            "why": "Distinguishing falls with injury from unassisted minor slips provides a vital balancing measure.",
+            "why": "Separating falls with injury from minor unassisted slips gives a useful balancing measure.",
             "severity": "important",
             "necessity": "recommended",
             "source": "ai",

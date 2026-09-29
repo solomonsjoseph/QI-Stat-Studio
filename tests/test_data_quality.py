@@ -63,7 +63,7 @@ def test_flags_outliers_but_skips_binary_columns():
 
 
 def test_check_time_gaps_zero_on_sample_csv():
-    """Sample CSV has 24 consecutive months (2024-2025) — expect 0 gap flags."""
+    """Sample CSV has 24 consecutive months (2024-2025); expect 0 gap flags."""
     df = load()
     flags = quality_flags(df)
     gap_flags = [f for f in flags if f["rule"] == "check_time_gaps"]

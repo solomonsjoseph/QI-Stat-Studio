@@ -45,7 +45,7 @@ Alembic's job:
 alembic upgrade head
 ```
 
-This runs the full migration chain (5 revisions — see {doc}`data-model`)
+This runs the full migration chain (5 revisions; see {doc}`data-model`)
 against whatever `DB_URL`/`DATABASE_URL` resolves to; the default is
 `sqlite:///./qi_stat_studio.db`.
 
@@ -57,8 +57,8 @@ uvicorn api.main:app --reload
 
 - API: `http://localhost:8000`
 - Interactive API docs (Swagger UI): `http://localhost:8000/docs`
-- Liveness: `GET /health` — always `{"status": "ok"}`, no auth, no DB check.
-- Readiness: `GET /readyz` — checks the database connection and that
+- Liveness: `GET /health` always returns `{"status": "ok"}` (no auth, no DB check).
+- Readiness: `GET /readyz` checks the database connection and that
   `FERNET_KEY` actually decodes; returns HTTP 503 with a per-check breakdown
   if either fails.
 
@@ -78,6 +78,10 @@ The app is now at `http://localhost:5173`. Vite's dev server proxies
 to the FastAPI app directly, which is why `api/main.py` also has an
 `ApiPrefixMiddleware` that strips `/api` server-side (see
 {doc}`architecture`).
+
+While signed in locally, **Quit** in the header signs you out and stops the
+backend (`POST /dev/quit`, disabled when `environment=production`). If a
+terminal is still running Vite, press Ctrl-C there too.
 
 ## 6. Register your first user
 

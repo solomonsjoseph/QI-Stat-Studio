@@ -12,7 +12,22 @@ esac
 
 alembic upgrade head
 trap 'kill 0' EXIT INT TERM
-uvicorn api.main:app --reload --port 8000 &
+
+# Bind IPv4 explicitly; wait until the worker is actually accepting (spaCy load can take 30-90s).
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000 &
+echo "waiting for backend /health (first start can take up to ~90s for spaCy)..."
+for i in $(seq 1 90); do
+  if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then
+    echo "backend ready http://127.0.0.1:8000"
+    break
+  fi
+  if [[ "$i" -eq 90 ]]; then
+    echo "backend failed to become healthy in 90s. Check uvicorn output above." >&2
+    exit 1
+  fi
+  sleep 1
+done
+
 (cd web && npx vite --host 127.0.0.1 --port 5173) &
-echo "backend http://127.0.0.1:8000  frontend http://127.0.0.1:5173  mode=${AI_PROVIDER:-from .env}"
+echo "frontend http://127.0.0.1:5173  mode=${AI_PROVIDER:-from .env}"
 wait

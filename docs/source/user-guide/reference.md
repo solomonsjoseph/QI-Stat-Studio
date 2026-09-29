@@ -9,7 +9,7 @@ to finish.
 |---|--------|--------------------|
 | 1 | Landing | Sign in, start a new project, or resume/archive an existing one. |
 | 2 | Project Description | Title and a plain-language description of the project; triggers AI intake pre-fill. |
-| 3 | Intake Questions | Nine short questions (Q2–Q10) that decide which analysis gets recommended. |
+| 3 | Intake Questions | Nine short questions (Q2-Q10) that decide which analysis gets recommended. |
 | 4 | Upload | Upload a CSV or Excel file, then confirm the detected column types. |
 | 5 | Data Review | Row count, missing-value percentages, and data-quality warnings/errors to acknowledge or fix. |
 | 6 | Analysis Selection | Pick from three ranked analyses; one is marked Recommended. |
@@ -45,7 +45,7 @@ again. "I'm not sure" is always an available answer.
   - Always
 * - Q3
   - Are you comparing before and after something?
-  - Yes — before and after an intervention · No — I'm just describing one
+  - Yes, before and after an intervention · No, I'm just describing one
     time period · More than two periods (phases) · I'm not sure
   - Always
 * - Q4
@@ -67,12 +67,12 @@ again. "I'm not sure" is always an available answer.
   - What was the intervention and when did it start?
   - Intervention description (optional, free text) + Intervention date (if
     known). Pre-filled from your project description.
-  - Skipped when Q3 = "No — I'm just describing one time period"
+  - Skipped when Q3 = "No, I'm just describing one time period"
 * - Q8
   - Who are you comparing?
   - Same unit pre vs. post · Intervention vs. control · Subgroups · I'm not
     sure
-  - Skipped when Q3 = "No — I'm just describing one time period"
+  - Skipped when Q3 = "No, I'm just describing one time period"
 * - Q9
   - Which software should we put in the code export?
   - R · SPSS · SAS · All three · I'm not sure (defaults to including all
