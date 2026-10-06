@@ -38,12 +38,25 @@ _EXCLUDED_PERSON_WORDS = {
     "hospital", "clinic", "study", "trial", "site", "subject", "file",
 }
 
+# Dictionaries routinely list team contact emails/phones. Those are not patient PHI.
+# Keep only strong identifier patterns for document prose; cell-value scans still use
+# the full _VALUE_CATEGORY_PATTERNS set from the scrubber.
+_DICTIONARY_VALUE_PATTERNS = [
+    pattern
+    for pattern in _VALUE_CATEGORY_PATTERNS
+    if pattern[0] in {"Medical Record Number", "Social Security Number"}
+]
+
 
 def _is_valid_person_entity(ent) -> bool:
     cleaned = ent.text.strip().lower()
     if cleaned in _EXCLUDED_PERSON_WORDS:
         return False
-    if len(ent.text.split()) == 1 and ent.text.islower():
+    tokens = ent.text.split()
+    # Single Title-Case tokens are a common spaCy false positive in headers
+    # ("Falls", "Unit", "April"). Real name hits in dictionaries are usually
+    # "First Last".
+    if len(tokens) < 2:
         return False
     return True
 
@@ -52,15 +65,16 @@ def scan_document_text(text: str) -> list[PhiFinding]:
     """Scan document prose for value-level PHI patterns and person names.
 
     Does not apply column-name heuristics so documenting a column like 'patient_name'
-    does not flag itself.
+    does not flag itself. Does not treat contact emails/phones as PHI.
     """
     if not text or not text.strip():
         return []
 
     findings: list[PhiFinding] = []
 
-    # Value-level regex patterns (MRN, SSN, Phone, Email)
-    for category, pattern in _VALUE_CATEGORY_PATTERNS:
+    # Strong identifier patterns only (MRN / SSN). Contact emails and phones in a
+    # data dictionary are almost always institutional, not patient PHI.
+    for category, pattern in _DICTIONARY_VALUE_PATTERNS:
         if pattern.search(text):
             findings.append(
                 PhiFinding(

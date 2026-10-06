@@ -48,6 +48,38 @@ def test_dictionary_containing_patient_name_blocked():
     assert any(f.source == "dictionary" and f.category == "Patient Name" for f in res.findings)
 
 
+def test_dictionary_contact_email_and_phone_are_not_treated_as_phi():
+    df = pd.DataFrame({"study_id": [1, 2], "score": [10, 20]})
+    dict_text = (
+        "encounter_id: sequential study id, non-identifying.\n"
+        "Prepared by Quality Improvement Team.\n"
+        "Contact: qi-team@hospital.org or (908) 555-0199 with questions."
+    )
+    res = scan_upload(df, dict_text)
+    assert res.status == "passed", [(f.category, f.message) for f in res.findings]
+    assert res.findings == []
+
+
+def test_dictionary_scan_ignores_single_token_person_false_positives(monkeypatch):
+    import api.phi_gate
+
+    class _Ent:
+        def __init__(self, text, label):
+            self.text = text
+            self.label_ = label
+
+    class _Doc:
+        ents = [_Ent("Falls", "PERSON"), _Ent("Unit", "PERSON")]
+
+    class _Nlp:
+        def __call__(self, text):
+            return _Doc()
+
+    monkeypatch.setattr(api.phi_gate, "_get_nlp", lambda: _Nlp())
+    findings = scan_document_text("Falls QI project unit dictionary")
+    assert findings == []
+
+
 def test_scanner_exception_yields_status_error_and_fails_closed(monkeypatch):
     import api.phi_gate
 
