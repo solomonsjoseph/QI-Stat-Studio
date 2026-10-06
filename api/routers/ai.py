@@ -103,6 +103,7 @@ def _extract_json_object(content: str) -> dict[str, Any]:
 _MODEL_PREFIXES = {
     "openrouter": "openrouter/",
     "openai": "openai/",
+    "gemini": "gemini/",
     "local": "ollama_chat/",
 }
 
@@ -186,6 +187,9 @@ def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
     if provider == "openai":
         model = get_runtime_setting(db, "openai_model") or settings.openai_model
         return provider, settings.openai_api_key or None, None, model
+    if provider == "gemini":
+        model = get_runtime_setting(db, "gemini_model") or settings.gemini_model
+        return provider, settings.gemini_api_key or None, None, model
     if provider == "local":
         model = get_runtime_setting(db, "local_model") or settings.local_model
         base = get_runtime_setting(db, "local_api_base") or settings.local_api_base or "http://localhost:11434"

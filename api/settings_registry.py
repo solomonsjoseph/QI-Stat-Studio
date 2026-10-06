@@ -26,6 +26,7 @@ REGISTRY: dict[str, SettingSpec] = {
     "ai_provider": SettingSpec("ai_provider", "string", False, True, lambda: settings.ai_provider),
     "openrouter_model": SettingSpec("openrouter_model", "string", False, True, lambda: settings.openrouter_model),
     "openai_model": SettingSpec("openai_model", "string", False, True, lambda: settings.openai_model),
+    "gemini_model": SettingSpec("gemini_model", "string", False, True, lambda: settings.gemini_model),
     "local_model": SettingSpec("local_model", "string", False, True, lambda: settings.local_model),
     "local_api_base": SettingSpec("local_api_base", "string", False, True, lambda: settings.local_api_base),
     "ai_rate_limit_per_hour": SettingSpec("ai_rate_limit_per_hour", "integer", False, True, lambda: "20"),
@@ -35,6 +36,7 @@ REGISTRY: dict[str, SettingSpec] = {
 REJECTED_DB_KEYS = {
     "openrouter_api_key",
     "openai_api_key",
+    "gemini_api_key",
     "local_api_key",
     "smtp_pass",
     "secret_key",
@@ -53,8 +55,8 @@ def _validate_value(spec: SettingSpec, value: str) -> str:
         return str(parsed)
     if spec.key == "ai_provider":
         normalized = value.strip().lower()
-        if normalized not in ("openrouter", "openai", "local", "stub"):
-            raise HTTPException(status_code=400, detail="ai_provider must be one of: openrouter, openai, local, stub")
+        if normalized not in ("openrouter", "openai", "gemini", "local", "stub"):
+            raise HTTPException(status_code=400, detail="ai_provider must be one of: openrouter, openai, gemini, local, stub")
         if normalized == "stub" and settings.environment == "production":
             raise HTTPException(status_code=400, detail="ai_provider 'stub' is test-only and cannot be enabled when environment=production")
         return normalized

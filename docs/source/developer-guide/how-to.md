@@ -4,14 +4,15 @@
 
 The app talks to whichever LLM provider you configure through
 [LiteLLM](https://github.com/BerriAI/litellm), which normalizes the
-OpenRouter/OpenAI/Ollama-style APIs behind one call. Set `AI_PROVIDER` to
-one of `openrouter` (default), `openai`, or `local`, then fill in the
+OpenRouter/OpenAI/Gemini/Ollama-style APIs behind one call. Set `AI_PROVIDER` to
+one of `openrouter` (default), `openai`, `gemini`, or `local`, then fill in the
 matching credentials:
 
 | `AI_PROVIDER` | Required | Optional |
 |---|---|---|
 | `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `anthropic/claude-sonnet-4-6`) |
 | `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` (default `gpt-4o-mini`) |
+| `gemini` | `GEMINI_API_KEY` | `GEMINI_MODEL` (default `gemini-2.0-flash`) |
 | `local` (e.g. Ollama) | (none) | `LOCAL_API_BASE` (default `http://localhost:11434`), `LOCAL_API_KEY`, `LOCAL_MODEL` (default `llama3.1`) |
 
 Without valid provider credentials, AI endpoints (`/ai/intake-prefill`,
@@ -145,9 +146,10 @@ Docker/production build; in local dev, Vite serves the frontend itself.
 | `FERNET_KEY` | **Yes** | none | Base64 Fernet key. `api/config.py`'s `Settings.fernet` property raises `RuntimeError` the first time it's accessed if this is empty. There is no silent fallback. |
 | `SECRET_KEY` | Production | `dev-secret-change-in-prod` | Session cookie signing key. The app refuses to start in production (`ENVIRONMENT=production`) with the default value (`api/main.py` lifespan check). |
 | `DB_URL` / `DATABASE_URL` | No | `sqlite:///./qi_stat_studio.db` | Both env var names are accepted aliases for the same setting (`AliasChoices` in `api/config.py`); `DB_URL` wins if both are set. |
-| `AI_PROVIDER` | No | `openrouter` | `openrouter` \| `openai` \| `local`. |
+| `AI_PROVIDER` | No | `openrouter` | `openrouter` \| `openai` \| `gemini` \| `local`. |
 | `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | No | model: `anthropic/claude-sonnet-4-6` | Used when `AI_PROVIDER=openrouter`. |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | No | model: `gpt-4o-mini` | Used when `AI_PROVIDER=openai`. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | No | model: `gemini-2.0-flash` | Used when `AI_PROVIDER=gemini`. |
 | `LOCAL_API_BASE` / `LOCAL_API_KEY` / `LOCAL_MODEL` | No | base: `http://localhost:11434`, model: `llama3.1` | Used when `AI_PROVIDER=local` (e.g. Ollama). |
 | `SMTP_HOST` / `SMTP_PORT` | No | `smtp.gmail.com` / `587` | Used for mentor-invite and deadline-reminder emails. |
 | `SMTP_USER` / `SMTP_PASS` | No | empty | SMTP auth; login is skipped when `SMTP_USER` is empty. |

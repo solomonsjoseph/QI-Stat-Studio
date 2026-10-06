@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     openrouter_model: str = "anthropic/claude-sonnet-4-6"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
     local_api_base: str = "http://localhost:11434"
     local_api_key: str = ""
     local_model: str = "llama3.1"
