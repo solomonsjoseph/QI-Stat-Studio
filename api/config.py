@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.5-flash"
     local_api_base: str = "http://localhost:11434"
     local_api_key: str = ""
     local_model: str = "llama3.1"

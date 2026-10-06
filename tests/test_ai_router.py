@@ -158,7 +158,7 @@ def test_chat_uses_openai_provider_when_configured(client, monkeypatch):
 def test_chat_uses_gemini_provider_when_configured(client, monkeypatch):
     project_id = _project_id(client)
     _set_runtime_setting("ai_provider", "gemini")
-    _set_runtime_setting("gemini_model", "gemini-2.0-flash")
+    _set_runtime_setting("gemini_model", "gemini-3.5-flash")
     monkeypatch.setattr("api.routers.ai.settings.gemini_api_key", "gemini-fake-key")
 
     with patch("api.routers.ai.litellm.completion", return_value=_mock_completion("From Gemini")) as mocked_completion:
@@ -170,7 +170,7 @@ def test_chat_uses_gemini_provider_when_configured(client, monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json()["content"] == "From Gemini"
     kwargs = mocked_completion.call_args.kwargs
-    assert kwargs["model"] == "gemini/gemini-2.0-flash"
+    assert kwargs["model"] == "gemini/gemini-3.5-flash"
     assert kwargs["api_key"] == "gemini-fake-key"
     assert "api_base" not in kwargs
 
