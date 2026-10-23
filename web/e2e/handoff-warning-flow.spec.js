@@ -8,16 +8,19 @@ const e2eEnabled = process.env.QISS_E2E === '1'
 const mode = process.env.QISS_E2E_MODE || 'stub'
 
 // 60 monthly rows. unit and ward carry whitespace padding and mixed case,
-// staff_score has 10% blanks and non-integer values (so it is not guessed as a denominator), so the review shows six warnings (the date gap rule also fires).
+// staff_score is an integer column with 10% blanks, listed before census_days (not named like a denominator, so the
+// name rule does not rescue it). It is guessed as the first denominator (falls <= staff_score) and is larger than census_days, so
+// it is the only guessed denominator and census_days is guessed as a numerator. The blanks fail the positive-values check if the plan uses it. Without the census_days pick below the plan cannot continue.
+// The review shows six warnings (the date gap rule also fires).
 function buildCsv() {
   const units = ['ICU', ' icu', 'Med', 'med ', 'Surg']
   const wards = ['North', ' north', 'South', 'south ', 'East']
-  const rows = ['month,falls,patient_days,unit,ward,staff_score']
+  const rows = ['month,falls,staff_score,census_days,unit,ward']
   for (let i = 0; i < 60; i += 1) {
     const month = String((i % 12) + 1).padStart(2, '0')
     const year = 2020 + Math.floor(i / 12)
-    const score = i % 10 === 3 ? '' : String(60 + ((i * 7) % 25) + 0.5)
-    rows.push([`${year}-${month}-01`, (i * 7) % 4 + 2, 1000 + ((i * 13) % 60), units[i % 5], wards[i % 5], score].join(','))
+    const score = i % 10 === 3 ? '' : String(2000 + ((i * 7) % 25))
+    rows.push([`${year}-${month}-01`, (i * 7) % 4 + 2, score, 1000 + ((i * 13) % 60), units[i % 5], wards[i % 5]].join(','))
   }
   return rows.join('\n')
 }
@@ -46,7 +49,7 @@ async function createProjectAndUpload(page, testInfo, { withDictionary }) {
     const dictPath = testInfo.outputPath('dictionary.txt')
     await writeFile(
       dictPath,
-      'month: first day of the reporting month\nfalls: inpatient falls in the month\npatient_days: patient days in the month\nunit: care unit\nward: hospital ward\nstaff_score: staffing score\n',
+      'month: first day of the reporting month\nfalls: inpatient falls in the month\ncensus_days: patient days in the month\nunit: care unit\nward: hospital ward\nstaff_score: staffing score\n',
     )
     await page.getByLabel('Data dictionary file').setInputFiles(dictPath)
   }
@@ -100,6 +103,12 @@ test.describe('handoff and warning review', () => {
     await expect(page.getByText(/Tick the warnings you want to handle, then choose Acknowledge or Clarify with the QI Stat Advisor/)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Continue to Analysis Selection' })).toBeDisabled()
 
+    // Real trap: staff_score (integer, with blanks) is guessed as a denominator. Pick census_days too;
+    // the later pick wins, a note names the column the analysis will use, and the plan must not fail.
+    await page.getByLabel('Role for census_days').selectOption('denominator')
+    await expect(page.getByLabel('Role for census_days')).toHaveValue('denominator')
+    await expect(page.getByRole('status').filter({ hasText: /columns are set as Denominator\. The analysis will use census_days\./ })).toBeVisible()
+
     // Round one: acknowledge two warnings.
     await warningRow(page, 'staff_score').getByRole('checkbox').check()
     await warningRow(page, "Mixed case in 'ward'").getByRole('checkbox').check()
@@ -152,6 +161,7 @@ test.describe('handoff and warning review', () => {
     await page.getByRole('button', { name: 'Continue to Analysis Selection' }).click()
 
     await planToResults(page)
+    await expect(page.getByText(/must contain only positive values/)).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'AI Interpretation' }).first()).toBeVisible()
     await expect(page.getByText('AI interpretation is off')).toHaveCount(0)
     const body = await page.locator('body').innerText()
@@ -177,6 +187,8 @@ test.describe('handoff and warning review', () => {
 
     await expect(page.getByRole('heading', { name: 'Data Review' })).toBeVisible()
     await expect(page.getByText('The QI Stat Advisor is not available. You can still acknowledge warnings.')).toBeVisible()
+    // The manual design has no denominator and staff_score (blanks) is the only guessed one, so assign census_days.
+    await page.getByLabel('Role for census_days').selectOption('denominator')
     await page.getByRole('checkbox', { name: 'Select all' }).check()
     await expect(page.getByRole('button', { name: 'Clarify with QI Stat Advisor' })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Acknowledge selected' })).toBeEnabled()
@@ -198,5 +210,16 @@ test.describe('handoff and warning review', () => {
     await expect(page.getByText('Key set from Settings, ending in 9z4Q.')).toBeVisible()
     await expect(page.getByText('sk-or-fake-test-key')).toHaveCount(0)
     await expect(page.getByLabel('New key')).toHaveValue('')
+
+    // A second registered user is not an admin. Settings must open without an error alert and show the AI key section.
+    await page.getByRole('button', { name: 'Sign out' }).click()
+    await register(page)
+    // The admin's saved key is shared, so the second user may or may not see the key prompt.
+    const skip = page.getByRole('button', { name: 'Continue without the QI Stat Advisor' })
+    await expect(skip.or(page.getByRole('button', { name: 'Start New Project' }))).toBeVisible()
+    if (await skip.count()) await skip.click()
+    await page.getByRole('button', { name: 'Open settings' }).click()
+    await expect(page.getByRole('heading', { name: 'AI key' })).toBeVisible()
+    await expect(page.getByRole('alert')).toHaveCount(0)
   })
 })
