@@ -7,10 +7,9 @@ import { writeFile } from 'node:fs/promises'
 const e2eEnabled = process.env.QISS_E2E === '1'
 const mode = process.env.QISS_E2E_MODE || 'stub'
 
-// 60 monthly rows. unit and ward carry whitespace padding and mixed case,
-// staff_score is an integer column with 10% blanks, listed before census_days (not named like a denominator, so the
-// name rule does not rescue it). It is guessed as the first denominator (falls <= staff_score) and is larger than census_days, so
-// it is the only guessed denominator and census_days is guessed as a numerator. The blanks fail the positive-values check if the plan uses it. Without the census_days pick below the plan cannot continue.
+// 60 monthly rows. unit and ward carry whitespace padding and mixed case.
+// staff_score is an integer column with 10% blanks and is not named like a denominator, so it must not be
+// guessed as one; census_days is picked up as the denominator by its name.
 // The review shows six warnings (the date gap rule also fires).
 function buildCsv() {
   const units = ['ICU', ' icu', 'Med', 'med ', 'Surg']
@@ -103,11 +102,11 @@ test.describe('handoff and warning review', () => {
     await expect(page.getByText(/Tick the warnings you want to handle, then choose Acknowledge or Clarify with the QI Stat Advisor/)).toBeVisible()
     await expect(page.getByRole('button', { name: 'Continue to Analysis Selection' })).toBeDisabled()
 
-    // Real trap: staff_score (integer, with blanks) is guessed as a denominator. Pick census_days too;
-    // the later pick wins, a note names the column the analysis will use, and the plan must not fail.
-    await page.getByLabel('Role for census_days').selectOption('denominator')
+    // staff_score has blanks and is not named like a denominator, so it is not guessed as one.
+    // census_days is picked up by its name: one denominator, no conflict note.
     await expect(page.getByLabel('Role for census_days')).toHaveValue('denominator')
-    await expect(page.getByRole('status').filter({ hasText: /columns are set as Denominator\. The analysis will use census_days\./ })).toBeVisible()
+    await expect(page.getByLabel('Role for staff_score')).not.toHaveValue('denominator')
+    await expect(page.getByRole('status').filter({ hasText: /columns are set as Denominator/ })).toHaveCount(0)
 
     // Round one: acknowledge two warnings.
     await warningRow(page, 'staff_score').getByRole('checkbox').check()
@@ -187,8 +186,8 @@ test.describe('handoff and warning review', () => {
 
     await expect(page.getByRole('heading', { name: 'Data Review' })).toBeVisible()
     await expect(page.getByText('The QI Stat Advisor is not available. You can still acknowledge warnings.')).toBeVisible()
-    // The manual design has no denominator and staff_score (blanks) is the only guessed one, so assign census_days.
-    await page.getByLabel('Role for census_days').selectOption('denominator')
+    // census_days is guessed as the denominator by its name; staff_score (blanks) is not.
+    await expect(page.getByLabel('Role for census_days')).toHaveValue('denominator')
     await page.getByRole('checkbox', { name: 'Select all' }).check()
     await expect(page.getByRole('button', { name: 'Clarify with QI Stat Advisor' })).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Acknowledge selected' })).toBeEnabled()

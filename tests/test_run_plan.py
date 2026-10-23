@@ -240,3 +240,25 @@ def test_overlapping_run_plan_requests_keep_one_set_of_runs(auth_client):
     assert codes == [200, 200]
     with SessionLocal() as db:
         assert db.query(AnalysisRun).filter_by(project_id=pid).count() == 2
+
+
+def test_daily_granularity_is_coarsened_for_a_yes_no_outcome_at_validation(auth_client):
+    _register(auth_client, "freq_default@example.com")
+    rows = "".join(f"2024-{1 + i // 28:02d}-{1 + i % 28:02d},{i % 2}\n" for i in range(112))
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Freq", "description": "Daily dates with a yes/no outcome must not become daily charts"},
+        files={"file": ("data.csv", ("visit_date,at_goal\n" + rows).encode(), "text/csv")},
+    )
+    pid = resp.json()["project"]["id"]
+    with SessionLocal() as db:
+        db.get(Project, pid).ai_project_design = json.dumps({
+            "primary_outcome": {"label": "At goal", "column": "at_goal", "kind": "binary"},
+            "time_structure": {"has_dates": True, "date_column": "visit_date", "granularity": "day"},
+        })
+        db.commit()
+        from api.routers.analyze import check_plan_item
+        import pandas as pd
+        df = pd.read_csv(__import__("io").BytesIO(("visit_date,at_goal\n" + rows).encode()))
+        checked = check_plan_item(db, db.get(Project, pid), None, df, "p_chart", {"date_col": "visit_date", "numerator_col": "at_goal"})
+    assert checked["parameters"]["freq"] == "ME"

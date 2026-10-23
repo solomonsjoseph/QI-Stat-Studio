@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useApp } from '../App'
+import { TEMPLATE_LABELS } from '../templateLabels'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
@@ -376,7 +377,7 @@ export default function AnalysisPlanStage() {
           <select id="add-analysis-select" className="input flex-1" value={addTemplate} onChange={e => setAddTemplate(e.target.value)}>
             <option value="">Select a feasible template…</option>
             {feasibleTemplates.filter(t => !analyses.some(a => a.template === t)).map(t => (
-              <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+              <option key={t} value={t}>{TEMPLATE_LABELS[t] || t.replace(/_/g, ' ')}</option>
             ))}
           </select>
           <button type="button" onClick={addAnalysisFromFeasible} disabled={!addTemplate} className="btn-secondary">

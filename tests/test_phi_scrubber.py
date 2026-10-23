@@ -211,3 +211,12 @@ def test_scrub_text_redact_dates_true_still_redacts_a_standalone_date_by_default
     result, count = scrub_text("Seen on 2026-01-01 at the clinic")
     assert "2026-01-01" not in result
     assert count >= 1
+
+
+def test_project_context_survives_the_ner_model_but_patient_identifiers_do_not():
+    if phi_scrubber._get_nlp(wait=True) is None:
+        pytest.skip("spaCy model not installed")
+    context = "Intervention launched January 2025. Secondary outcomes are SGLT2 and GLP-1 prescribing within 3 months for Medicaid patients."
+    assert scrub_text(context) == (context, 0)
+    result, count = scrub_text("John Smith was seen on March 5, 2024.")
+    assert "John Smith" not in result and "March 5" not in result and count >= 2

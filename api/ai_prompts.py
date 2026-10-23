@@ -269,6 +269,7 @@ Instructions:
 - Use ONLY numbers and statistics present in the supplied results payload. Never invent or introduce numbers, sample sizes, or conclusions not in the data.
 - Always include standard QI limitations (single-site, non-randomized, possible secular trends) plus the acknowledged data quality warnings.
 - Provide one interpretation per analysis run, plus project-level overall limitations and an abstract draft.
+- Name analyses by what they are (for example "the before-after comparison"). Never cite run numbers or run ids in the text; they are internal.
 
 Respond with JSON only:
 {

@@ -77,6 +77,24 @@ _DATE_PATTERNS = [
 ]
 
 
+_MONTHS = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?"
+_DAY_LEVEL_DATE = re.compile(rf"\b{_MONTHS}\s+\d{{1,2}}(?:st|nd|rd|th)?\b|\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?{_MONTHS}", re.IGNORECASE)
+_PAYERS = {"medicaid", "medicare"}
+
+
+def _ner_redactable(ent) -> bool:
+    """The small English model also tags drug classes (SGLT2, GLP-1), payers, durations ("3 months")
+    and month-year ("January 2025"). Those are project context, not patient identifiers: keep
+    names, organizations other than payers, and dates that reach a specific day."""
+    if ent.label_ in ("PERSON", "ORG") and any(ch.isdigit() for ch in ent.text):
+        return False  # drug classes and lab terms such as SGLT2 or GLP-1; no real name has a digit
+    if ent.label_ == "ORG":
+        return ent.text.strip().lower() not in _PAYERS
+    if ent.label_ == "DATE":
+        return bool(_DAY_LEVEL_DATE.search(ent.text))
+    return True
+
+
 def scrub_text(text: str, redact_dates: bool = True) -> Tuple[str, int]:
     """Redact obvious PHI with regexes and, when available, spaCy NER.
 
@@ -102,7 +120,7 @@ def scrub_text(text: str, redact_dates: bool = True) -> Tuple[str, int]:
         return text, count
     doc = nlp(text)
     ner_labels = {"PERSON", "DATE", "ORG"} if redact_dates else {"PERSON", "ORG"}
-    spans = [ent for ent in doc.ents if ent.label_ in ner_labels]
+    spans = [ent for ent in doc.ents if ent.label_ in ner_labels and _ner_redactable(ent)]
     for ent in reversed(spans):
         text = text[:ent.start_char] + "[REDACTED]" + text[ent.end_char:]
         count += 1

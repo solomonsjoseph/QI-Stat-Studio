@@ -255,3 +255,17 @@ def test_yes_no_outcome_gets_percentage_comparison_and_p_chart_without_a_guessed
     assert "before_after_mean" not in templates and "u_c_chart" not in templates
     p_chart = next(i for i in items if i.template == "p_chart")
     assert "denominator_col" not in p_chart.parameters
+
+
+def test_sparse_daily_dates_are_grouped_by_month_for_a_yes_no_outcome():
+    days = pd.date_range("2024-01-01", periods=120, freq="D")
+    df = pd.DataFrame({"visit_date": days.strftime("%Y-%m-%d"), "at_goal": [1, 0] * 60})
+    profile = _profile(("visit_date", "Date", "date"), ("at_goal", "Yes/No", "binary"))
+    design = _design(
+        comparison="time-series",
+        primary_outcome={"label": "At goal", "column": "at_goal", "kind": "binary"},
+        time_structure={"has_dates": True, "date_column": "visit_date", "granularity": "day"},
+    )
+    p_chart = next(i for i in propose_analyses(design, profile, df) if i.template == "p_chart")
+    assert p_chart.parameters["freq"] == "ME"
+    assert any("grouped by month instead of day" in text for text in p_chart.limitations)

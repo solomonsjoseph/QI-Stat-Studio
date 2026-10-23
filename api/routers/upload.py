@@ -122,9 +122,9 @@ def run_data_quality(
     # 1. case_inconsistent
     for col in df.columns:
         if col_types.get(col) == "Category":
-            raw = df[col].dropna().astype(str)
-            normalized = raw.str.strip().str.lower()
-            if not raw.equals(normalized):
+            raw = df[col].dropna().astype(str).str.strip()
+            # Only the same value spelled in different cases is a problem; "F" and "M" are consistent.
+            if raw.nunique() > raw.str.lower().nunique():
                 add_flag(
                     col=col,
                     rule="case_inconsistent",

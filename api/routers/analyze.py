@@ -22,6 +22,7 @@ from api.models_api import (
     ValidatePlanResponse,
 )
 from api.data_changes import build_data_changes
+from api.plan_builder import _freq_for_proportion
 from api.models_db import AnalysisRun, EditHistory, FailureLog, Project, Upload, User
 from api.upload_utils import load_upload_dataframe
 from api.routers.projects import _gating, advance_phase, require_phase
@@ -92,6 +93,9 @@ def check_plan_item(
     params = dict(parameters)
     if template in ("run_chart", "p_chart", "u_c_chart") and "freq" not in params:
         params["freq"] = _granularity_to_freq(design.time_structure.granularity)
+        kind = design.primary_outcome.kind if design.primary_outcome else "unknown"
+        if kind in ("proportion", "binary") and params.get("date_col") in df.columns:
+            params["freq"] = _freq_for_proportion(df, params["date_col"], design.time_structure.granularity) or params["freq"]
 
     validated_params, field_errors = validate_template_parameters(template, params, df.columns)
     if field_errors:
@@ -148,7 +152,7 @@ def determine_feasible_templates(profile: dict[str, Any], df: pd.DataFrame) -> l
         feasible.append("before_after_paired")
     if date_cols and (num_cols or bin_cols):
         feasible.append("run_chart")
-    if date_cols and (num_cand or bin_cols) and den_cols:
+    if date_cols and (bin_cols or (num_cand and den_cols)):
         feasible.append("p_chart")
     if date_cols and num_cols:
         feasible.append("u_c_chart")

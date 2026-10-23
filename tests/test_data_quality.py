@@ -256,3 +256,9 @@ def test_unrelated_numeric_columns_do_not_raise_numerator_exceeds_denominator():
     })
     flags = run_data_quality(df, {"age_years": "Number", "n_visits_last_12mo": "Number"})
     assert "numerator_exceeds_denominator" not in {f["rule"] for f in flags}
+
+
+def test_consistently_capitalized_values_are_not_mixed_case():
+    df = pd.DataFrame({"sex": ["F", "M"] * 10, "race": ["White", "Black", "Asian", "Other"] * 5})
+    flags = run_data_quality(df, {"sex": "Category", "race": "Category"})
+    assert "case_inconsistent" not in {f["rule"] for f in flags}

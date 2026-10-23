@@ -41,7 +41,7 @@ DESIGN_TURN = {
 def make_csv(dup: bool = False) -> bytes:
     rows = ["encounter_id,period,unit,site,at_goal,lab_value"]
     for i in range(1, 61):
-        unit = " ICU " if i % 7 == 0 else "ICU"
+        unit = " ICU " if i % 7 == 0 else "icu" if i % 11 == 0 else "ICU"  # padding plus a real case variant
         site = ("North", "NORTH", "north")[i % 3]
         lab = "" if i % 5 == 0 else str(10 + i % 9)
         rows.append("%d,%s,%s,%s,%d,%s" % (i, "pre" if i <= 30 else "post", unit, site, i % 2, lab))
@@ -200,7 +200,7 @@ def test_advisor_on_full_journey(auth_client, stub_ai, monkeypatch, mock_llm):
     # Cleaned data differs from raw; the raw encrypted file is untouched.
     u = _upload(uid)
     raw_df, clean_df = load_raw_upload_dataframe(u), load_cleaned_dataframe(u)
-    assert set(raw_df["unit"]) == {"ICU", " ICU "} and set(clean_df["unit"]) == {"icu"}
+    assert set(raw_df["unit"]) == {"ICU", " ICU ", "icu"} and set(clean_df["unit"]) == {"icu"}
     assert Path(u.encrypted_path).read_bytes() == raw_before and u.checksum_sha256 == checksum
 
     # Gating passes; plan, validate and run all see the cleaned frame.
@@ -220,7 +220,7 @@ def test_advisor_on_full_journey(auth_client, stub_ai, monkeypatch, mock_llm):
     runs = run.json()["runs"]
     dc = runs[0]["data_changes"]
     assert [s["rows_before"] for s in dc["steps"]] == [60, 60] and dc["steps"][0]["cells_changed"] == 8
-    assert dc["steps"][1]["cells_changed"] == 60 and "Decision" not in json.dumps(dc["steps"])
+    assert dc["steps"][1]["cells_changed"] == 55 and "Decision" not in json.dumps(dc["steps"])
 
     # Reports and exported scripts list the change with row counts.
     docx = c.get("/report/project/%d/docx" % pid)
@@ -254,7 +254,7 @@ def test_advisor_on_full_journey(auth_client, stub_ai, monkeypatch, mock_llm):
     assert c.post("/analyze/run-plan/%d" % pid, json={"upload_id": uid, "analyses": ANALYSES}).status_code == 409
     assert c.get("/upload/%d/handoff" % uid).json()["change_log"][-1]["kind"] == "undo"
     assert [x["op"] for x in c.get("/upload/%d/handoff" % uid).json()["steps"]] == ["trim"]
-    assert set(load_cleaned_dataframe(_upload(uid))["unit"]) == {"ICU"}
+    assert set(load_cleaned_dataframe(_upload(uid))["unit"]) == {"ICU", "icu"}
     _plan(c, pid)  # reconfirming clears the stale flag
     assert not _plan_stale(pid)
     assert c.post("/analyze/run-plan/%d" % pid, json={"upload_id": uid, "analyses": ANALYSES}).status_code == 200
@@ -390,7 +390,7 @@ def test_reupload_identical_keep_and_fresh(auth_client, stub_ai):
     st = c.get("/upload/%d/flag-states" % nid).json()
     assert st["unhandled_warning_count"] == 0 and st["unresolved_error_count"] == 0
     assert not _plan_stale(pid)
-    assert set(load_cleaned_dataframe(_upload(nid))["unit"]) == {"ICU"}
+    assert set(load_cleaned_dataframe(_upload(nid))["unit"]) == {"ICU", "icu"}
 
     b2 = _replace(c, pid, nid, make_csv())
     assert b2["choice_required"]

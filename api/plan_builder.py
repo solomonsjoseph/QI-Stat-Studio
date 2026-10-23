@@ -250,6 +250,26 @@ def _bind_before_after_paired(
     return params, conf
 
 
+_FREQ_BY_GRANULARITY = {"day": "D", "week": "W", "month": "ME", "quarter": "QE"}
+_FREQ_UNIT = {"D": "day", "W": "week", "ME": "month", "QE": "quarter"}
+# ponytail: 20 records per period is a rule of thumb for proportions; confirm the number with the clinical owner.
+_MIN_RECORDS_PER_PERIOD = 20
+
+
+def _freq_for_proportion(df: pd.DataFrame, date_col: str, granularity: str | None) -> str | None:
+    """Finest period, no finer than the design's, whose typical (non-empty) period holds enough records."""
+    start = _FREQ_BY_GRANULARITY.get(str(granularity or "").lower())
+    dates = pd.to_datetime(df[date_col], errors="coerce").dropna()
+    if start is None or dates.empty:
+        return None
+    order = list(_FREQ_UNIT)
+    for freq in order[order.index(start):]:
+        counts = pd.Series(1, index=dates).resample(freq).sum()
+        if counts[counts > 0].median() >= _MIN_RECORDS_PER_PERIOD:
+            return freq
+    return order[-1]
+
+
 def _bind_time_chart(
     design: ProjectDesign,
     profile: dict[str, Any],
@@ -302,6 +322,12 @@ def _bind_time_chart(
     if design.intervention.present and design.intervention.start_date:
         params["intervention_date"] = design.intervention.start_date
 
+    if binary and "date_col" in params:
+        freq = _freq_for_proportion(df, params["date_col"], design.time_structure.granularity)
+        if freq:
+            params["freq"] = freq
+            conf["freq"] = "medium"
+
     return params, conf
 
 
@@ -338,7 +364,7 @@ def _feasible_templates(profile: dict[str, Any], df: pd.DataFrame) -> set[str]:
         feasible.add("before_after_paired")
     if date_cols and (num_cols or bin_cols):
         feasible.add("run_chart")
-    if date_cols and (num_cand or bin_cols) and den_cols:
+    if date_cols and (bin_cols or (num_cand and den_cols)):
         feasible.add("p_chart")
     if date_cols and num_cols:
         feasible.add("u_c_chart")
@@ -391,6 +417,13 @@ def propose_analyses(
                 )
             )
             needs_clarification = True
+        chosen = parameters.get("freq")
+        wanted = _FREQ_BY_GRANULARITY.get(str(design.time_structure.granularity or "").lower())
+        if chosen and wanted and chosen != wanted:
+            limitations.append(
+                f"Records were grouped by {_FREQ_UNIT[chosen]} instead of {_FREQ_UNIT[wanted]}, "
+                f"the finest period with at least {_MIN_RECORDS_PER_PERIOD} records in a typical period."
+            )
         den_roles = (profile.get("candidate_roles") or {}).get("denominator") or []
         if len(den_roles) > 1 and "denominator_col" in parameters:
             count = "Two columns are" if len(den_roles) == 2 else f"{len(den_roles)} columns are"

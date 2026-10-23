@@ -274,4 +274,13 @@ describe('AnalysisPlanStage with the advisor off', () => {
     expect(screen.queryByText('Conversation history')).not.toBeInTheDocument()
     expect(screen.getByText(/chosen automatically and are not certain/)).toBeInTheDocument()
   })
+
+  it('names the templates in the add-analysis list the way the rest of the app does', async () => {
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Here is your plan', confirmed: false, analyses: [makeItem()], turns: [],
+    })
+    renderScreen()
+    expect(await screen.findByRole('option', { name: 'Run Chart' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'run chart' })).not.toBeInTheDocument()
+  })
 })
