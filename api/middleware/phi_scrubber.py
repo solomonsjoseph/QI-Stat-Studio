@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
@@ -13,14 +14,14 @@ logger = logging.getLogger(__name__)
 # 30-90s+ on some hosts and makes /health unreachable until the model is ready.
 _nlp = None
 _nlp_loaded = False
+_nlp_loading = False
+_nlp_lock = threading.Lock()
+_nlp_ready = threading.Event()
 
 
-def _get_nlp():
-    """Load en_core_web_sm once on first PHI NER use; None if unavailable."""
-    global _nlp, _nlp_loaded
-    if _nlp_loaded:
-        return _nlp
-    _nlp_loaded = True
+def _load_nlp() -> None:
+    """Load the optional NER model in a background thread exactly once."""
+    global _nlp, _nlp_loaded, _nlp_loading
     try:
         import spacy
 
@@ -28,6 +29,29 @@ def _get_nlp():
     except Exception as exc:  # pragma: no cover - environment-dependent startup branch
         _nlp = None
         logger.warning("spaCy PHI NER model unavailable; regex PHI scrubber remains active: %s", exc)
+    finally:
+        _nlp_loaded = True
+        _nlp_loading = False
+        _nlp_ready.set()
+
+
+def _get_nlp(wait: bool = False):
+    """Return the NER model if ready, without making a request wait for it.
+
+    Regex redaction runs first and is always active.  The model is an additional
+    safeguard, but loading it synchronously made the first resident AI request
+    appear frozen for many seconds on normal development and container hosts.
+    Upload PHI gates pass wait=True: a skipped name scan must not read as clean.
+    """
+    global _nlp_loading
+    if _nlp_loaded:
+        return _nlp
+    with _nlp_lock:
+        if not _nlp_loaded and not _nlp_loading:
+            _nlp_loading = True
+            threading.Thread(target=_load_nlp, daemon=True, name="phi-ner-load").start()
+    if wait:
+        _nlp_ready.wait()
     return _nlp
 
 _PATTERNS = [

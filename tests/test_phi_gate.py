@@ -75,7 +75,7 @@ def test_dictionary_scan_ignores_single_token_person_false_positives(monkeypatch
         def __call__(self, text):
             return _Doc()
 
-    monkeypatch.setattr(api.phi_gate, "_get_nlp", lambda: _Nlp())
+    monkeypatch.setattr(api.phi_gate, "_get_nlp", lambda wait=False: _Nlp())
     findings = scan_document_text("Falls QI project unit dictionary")
     assert findings == []
 

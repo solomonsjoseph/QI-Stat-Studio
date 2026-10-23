@@ -68,7 +68,12 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("phi_ner_warm_failed")
 
-    threading.Thread(target=_warm_phi_ner, daemon=True, name="phi-ner-warm").start()
+    # Loading spaCy can take long enough to make a healthy API look unavailable
+    # (and, on constrained hosts, can delay lifespan startup altogether).  Keep
+    # the liveness/readiness contract deterministic; operators who want to pay
+    # that cost in the background can opt in explicitly.
+    if os.environ.get("WARM_PHI_NER", "").strip().lower() in {"1", "true", "yes"}:
+        threading.Thread(target=_warm_phi_ner, daemon=True, name="phi-ner-warm").start()
     yield
 
 

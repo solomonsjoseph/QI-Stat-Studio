@@ -86,7 +86,7 @@ def scan_document_text(text: str) -> list[PhiFinding]:
             )
 
     # Person-name check via spaCy NER (shared lazy load with the text scrubber)
-    nlp = _get_nlp()
+    nlp = _get_nlp(wait=True)
     if nlp is not None:
         doc = nlp(text)
         has_person = any(ent.label_ == "PERSON" and _is_valid_person_entity(ent) for ent in doc.ents)
