@@ -1,5 +1,9 @@
 .PHONY: stub real test e2e
 
+# Backend port (override: make stub API_PORT=9000). Read by dev.sh, vite proxy, playwright.
+API_PORT ?= 8010
+export API_PORT
+
 # Offline AI stub, no API key. Open http://127.0.0.1:5173
 stub:
 	./scripts/dev.sh stub

@@ -86,7 +86,7 @@ trap cleanup EXIT INT TERM
 # Default: no --reload. Reloader + WatchFiles on networked filesystems can keep
 # /health unreachable for minutes while the worker imports. Set DEV_RELOAD=1 to
 # opt in. litellm and spaCy load lazily on first use.
-UVICORN_ARGS=(api.main:app --host 127.0.0.1 --port 8000)
+UVICORN_ARGS=(api.main:app --host 127.0.0.1 --port "${API_PORT:-8000}")
 if [[ "${DEV_RELOAD:-0}" == "1" ]]; then
   UVICORN_ARGS+=(--reload)
 fi
@@ -100,8 +100,8 @@ for i in $(seq 1 "${WAIT_SECS}"); do
     echo "backend process exited before becoming healthy. Check uvicorn output above." >&2
     exit 1
   fi
-  if curl -sf --max-time 2 http://127.0.0.1:8000/health >/dev/null 2>&1; then
-    echo "backend ready http://127.0.0.1:8000"
+  if curl -sf --max-time 2 http://127.0.0.1:${API_PORT:-8000}/health >/dev/null 2>&1; then
+    echo "backend ready http://127.0.0.1:${API_PORT:-8000}"
     break
   fi
   if [[ "$i" -eq "${WAIT_SECS}" ]]; then
@@ -114,7 +114,7 @@ for i in $(seq 1 "${WAIT_SECS}"); do
   sleep 1
 done
 
-(cd web && npx vite --host 127.0.0.1 --port 5173) &
+(cd web && API_PORT="${API_PORT:-8000}" npx vite --host 127.0.0.1 --port 5173) &
 FRONTEND_PID=$!
 echo "frontend http://127.0.0.1:5173  mode=${AI_PROVIDER:-from .env}"
 wait
