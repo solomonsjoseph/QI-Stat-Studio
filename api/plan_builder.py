@@ -351,7 +351,20 @@ def propose_analyses(
         if "denominator_col" not in parameters and (template == "p_chart" or (template == "u_c_chart" and kind == "rate")):
             limitations.append(
                 "No denominator column is assigned (for example patient days). "
-                "Assign one in the Data Review role table or in the project definition."
+                "Assign one in the Data Review role table or in the project definition. "
+                + (
+                    "Without a denominator this runs as a counts-only C chart, which assumes the same exposure every period."
+                    if template == "u_c_chart"
+                    else "Without a denominator each record is counted as one case in its period."
+                )
+            )
+            needs_clarification = True
+        den_roles = (profile.get("candidate_roles") or {}).get("denominator") or []
+        if len(den_roles) > 1 and "denominator_col" in parameters:
+            count = "Two columns are" if len(den_roles) == 2 else f"{len(den_roles)} columns are"
+            limitations.append(
+                f"{count} set as Denominator. This analysis will use {parameters['denominator_col']}. "
+                "Change the other one in the Data Review role table if that is wrong."
             )
             needs_clarification = True
         items.append(

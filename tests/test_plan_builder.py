@@ -174,3 +174,30 @@ def test_design_denominator_beats_saved_role():
     design = _design(primary_outcome={"label": "Falls", "column": "falls", "kind": "rate",
                                       "denominator_column": "patient_days"})
     assert _uc(propose_analyses(design, get_effective_profile(up), df)).parameters["denominator_col"] == "patient_days"
+
+
+def test_missing_denominator_text_states_consequence():
+    df = _staff_df()
+    up = _upload(df, {"staff_score": "", "patient_days": ""})
+    u = _uc(propose_analyses(_rate_design(), get_effective_profile(up), df))
+    assert u.needs_clarification
+    assert "Without a denominator this runs as a counts-only C chart, which assumes the same exposure every period." in u.limitations[0]
+
+
+def test_two_denominators_need_review_and_name_the_used_column():
+    df = _staff_df()
+    up = _upload(df, {})  # both staff_score and patient_days are denominator candidates
+    design = _rate_design()
+    design.primary_outcome.denominator_column = None
+    u = _uc(propose_analyses(design, get_effective_profile(up), df))
+    assert u.parameters["denominator_col"] == "staff_score"
+    assert u.needs_clarification
+    assert ("Two columns are set as Denominator. This analysis will use staff_score. "
+            "Change the other one in the Data Review role table if that is wrong.") in u.limitations
+
+
+def test_single_denominator_adds_no_conflict_note():
+    df = _staff_df()
+    up = _upload(df, {"staff_score": "outcome"})
+    u = _uc(propose_analyses(_rate_design(), get_effective_profile(up), df))
+    assert not any("set as Denominator" in x for x in u.limitations)

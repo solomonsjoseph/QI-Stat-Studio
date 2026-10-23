@@ -587,3 +587,12 @@ def test_reports_without_data_changes_have_no_section_and_old_runs_still_export(
         r = client.get(url)
         assert r.status_code == 200, r.text
         assert "Data changes applied" not in extract(r.content)
+
+
+def test_report_lists_run_snapshot_limitation(client):
+    _register(client, "admin@example.com")
+    line = "No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period."
+    with_it = _seed_report_run(result={"methods": "m", "result_summary": "s", "table": [], "limitations": [line]})
+    assert line in _docx_text(client.get(f"/report/project/{with_it['project_id']}/docx").content)
+    without = _seed_report_run()
+    assert line not in _docx_text(client.get(f"/report/project/{without['project_id']}/docx").content)

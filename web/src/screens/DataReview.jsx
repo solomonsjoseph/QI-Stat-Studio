@@ -7,6 +7,7 @@ import AdvisorChat from '../components/AdvisorChat'
 import HandoffViewer from '../components/HandoffViewer'
 import ReuploadChoice from '../components/ReuploadChoice'
 import { api } from '../api'
+import { denominatorColumns, denominatorUsed } from '../denominators'
 
 const ROLE_OPTIONS = [
   { value: '', label: '(none)' },
@@ -79,6 +80,8 @@ export default function DataReview({ onOpenClarify } = {}) {
     return init
   })
   const [saving, setSaving] = useState(false)
+  const denomCols = denominatorColumns(ctx.profile?.candidate_roles, columnRoles)
+  const denomUsed = denominatorUsed(denomCols, ctx.design, colTypes)
   const [error, setError] = useState('')
 
   const refreshStates = useCallback(async () => {
@@ -284,6 +287,12 @@ export default function DataReview({ onOpenClarify } = {}) {
             </tbody>
           </table>
         </div>
+        {denomCols.length > 1 && (
+          <p role="status" className="alert-warn mt-2 text-sm">
+            {denomCols.length === 2 ? 'Two columns are' : `${denomCols.length} columns are`} set as Denominator.
+            {' '}The analysis will use {denomUsed}. Change the other one if that is wrong.
+          </p>
+        )}
       </section>
 
       {flags.length > 0 && (

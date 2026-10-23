@@ -306,6 +306,10 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
 
     doc.add_heading("Limitations", 1)
     all_limitations = list(ctx["limitations"])
+    for r in ctx["runs"]:
+        for lim in (r.get("result") or {}).get("limitations") or []:
+            if lim not in all_limitations:
+                all_limitations.append(lim)
     if upload:
         flags = _safe_json(upload.acknowledged_flags, [])
         for f in flags:
@@ -460,6 +464,10 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
 
     story.append(Paragraph("Limitations", styles["Heading2"]))
     all_limitations = list(ctx["limitations"])
+    for r in ctx["runs"]:
+        for lim in (r.get("result") or {}).get("limitations") or []:
+            if lim not in all_limitations:
+                all_limitations.append(lim)
     if upload:
         flags = _safe_json(upload.acknowledged_flags, [])
         for f in flags:

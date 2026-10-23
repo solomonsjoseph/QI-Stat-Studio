@@ -155,6 +155,31 @@ def determine_feasible_templates(profile: dict[str, Any], df: pd.DataFrame) -> l
     return [t for t in TEMPLATE_REGISTRY.keys() if t in feasible]
 
 
+NO_DENOMINATOR_LIMITATION = (
+    "No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period."
+)
+NO_DENOMINATOR_LIMITATION_P = (
+    "No denominator was assigned, so each record was counted as one case in its period."
+)
+
+
+def _missing_denominator(db: Session, project_id: int, template: str, params: dict[str, Any]) -> str | None:
+    """Limitation text when a rate/proportion chart ran without a denominator, else None."""
+    if params.get("denominator_col"):
+        return None
+    if template == "p_chart":
+        return NO_DENOMINATOR_LIMITATION_P
+    if template == "u_c_chart":
+        project = db.get(Project, project_id)
+        try:
+            kind = json.loads(project.ai_project_design or "{}").get("primary_outcome", {}).get("kind")
+        except (AttributeError, TypeError, ValueError):
+            kind = None
+        if kind == "rate":
+            return NO_DENOMINATOR_LIMITATION
+    return None
+
+
 def execute_template(
     db: Session,
     request: Request | None,
@@ -189,6 +214,9 @@ def execute_template(
         code_sas = generate_sas_code(template, params, result, data_changes)
         if data_changes:
             result = {**result, "data_changes": data_changes}
+        missing_den = _missing_denominator(db, project_id, template, params)
+        if missing_den:
+            result = {**result, "limitations": [missing_den]}
 
         run = AnalysisRun(
             project_id=project_id,

@@ -95,6 +95,18 @@ describe('Results multi-run rendering', () => {
     expect(screen.getByRole('button', { name: 'Edit & Review' })).toBeInTheDocument()
   })
 
+  it('lists a run-level limitation in the Limitations list', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    const line = 'No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period.'
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'u_c_chart', result_summary: 's', table: [], limitations: [line] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+    render(<Results />)
+    expect(await screen.findByText(line)).toBeInTheDocument()
+  })
+
   it('shows the paired-rows note under the figure only when counts are present', async () => {
     useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
     apiMock.runPlan.mockResolvedValue({

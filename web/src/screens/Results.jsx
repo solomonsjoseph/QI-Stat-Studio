@@ -176,6 +176,9 @@ export default function Results() {
     )
   }
 
+  const allLimitations = [...(narrative?.limitations || [])]
+  runs.forEach(r => (r.limitations || []).forEach(l => { if (!allLimitations.includes(l)) allLimitations.push(l) }))
+
   return (
     <div className="screen">
       <PageIntro step="results" title="Results" />
@@ -209,11 +212,11 @@ export default function Results() {
         </p>
       )}
 
-      {narrative?.limitations?.length > 0 && (
+      {allLimitations.length > 0 && (
         <div className="alert-warn mb-6">
           <h2 className="mb-1 font-medium">Limitations</h2>
           <ul className="list-disc pl-5 text-sm">
-            {narrative.limitations.map((l, i) => <li key={i}>{l}</li>)}
+            {allLimitations.map((l, i) => <li key={i}>{l}</li>)}
           </ul>
         </div>
       )}
