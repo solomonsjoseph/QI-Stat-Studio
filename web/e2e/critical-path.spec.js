@@ -7,7 +7,7 @@ async function answerClarificationQuestions(page, expectedAiTurnCount) {
   await page.locator('#q-1').fill('A fall-risk assessment protocol with intentional rounding.')
   await page.locator('#q-2').fill('The protocol began in January 2025.')
   await page.getByRole('button', { name: 'Submit Answers' }).click()
-  await expect(page.getByText('AI Advisor', { exact: true })).toHaveCount(expectedAiTurnCount)
+  await expect(page.getByText('QI Stat Advisor', { exact: true })).toHaveCount(expectedAiTurnCount)
 }
 
 test.describe('critical resident workflow', () => {
@@ -57,7 +57,7 @@ test.describe('critical resident workflow', () => {
 
     await expect(page.getByRole('heading', { name: 'Project Clarification' })).toBeVisible()
     await expect(page.getByText('Tracking monthly inpatient falls normalized by patient days over time.')).toBeVisible()
-    await expect(page.getByText('AI Advisor', { exact: true })).toHaveCount(1)
+    await expect(page.getByText('QI Stat Advisor', { exact: true })).toHaveCount(1)
 
     // The stub asks the same two questions each turn. Four AI turns unlock the
     // resident-controlled confirmation path rather than relying on AI confirmation.
@@ -76,6 +76,7 @@ test.describe('critical resident workflow', () => {
     for (let index = 0; index < await warningCheckboxes.count(); index += 1) {
       await warningCheckboxes.nth(index).check()
     }
+    if (await warningCheckboxes.count()) await page.getByRole('button', { name: 'Acknowledge selected' }).click()
     await expect(page.getByRole('button', { name: 'Continue to Analysis Selection' })).toBeEnabled()
     await page.getByRole('button', { name: 'Continue to Analysis Selection' }).click()
 
@@ -91,7 +92,6 @@ test.describe('critical resident workflow', () => {
     await page.getByRole('button', { name: 'Run these analyses' }).click()
 
     await expect(page.getByRole('heading', { name: 'Results' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'What the data show (descriptive)' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Descriptive Summary' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'u/c-Chart' })).toBeVisible()
     await page.getByRole('button', { name: 'Edit & Review' }).click()

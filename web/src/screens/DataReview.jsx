@@ -1,8 +1,11 @@
-import React, { useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useApp } from '../App'
 import BackButton from '../components/BackButton'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
+import AdvisorChat from '../components/AdvisorChat'
+import HandoffViewer from '../components/HandoffViewer'
+import ReuploadChoice from '../components/ReuploadChoice'
 import { api } from '../api'
 
 const ROLE_OPTIONS = [
@@ -21,9 +24,21 @@ const NECESSITY_GROUPS = [
   { key: 'optional', label: 'Optional future improvement' },
 ]
 
-function errorMessage(err) {
-  return `${err.message || 'Could not save acknowledgements'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
+function errorMessage(err, fallback = 'Could not save acknowledgements') {
+  return `${err.message || fallback}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
 }
+
+const STATE_LABELS = {
+  unhandled: 'Not handled',
+  open: 'Clarify started',
+  discussing: 'Being discussed',
+  handled: 'Handled',
+  resolved: 'Resolved',
+}
+const SETTLED = new Set(['handled', 'resolved'])
+
+// Flags from older uploads have no id, so the message is the key.
+const flagKey = f => f.id || f.msg
 
 function primaryRoleFor(col, profile) {
   const candidateRoles = profile?.candidate_roles || {}
@@ -33,8 +48,8 @@ function primaryRoleFor(col, profile) {
   return ''
 }
 
-export default function DataReview() {
-  const { ctx, update, next, prev } = useApp()
+export default function DataReview({ onOpenClarify } = {}) {
+  const { ctx, update, next, prev, advisorOff } = useApp()
   const flags = ctx.qualityFlags || []
   const colTypes = ctx.colTypes || {}
   const missingPct = ctx.missingPct || {}
@@ -44,12 +59,16 @@ export default function DataReview() {
   const errors = flags.filter(f => f.severity === 'ERROR')
   const warnings = flags.filter(f => f.severity !== 'ERROR')
 
-  const [acknowledged, setAcknowledged] = useState(() => {
-    const acked = new Set((ctx.acknowledgedFlags || []).map(f => f.msg))
-    const init = {}
-    warnings.forEach((f, i) => { if (acked.has(f.msg)) init[i] = true })
-    return init
-  })
+  const uploadId = ctx.uploadId
+  const legacyAcked = new Set((ctx.acknowledgedFlags || []).map(flagKey))
+  // flag-states payload: { byKey, unhandled_warning_count, unresolved_error_count } or null when not loaded
+  const [flagStates, setFlagStates] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())
+  const [busy, setBusy] = useState(false)
+  const [clarifyGroup, setClarifyGroup] = useState(null)
+  const [showHandoff, setShowHandoff] = useState(false)
+  const [advisorGone, setAdvisorGone] = useState(false)
+  const [statesError, setStatesError] = useState('')
   const [columnRoles, setColumnRoles] = useState(() => {
     const init = { ...(ctx.columnRoles || {}) }
     Object.keys(colTypes).forEach(col => {
@@ -62,16 +81,102 @@ export default function DataReview() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  function toggleAck(i) {
-    setAcknowledged(a => ({ ...a, [i]: !a[i] }))
+  const refreshStates = useCallback(async () => {
+    if (!uploadId) return
+    const res = await api.getFlagStates(uploadId)
+    setStatesError('')
+    const byKey = {}
+    ;(res.flags || []).forEach(f => { byKey[f.flag_id] = f })
+    setFlagStates({
+      byKey,
+      unhandled_warning_count: res.unhandled_warning_count,
+      unresolved_error_count: res.unresolved_error_count,
+    })
+  }, [uploadId])
+
+  const loadStates = useCallback(
+    () => refreshStates().catch(err => setStatesError(errorMessage(err, 'Could not load warning states'))),
+    [refreshStates],
+  )
+
+  useEffect(() => { loadStates() }, [loadStates])
+
+  function stateOf(flag) {
+    const s = flagStates?.byKey[flagKey(flag)]?.state
+    if (s) return s
+    return uploadId || !legacyAcked.has(flagKey(flag)) ? 'unhandled' : 'handled'
   }
 
   function setRole(col, role) {
     setColumnRoles(r => ({ ...r, [col]: role }))
   }
 
-  const allWarningsAcked = warnings.every((_, i) => acknowledged[i])
-  const canContinue = errors.length === 0 && (warnings.length === 0 || allWarningsAcked)
+  const selectable = flags.filter(f => !SETTLED.has(stateOf(f)))
+  const selectedFlags = selectable.filter(f => selected.has(flagKey(f)))
+  const selectedHasError = selectedFlags.some(f => f.severity === 'ERROR')
+  const allSelected = selectable.length > 0 && selectedFlags.length === selectable.length
+  const advisorDown = advisorOff === true || advisorGone
+  const selectedInOpenGroup = selectedFlags.some(f => ['open', 'discussing'].includes(stateOf(f)) && flagStates?.byKey[flagKey(f)]?.group_id != null)
+
+  function toggle(flag) {
+    const k = flagKey(flag)
+    setSelected(prev => {
+      const n = new Set(prev)
+      if (n.has(k)) n.delete(k); else n.add(k)
+      return n
+    })
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(selectable.map(flagKey)))
+  }
+
+  async function runGroup(action) {
+    const ids = selectedFlags.map(flagKey)
+    setBusy(true)
+    setError('')
+    try {
+      let group
+      if (action === 'acknowledge') {
+        group = await api.acknowledgeWarnings(uploadId, ids)
+      } else {
+        group = await api.createWarningGroup(uploadId, ids, 'clarify')
+        setClarifyGroup({ groupId: group.id, flagIds: ids, resume: false })
+        if (onOpenClarify) onOpenClarify(group.id, ids)
+      }
+      setSelected(new Set())
+      await refreshStates()
+    } catch (err) {
+      setError(errorMessage(err, 'Could not save your selection'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Server gating decides. Without an upload there is nothing to ask the server, so use local state.
+  const canContinue = !uploadId
+    ? errors.length === 0 && warnings.every(f => legacyAcked.has(flagKey(f)))
+    : !!flagStates && flagStates.unhandled_warning_count === 0 && flagStates.unresolved_error_count === 0
+
+  async function cancelGroup(groupId) {
+    setBusy(true)
+    setError('')
+    try {
+      await api.cancelWarningGroup(uploadId, groupId)
+      if (clarifyGroup?.groupId === groupId) setClarifyGroup(null)
+      await refreshStates()
+    } catch (err) {
+      setError(errorMessage(err, 'Could not cancel the clarification'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openGroup(groupId) {
+    const ids = Object.values(flagStates?.byKey || {}).filter(f => f.group_id === groupId).map(f => f.flag_id)
+    setClarifyGroup({ groupId, flagIds: ids, resume: true })
+  }
+  const flagLabels = Object.fromEntries(flags.map(f => [flagKey(f), f.msg]))
 
   const groupedRecs = NECESSITY_GROUPS.map(g => ({
     ...g,
@@ -82,7 +187,7 @@ export default function DataReview() {
     setSaving(true)
     setError('')
     try {
-      const ackedFlags = warnings.filter((_, i) => acknowledged[i])
+      const ackedFlags = warnings.filter(f => stateOf(f) === 'handled')
       if (ctx.uploadId) {
         await api.saveAcknowledgedFlags(ctx.uploadId, ackedFlags)
         await api.confirmColTypes(ctx.uploadId, colTypes, ctx.columnMap || {}, columnRoles)
@@ -99,13 +204,29 @@ export default function DataReview() {
   return (
     <div className="screen">
       <PageIntro step="review" title="Data Review" />
+      <ReuploadChoice />
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}
+      {statesError && (
+        <div role="alert" className="alert-error mb-4 flex flex-wrap items-center gap-3">
+          <span>{statesError}. Continue stays off until the warning states load.</span>
+          <button type="button" className="btn-secondary" onClick={loadStates}>Retry</button>
+        </div>
+      )}
       {saving && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Saving acknowledgements…</p>}
 
       {(rowCount != null || Object.keys(colTypes).length > 0) && (
         <p className="mb-4 text-sm text-ink-soft">
           {rowCount != null ? `${rowCount.toLocaleString()} rows` : 'Rows loaded'} · {Object.keys(colTypes).length.toLocaleString()} columns
         </p>
+      )}
+
+      {uploadId && (
+        <div className="mb-4">
+          <button type="button" className="btn-secondary" aria-expanded={showHandoff} onClick={() => setShowHandoff(v => !v)}>
+            {showHandoff ? 'Hide handoff document' : 'View handoff document'}
+          </button>
+          {showHandoff && <div className="mt-3"><HandoffViewer uploadId={uploadId} /></div>}
+        </div>
       )}
 
       <p className="alert-info mb-4">
@@ -165,55 +286,93 @@ export default function DataReview() {
         </div>
       </section>
 
-      {errors.length > 0 && (
-        <div className="alert-error mb-6">
-          <h2 className="mb-2 font-semibold">Data Errors (must fix before continuing)</h2>
-          {errors.map((flag, i) => (
-            <div key={i} className="mb-3">
-              <p className="mb-1"><span className="font-semibold mr-1">ERROR:</span>{flag.msg}</p>
-              {flag.why && <p className="text-sm ml-4">Why this matters: {flag.why}</p>}
-              {flag.suggestion && <p className="text-sm ml-4">Suggestion: {flag.suggestion}</p>}
-              {flag.blocks && <p className="text-sm ml-4 font-medium">This prevents: {flag.blocks}</p>}
-            </div>
-          ))}
-          <button type="button" onClick={prev} className="btn-danger mt-3">
-            Re-upload corrected file
-          </button>
-        </div>
-      )}
-
-      {warnings.length > 0 && (
+      {flags.length > 0 && (
         <section className="mb-6" aria-labelledby="quality-warnings-heading">
           <h2 id="quality-warnings-heading" className="mb-2 font-semibold text-warn-ink">Data Quality Warnings</h2>
           <p className="mb-3 text-sm text-ink-soft">
-            Please acknowledge each issue before proceeding. Acknowledged warnings appear in report limitations, but selected outcome columns with more than 30% missing values are blocked during analysis and require a different outcome column or corrected upload.
+            Tick the warnings you want to handle, then choose Acknowledge or Clarify with the QI Stat Advisor. You can do several rounds with different selections. Acknowledged warnings appear in report limitations. Errors can only be fixed through Clarify and keep blocking until the check passes on the cleaned data.
           </p>
-          <div className="flex flex-col gap-2">
-            {warnings.map((flag, i) => (
-              <label key={i} className="choice items-start">
-                <input type="checkbox" checked={!!acknowledged[i]} onChange={() => toggleAck(i)} disabled={saving} className="mt-0.5 h-4 w-4 text-brand" />
-                <span>
-                  <span className="mr-2 text-xs font-semibold text-warn-ink">WARNING</span><span className="text-ink">{flag.msg}</span>
-                  {flag.why && <span className="block text-xs text-ink-soft mt-1">Why this matters: {flag.why}</span>}
-                  {flag.suggestion && <span className="block text-xs text-ink-soft">Suggestion: {flag.suggestion}</span>}
-                  {flag.blocks && <span className="block text-xs font-medium text-warn-ink mt-1">This prevents: {flag.blocks}</span>}
-                </span>
-              </label>
-            ))}
+          <div className="mb-3 flex flex-wrap items-center gap-3">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 text-brand" checked={allSelected} disabled={selectable.length === 0 || busy || saving} onChange={toggleAll} />
+              Select all
+            </label>
+            <span aria-live="polite" className="text-sm text-ink-soft">{selectedFlags.length} selected</span>
+            <button type="button" className="btn-secondary" onClick={() => runGroup('acknowledge')}
+              disabled={selectedFlags.length === 0 || selectedHasError || busy || saving}>
+              Acknowledge selected
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => runGroup('clarify')}
+              disabled={selectedFlags.length === 0 || advisorDown || busy || saving}>
+              Clarify with QI Stat Advisor
+            </button>
           </div>
+          {selectedHasError && <p className="mb-2 text-sm text-ink-soft">Acknowledge is off because the selection includes an error. Errors can only go through Clarify.</p>}
+          {selectedInOpenGroup && <p className="mb-2 text-sm text-ink-soft">This will end the clarification in progress for these warnings.</p>}
+          {advisorDown && <p className="mb-2 text-sm text-ink-soft">The QI Stat Advisor is not available. You can still acknowledge warnings.</p>}
+          <ul className="flex flex-col gap-2">
+            {flags.map(flag => {
+              const k = flagKey(flag)
+              const st = stateOf(flag)
+              const settled = SETTLED.has(st)
+              const isError = flag.severity === 'ERROR'
+              return (
+                <li key={k}>
+                  <label className={`choice items-start ${settled ? 'opacity-60' : ''}`}>
+                    <input type="checkbox" className="mt-0.5 h-4 w-4 text-brand"
+                      checked={!settled && selected.has(k)} disabled={settled || busy || saving} onChange={() => toggle(flag)} />
+                    <span>
+                      <span className={`mr-2 text-xs font-semibold ${isError ? 'text-error-ink' : 'text-warn-ink'}`}>{isError ? 'ERROR' : 'WARNING'}</span>
+                      <span className="text-ink">{flag.msg}</span>
+                      <span className="ml-2 text-xs text-ink-soft" data-testid={`state-${k}`}>({STATE_LABELS[st] || st})</span>
+                      {flag.why && <span className="block text-xs text-ink-soft mt-1">Why this matters: {flag.why}</span>}
+                      {flag.suggestion && <span className="block text-xs text-ink-soft">Suggestion: {flag.suggestion}</span>}
+                      {flag.blocks && <span className="block text-xs font-medium text-warn-ink mt-1">This prevents: {flag.blocks}</span>}
+                    </span>
+                  </label>
+                  {flagStates?.byKey[k]?.action === 'clarify' && flagStates.byKey[k].group_id != null && (
+                    <button type="button" className="btn-secondary ml-6 mt-1 text-xs" disabled={advisorDown}
+                      onClick={() => openGroup(flagStates.byKey[k].group_id)}>
+                      {settled ? 'Revise or undo' : 'Open chat'}<span className="sr-only"> for {flag.msg}</span>
+                    </button>
+                  )}
+                  {!settled && flagStates?.byKey[k]?.action === 'clarify' && flagStates.byKey[k].group_id != null && (
+                    <button type="button" className="btn-secondary ml-2 mt-1 text-xs" disabled={busy || saving}
+                      onClick={() => cancelGroup(flagStates.byKey[k].group_id)}>
+                      Cancel this clarification<span className="sr-only"> for {flag.msg}</span>
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          {errors.length > 0 && (
+            <button type="button" onClick={prev} className="btn-danger mt-3">Re-upload corrected file</button>
+          )}
         </section>
+      )}
+
+      {clarifyGroup && (
+        <AdvisorChat
+          key={`${clarifyGroup.groupId}-${clarifyGroup.resume}`}
+          groupId={clarifyGroup.groupId}
+          flagIds={clarifyGroup.flagIds}
+          flagLabels={flagLabels}
+          resume={clarifyGroup.resume}
+          onChanged={loadStates}
+          onUnavailable={() => setAdvisorGone(true)}
+          onClose={() => setClarifyGroup(null)}
+        />
       )}
 
       {flags.length === 0 && <p className="alert-ok mb-6">No data quality issues detected.</p>}
 
       <div className="flex flex-wrap gap-3">
         <BackButton onClick={prev} disabled={saving} />
-        {errors.length === 0 && (
-          <button type="button" onClick={proceed} disabled={!canContinue || saving} className="btn-primary">
-            {saving && <Spinner />}
-            {saving ? 'Saving…' : 'Continue to Analysis Selection'}
-          </button>
-        )}
+        <button type="button" onClick={proceed} disabled={!canContinue || saving || busy} className="btn-primary">
+          {saving && <Spinner />}
+          {saving ? 'Saving…' : 'Continue to Analysis Selection'}
+        </button>
       </div>
     </div>
   )

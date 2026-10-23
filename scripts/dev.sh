@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Use the venv created by scripts/setup.sh unless another env is already active.
+if [[ -z "${VIRTUAL_ENV:-}${CONDA_PREFIX:-}" && -f .venv/bin/activate ]]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+
 case "${1:-}" in
   stub|test) export AI_PROVIDER=stub ;;
   real) ;; # uses AI_PROVIDER from .env (openrouter/openai/local/gemini)
@@ -17,11 +23,34 @@ if [[ -f .env ]]; then
   source .env
   set +a
 fi
+# .env must not override the offline stub chosen on the command line.
+case "${1:-}" in stub|test) export AI_PROVIDER=stub ;; esac
+
+if [[ "${1:-}" == "real" ]]; then
+  case "${AI_PROVIDER:-openrouter}" in
+    openrouter) _k="${OPENROUTER_API_KEY:-}" ;;
+    openai) _k="${OPENAI_API_KEY:-}" ;;
+    gemini) _k="${GEMINI_API_KEY:-}" ;;
+    *) _k="ok" ;; # local needs no key
+  esac
+  if [[ -z "$_k" || "$_k" == "sk-or-..." ]]; then
+    echo "NOTE: no AI key set for AI_PROVIDER=${AI_PROVIDER:-openrouter}. Add it to .env (see .env.example)" >&2
+    echo "      and restart. Starting anyway; AI features will be unavailable. Use 'make stub' for the offline demo." >&2
+  fi
+fi
+
+# Matplotlib is used by the chart templates.  A read-only home directory should
+# not make startup noisy or force a new font cache for every process.
+export MPLCONFIGDIR="${MPLCONFIGDIR:-/tmp/qi-stat-studio-matplotlib}"
+mkdir -p "$MPLCONFIGDIR"
 
 alembic upgrade head
 
 # Recover from a stamped-but-empty sqlite DB (alembic_version at head, no tables).
 # That state yields Internal Server Error on /auth/register: "no such table: users".
+# This probe deliberately exits with 2 when it repaired a SQLite file.  It is
+# not an error, so temporarily disable `errexit` to inspect that status.
+set +e
 python - <<'PY'
 import os
 import sys
@@ -53,6 +82,7 @@ print(f"dev.sh: reset empty sqlite DB at {db_path}; re-running migrations")
 sys.exit(2)
 PY
 schema_status=$?
+set -e
 if [[ "$schema_status" -eq 2 ]]; then
   alembic upgrade head
   python - <<'PY'

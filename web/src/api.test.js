@@ -59,4 +59,33 @@ describe('api error envelopes', () => {
       fieldErrors: { template: ['Field required'] },
     })
   })
+
+  it('surfaces advisor_unavailable code and key source, and sends the key as {key}', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: 'advisor_unavailable', message: 'No key', key_source: 'none' } }), { status: 503 })
+    )
+    await expect(api.saveAiKey('sk-abcdefgh')).rejects.toMatchObject({ code: 'advisor_unavailable', keySource: 'none' })
+    const [url, opts] = globalThis.fetch.mock.calls[0]
+    expect(url).toBe('/api/settings/ai-key')
+    expect(opts.method).toBe('PUT')
+    expect(JSON.parse(opts.body)).toEqual({ key: 'sk-abcdefgh' })
+  })
+})
+
+describe('api warning groups', () => {
+  it('uses the contract paths and bodies', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    await api.getFlagStates(42)
+    await api.acknowledgeWarnings(42, ['a'], 'note')
+    await api.createWarningGroup(42, ['b'], 'clarify')
+    await api.cancelWarningGroup(42, 7)
+    const calls = fetchMock.mock.calls.map(([url, init]) => [init.method, url.replace(/^.*(?=\/upload)/, ''), init.body])
+    expect(calls).toEqual([
+      ['GET', '/upload/42/flag-states', undefined],
+      ['POST', '/upload/42/warnings/acknowledge', JSON.stringify({ flag_ids: ['a'], text: 'note' })],
+      ['POST', '/upload/42/warning-groups', JSON.stringify({ flag_ids: ['b'], action: 'clarify', text: null })],
+      ['DELETE', '/upload/42/warning-groups/7', undefined],
+    ])
+  })
 })

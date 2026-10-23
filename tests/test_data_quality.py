@@ -215,3 +215,26 @@ def test_malformed_fixture_emits_case_whitespace_and_mixed_type_rules():
     assert any(f["col"] == "period" and f["rule"] == "case_inconsistent" for f in flags)
     assert any(f["col"] == "metric" and f["rule"] == "whitespace_padding" for f in flags)
     assert any(f["col"] == "metric" and f["rule"] == "mixed_types" for f in flags)
+
+
+def test_flag_ids_present_unique_and_stable():
+    df = load()
+    first = quality_flags(df)
+    second = quality_flags(df)
+    ids = [f["id"] for f in first]
+    assert first and all(ids)
+    assert len(ids) == len(set(ids))
+    assert ids == [f["id"] for f in second]
+
+
+def test_flag_ids_differ_across_columns_for_same_rule():
+    df = pd.DataFrame({"a": [1.0, None, None, 4.0], "b": [None, None, 3.0, 4.0]})
+    flags = run_data_quality(df, {"a": "Number", "b": "Number"})
+    ids = [f["id"] for f in flags if f["rule"] == "missing_pct"]
+    assert sorted(ids) == ["missing_pct:a", "missing_pct:b"]
+
+
+def test_dataset_level_flag_has_fixed_id():
+    df = pd.DataFrame({"a": [1, 1], "b": ["x", "x"]})
+    flags = run_data_quality(df, {"a": "Number", "b": "Category"})
+    assert "duplicate_rows:dataset" in [f["id"] for f in flags]

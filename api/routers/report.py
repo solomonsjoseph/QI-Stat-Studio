@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from api.audit import log_action, sanitize_audit_metadata
 from api.auth import get_current_user
+from api.data_changes import build_data_changes, data_change_lines
 from api.database import get_db
 from api.models_api import ProjectDesign
 from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, Project, Upload, User
@@ -119,7 +120,17 @@ def _build_context(run: AnalysisRun, db: Session) -> dict[str, Any]:
     if interpretation:
         result["interpretation"] = interpretation
 
+    data_changes = result.get("data_changes")
+    if not data_changes and "data_changes" not in result:
+        try:  # older run without a snapshot: compute from the current handoff
+            data_changes = build_data_changes(upload)
+            if data_changes:
+                data_changes = dict(data_changes, fallback=True)
+        except Exception:
+            data_changes = None
+
     return {
+        "data_changes": data_changes,
         "report_title": report_title,
         "caption": caption,
         "interpretation": interpretation,
@@ -220,6 +231,21 @@ def _build_project_context(project_id: int, db: Session) -> dict[str, Any]:
     }
 
 
+def _changes_title(*dcs: Any) -> str:
+    if any(isinstance(d, dict) and d.get("fallback") for d in dcs):
+        return "Data changes (current handoff at export time)"
+    return "Data changes applied"
+
+
+def _project_change_lines(ctx: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for run_ctx in ctx["runs"]:
+        for line in data_change_lines(run_ctx.get("data_changes")):
+            if line not in lines:
+                lines.append(line)
+    return lines
+
+
 def _build_project_docx(project_id: int, db: Session, share_id: int | None = None) -> bytes:
     ctx = _build_project_context(project_id, db)
     project = ctx["project"]
@@ -291,6 +317,11 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
             doc.add_paragraph(f"• {lim}", style="List Bullet")
     else:
         doc.add_paragraph("No data quality issues were flagged for this dataset.")
+    changes = _project_change_lines(ctx)
+    if changes:
+        doc.add_heading(_changes_title(*[r.get("data_changes") for r in ctx["runs"]]), 2)
+        for line in changes:
+            doc.add_paragraph(f"• {line}", style="List Bullet")
     # Code supplements
     code_r_list = [r.code_r for r in ctx["raw_runs"] if r.code_r]
     code_spss_list = [r.code_spss for r in ctx["raw_runs"] if r.code_spss]
@@ -440,6 +471,11 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
             story.append(Paragraph(f"• {_esc(lim)}", styles["Normal"]))
     else:
         story.append(Paragraph("No data quality issues were flagged for this dataset.", styles["Normal"]))
+    changes = _project_change_lines(ctx)
+    if changes:
+        story.append(Paragraph(_esc(_changes_title(*[r.get("data_changes") for r in ctx["runs"]])), styles["Heading3"]))
+        for line in changes:
+            story.append(Paragraph(f"• {_esc(line)}", styles["Normal"]))
     story.append(Spacer(1, 8))
 
     # Code supplements
@@ -617,6 +653,11 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
             doc.add_paragraph(f"• {f.get('msg') or f.get('message') or str(f)}", style="List Bullet")
     else:
         doc.add_paragraph("No data quality issues were flagged for this dataset.")
+    changes = data_change_lines(context["data_changes"])
+    if changes:
+        doc.add_heading(_changes_title(context["data_changes"]), 2)
+        for line in changes:
+            doc.add_paragraph(f"• {line}", style="List Bullet")
 
     if run.code_r:
         doc.add_heading("Statistical Code Supplement (R)", 1)
@@ -729,6 +770,11 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
             story.append(Paragraph(f"• {_esc(f.get('msg') or f.get('message') or str(f))}", styles["Normal"]))
     else:
         story.append(Paragraph("No data quality issues flagged.", styles["Normal"]))
+    changes = data_change_lines(context["data_changes"])
+    if changes:
+        story.append(Paragraph(_esc(_changes_title(context["data_changes"])), styles["Heading3"]))
+        for line in changes:
+            story.append(Paragraph(f"• {_esc(line)}", styles["Normal"]))
     story.append(Spacer(1, 8))
 
     if run.code_r:

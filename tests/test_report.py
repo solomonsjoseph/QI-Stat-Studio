@@ -541,3 +541,49 @@ def test_report_audit_trail_sanitizes_phi_like_project_update_metadata(client):
     assert sensitive_title not in text
     assert sensitive_description not in text
     assert sensitive_deadline not in text
+
+
+_DC = {
+    "steps": [{
+        "description": "Removed rows where age is missing.", "rows_before": 120, "rows_after": 115,
+        "rows_removed": 5, "cells_changed": 0, "warnings": ["age is 4% missing"], "note": "agreed with mentor",
+    }],
+    "decisions": ["Kept outliers in egfr"],
+}
+_RUN = {"methods": "m", "result_summary": "s", "interpretation": "i", "table": [], "data_changes": _DC}
+
+
+def _assert_changes(text):
+    assert "Data changes applied" in text and "current handoff" not in text
+    assert "Removed rows where age is missing." in text
+    assert "Rows before 120" in text and "after 115" in text and "removed 5" in text
+    assert "age is 4% missing" in text
+    assert "Kept outliers in egfr" in text
+
+
+def test_reports_list_data_changes_snapshot_in_project_and_run_docx_and_pdf(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(result=_RUN)
+    pid, rid = seeded["project_id"], seeded["run_id"]
+    for url, extract in (
+        (f"/report/project/{pid}/docx", _docx_text), (f"/report/project/{pid}/pdf", _pdf_text),
+    ):
+        r = client.get(url)
+        assert r.status_code == 200, r.text
+        _assert_changes(extract(r.content))
+    from api.routers.report import _build_docx, _build_pdf
+
+    with SessionLocal() as db:
+        run = db.get(AnalysisRun, rid)
+        _assert_changes(_docx_text(_build_docx(run, db)))
+        _assert_changes(_pdf_text(_build_pdf(run, db)))
+
+
+def test_reports_without_data_changes_have_no_section_and_old_runs_still_export(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run()
+    for url, extract in ((f"/report/project/{seeded['project_id']}/docx", _docx_text),
+                         (f"/report/project/{seeded['project_id']}/pdf", _pdf_text)):
+        r = client.get(url)
+        assert r.status_code == 200, r.text
+        assert "Data changes applied" not in extract(r.content)

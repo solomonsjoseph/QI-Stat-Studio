@@ -65,7 +65,7 @@ def _assert_docx_contains_report_package(content: bytes) -> None:
     assert "Statistical Code Supplement" in document_xml
 
 
-def test_real_dataset_resident_journey_and_regression_guards(client, mock_llm):
+def test_real_dataset_resident_journey_and_regression_guards(client, mock_llm, monkeypatch):
     assert FIXTURE.exists(), f"Missing real dataset fixture at {FIXTURE}"
     _register_then_login(client)
 
@@ -106,6 +106,8 @@ def test_real_dataset_resident_journey_and_regression_guards(client, mock_llm):
     assert guidance.status_code == 200, guidance.text
     assert "recommendations" in guidance.json()
 
+    # ERRORs are never cleared by acknowledging: simulate a passing re-check on the cleaned data.
+    monkeypatch.setattr("api.cleaning_runtime.recheck_flags", lambda upload: [])
     acknowledge = client.patch(
         f"/upload/{upload_id}/acknowledged-flags",
         json={"flags": upload["quality_flags"]},

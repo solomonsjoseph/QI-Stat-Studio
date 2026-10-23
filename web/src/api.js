@@ -4,6 +4,7 @@ function attachErrorDetails(error, envelope) {
   if (!envelope) return error
   error.code = envelope.code
   error.requestId = envelope.request_id
+  if (envelope.key_source) error.keySource = envelope.key_source
   error.fieldErrors = envelope.field_errors || {}
   return error
 }
@@ -153,4 +154,37 @@ export const api = {
   // Settings
   getSettings: () => req('GET', '/settings'),
   saveSetting: (key, value) => req('PUT', '/settings', { key, value }),
+
+  // --- AI key (T10) ---
+  getAiKeyStatus: () => req('GET', '/settings/ai-key'),
+  saveAiKey: (key) => req('PUT', '/settings/ai-key', { key }),
+  clearAiKey: () => req('DELETE', '/settings/ai-key'),
+  // --- end AI key ---
+
+  // --- Warning groups and flag states (T11; contract in docs/api-contract-handoff.md, backend not built yet) ---
+  getFlagStates: (uploadId) => req('GET', `/upload/${uploadId}/flag-states`),
+  acknowledgeWarnings: (uploadId, flagIds, text) =>
+    req('POST', `/upload/${uploadId}/warnings/acknowledge`, { flag_ids: flagIds, text: text || null }),
+  createWarningGroup: (uploadId, flagIds, action, text) =>
+    req('POST', `/upload/${uploadId}/warning-groups`, { flag_ids: flagIds, action, text: text || null }),
+  // --- end warning groups ---
+  // --- Re-upload choice, history, mentor handoff (T21) ---
+  reuploadChoice: (uploadId, choice) => req('POST', `/upload/${uploadId}/reupload-choice`, { choice }),
+  getHandoffHistory: (projectId) => req('GET', `/projects/${projectId}/handoff-history`),
+  getHandoff: (uploadId) => req('GET', `/upload/${uploadId}/handoff`),
+  deleteHandoff: (uploadId) => req('DELETE', `/upload/${uploadId}/handoff`),
+  getMentorHandoff: (token) => req('GET', `/share/${token}/handoff`),
+  // --- end re-upload / history ---
+  // --- QI Stat Advisor chat (T20); the handoff viewer reuses getHandoff above ---
+  getAdvisorThread: (groupId) => req('GET', `/ai/advisor/groups/${groupId}`),
+  sendAdvisorMessage: (groupId, message, warningId) =>
+    req('POST', `/ai/advisor/groups/${groupId}/messages`, { message, warning_id: warningId || null }),
+  confirmAdvisorProposal: (groupId, proposalId) =>
+    req('POST', `/ai/advisor/groups/${groupId}/confirm`, { proposal_id: proposalId }),
+  declineAdvisorProposal: (groupId, proposalId) =>
+    req('POST', `/ai/advisor/groups/${groupId}/confirm`, { proposal_id: proposalId, decline: true }),
+  // --- end advisor chat ---
+  // --- Cancel a clarification (M8) ---
+  cancelWarningGroup: (uploadId, groupId) => req('DELETE', `/upload/${uploadId}/warning-groups/${groupId}`),
+  // --- end cancel clarification ---
 }

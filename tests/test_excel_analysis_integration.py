@@ -62,6 +62,8 @@ def test_xlsx_and_xls_uploads_can_be_reloaded_for_analysis(auth_client):
         )
         assert upload.status_code == 200, upload.text
         upload_id = upload.json()["upload_id"]
+        from tests.helpers import advance_to_phase
+        advance_to_phase(project_id, "plan")  # acknowledge this upload's warnings, as finished data review would
 
         analysis = auth_client.post(
             "/analyze/run",

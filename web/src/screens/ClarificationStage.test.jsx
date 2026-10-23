@@ -29,7 +29,7 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderScreen(ctxOverrides = {}) {
+function renderScreen(ctxOverrides = {}, extra = {}) {
   const value = {
     ctx: {
       projectId: 1,
@@ -41,6 +41,7 @@ function renderScreen(ctxOverrides = {}) {
     update: vi.fn(),
     next: vi.fn(),
     prev: vi.fn(),
+    ...extra,
   }
   render(
     <AppCtx.Provider value={value}>
@@ -180,5 +181,45 @@ describe('ClarificationStage with design editor', () => {
       expect(value.update).toHaveBeenCalledWith(expect.objectContaining({ collectionRecs: [{ id: "guidance-1" }] }))
       expect(value.next).toHaveBeenCalled()
     })
+  })
+})
+
+describe('ClarificationStage with the advisor off', () => {
+  it('shows the manual design form and no AI call, saves the design, then confirms', async () => {
+    apiMock.updateDesign.mockResolvedValue({ ai_project_design: { primary_outcome: { label: 'falls', column: 'falls' } } })
+    const user = userEvent.setup()
+    const value = renderScreen({}, { advisorOff: true, goTo: vi.fn() })
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/advisor is off/i)
+    expect(apiMock.clarify).not.toHaveBeenCalled()
+    const save = screen.getByRole('button', { name: /Save and continue/ })
+    expect(save).toBeDisabled()
+
+    await user.selectOptions(screen.getByLabelText('Primary outcome column'), 'falls')
+    await user.selectOptions(screen.getByLabelText('Date column'), 'month')
+    await user.selectOptions(screen.getByLabelText('Time granularity'), 'month')
+    await user.type(screen.getByLabelText('Intervention start date'), '2025-03-01')
+    await user.click(save)
+
+    await waitFor(() => expect(value.next).toHaveBeenCalled())
+    expect(apiMock.updateDesign).toHaveBeenCalledWith(1, expect.objectContaining({
+      primary_outcome: expect.objectContaining({ column: 'falls' }),
+      intervention: { present: true, description: null, start_date: '2025-03-01' },
+      time_structure: { has_dates: true, date_column: 'month', granularity: 'month' },
+      group_column: null,
+    }))
+    expect(apiMock.confirmClarification).toHaveBeenCalledWith(1)
+    expect(apiMock.clarify).not.toHaveBeenCalled()
+  })
+
+  it('shows the backend column error and does not advance', async () => {
+    apiMock.updateDesign.mockRejectedValue(new Error('Invalid column names in project design'))
+    const user = userEvent.setup()
+    const value = renderScreen({}, { advisorOff: true, goTo: vi.fn() })
+    await user.selectOptions(await screen.findByLabelText('Primary outcome column'), 'falls')
+    await user.click(screen.getByRole('button', { name: /Save and continue/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid column names/)
+    expect(value.next).not.toHaveBeenCalled()
+    expect(apiMock.confirmClarification).not.toHaveBeenCalled()
   })
 })

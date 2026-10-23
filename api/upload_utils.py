@@ -124,7 +124,7 @@ def extract_dictionary_text(filename: str, raw: bytes) -> str:
     raise HTTPException(status_code=400, detail=f"Unsupported data dictionary file type: {suffix}")
 
 
-def load_upload_dataframe(upload) -> pd.DataFrame:
+def _load_raw(upload) -> tuple[pd.DataFrame, set[str]]:
     encrypted_path = getattr(upload, "encrypted_path", None)
     if not encrypted_path:
         raise HTTPException(status_code=400, detail="Uploaded file is missing from storage")
@@ -137,6 +137,23 @@ def load_upload_dataframe(upload) -> pd.DataFrame:
         raise HTTPException(status_code=400, detail="Could not decrypt uploaded file") from exc
     except OSError as exc:
         raise HTTPException(status_code=400, detail="Uploaded file is missing from storage") from exc
-    df, _restored = _read_dataframe(raw, getattr(upload, "file_type", None) or "csv")
+    df, restored = _read_dataframe(raw, getattr(upload, "file_type", None) or "csv")
     _validate_dataset_shape(df)
-    return df
+    return df, restored
+
+
+def load_raw_upload_dataframe(upload) -> pd.DataFrame:
+    """The uploaded file exactly as read, with no handoff steps applied."""
+    return _load_raw(upload)[0]
+
+
+def load_upload_dataframe(upload, apply_steps: bool = True) -> pd.DataFrame:
+    """The frame every analysis path should see: raw upload plus agreed handoff steps.
+
+    Use load_raw_upload_dataframe for upload-time profiling/quality and the handoff builder.
+    """
+    if not apply_steps or getattr(upload, "handoff_steps", None) in (None, "", "[]"):
+        return load_raw_upload_dataframe(upload)
+    from api.cleaning_runtime import load_cleaned_dataframe  # lazy: avoids a circular import
+
+    return load_cleaned_dataframe(upload)

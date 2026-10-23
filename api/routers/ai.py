@@ -54,6 +54,7 @@ from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.audit import log_action, safe_diagnostic_message
 from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
+from api.ai_key import advisor_unavailable, resolve_key
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -186,16 +187,16 @@ def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
         return "stub", "stub", None, "stub"
     if provider == "openai":
         model = get_runtime_setting(db, "openai_model") or settings.openai_model
-        return provider, settings.openai_api_key or None, None, model
+        return provider, resolve_key(db, provider)[0], None, model
     if provider == "gemini":
         model = get_runtime_setting(db, "gemini_model") or settings.gemini_model
-        return provider, settings.gemini_api_key or None, None, model
+        return provider, resolve_key(db, provider)[0], None, model
     if provider == "local":
         model = get_runtime_setting(db, "local_model") or settings.local_model
         base = get_runtime_setting(db, "local_api_base") or settings.local_api_base or "http://localhost:11434"
-        return provider, settings.local_api_key or None, base, model
+        return provider, resolve_key(db, provider)[0], base, model
     model = get_runtime_setting(db, "openrouter_model") or settings.openrouter_model
-    return "openrouter", settings.openrouter_api_key or None, None, model
+    return "openrouter", resolve_key(db, "openrouter")[0], None, model
 
 
 def _llm_completion(
@@ -371,7 +372,7 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
         log_action(db, req.project_id, "phi_redacted", {"redaction_count": total_redactions, "source": "ai_chat"})
     if not api_key and provider != "local":
         _record_ai_usage(db, user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=prompt_chars, status="not_configured")
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     try:
         resp = _llm_completion(provider, api_key, api_base, selected_model, scrubbed_messages)
@@ -452,7 +453,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     clean_message = None
     redaction_count = 0
@@ -533,10 +534,13 @@ def ai_collection_guidance(
         return {"recommendations": [], "generated_at": datetime.utcnow().isoformat()}
 
     from api.collection_guidance import deterministic_recommendations
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
 
     try:
         df = load_upload_dataframe(upload)
+    except StepsApplyError:
+        raise
     except Exception:
         df = pd.DataFrame()
 
@@ -600,9 +604,12 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         # Resident's explicit confirmation of the (possibly edited) plan is itself
         # the sign-off -- persist deterministically, no LLM round-trip.
         upload = _latest_active_upload(db, project_id)
+        from api.cleaning_runtime import StepsApplyError
         from api.upload_utils import load_upload_dataframe
         try:
             df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+        except StepsApplyError:
+            raise
         except Exception:
             df = pd.DataFrame()
 
@@ -659,9 +666,12 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
     design_dict = json.loads(project.ai_project_design) if project.ai_project_design else {}
     design = ProjectDesign.model_validate(design_dict)
 
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
     try:
         df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+    except StepsApplyError:
+        raise
     except Exception:
         df = pd.DataFrame()
 
@@ -811,7 +821,7 @@ def ai_override_plan(
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     clean_instruction, redaction_count = scrub_text(body.instruction)
     if redaction_count > 0:
@@ -847,9 +857,12 @@ def ai_override_plan(
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
     try:
         df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+    except StepsApplyError:
+        raise
     except Exception:
         df = pd.DataFrame()
 
@@ -906,7 +919,7 @@ def ai_interpret_results(
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     upload = _latest_active_upload(db, project_id)
     if not upload:

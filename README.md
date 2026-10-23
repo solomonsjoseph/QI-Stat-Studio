@@ -13,14 +13,17 @@ built with Sphinx. See **Documentation** below to build and browse it.
 
 ## Quick start
 
-**Prerequisites:** Python 3.10+ (3.11 recommended), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
+**Prerequisites:** Python 3.9+ (3.11 recommended; 3.9 needs `eval_type_backport`, which requirements.txt installs), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
 
 ```bash
-pip install -r requirements.txt && python -m spacy download en_core_web_sm
-cd web && npm install && cd ..
-cp .env.example .env   # set FERNET_KEY; for real AI also set the provider key
-make stub              # or: make real
+git clone <repo-url> && cd qi_stat_studio
+make stub   # offline AI stub, no key needed. Or: make real (set your AI key in .env first)
 ```
+
+The first run creates `.venv`, installs Python and npm dependencies, downloads
+the spaCy model, creates a git-ignored `.env` with a generated `FERNET_KEY`, and
+applies migrations. Later runs skip finished steps. Back up `FERNET_KEY`:
+uploads cannot be decrypted without it.
 
 Open `http://127.0.0.1:5173` and register. First account becomes admin.
 

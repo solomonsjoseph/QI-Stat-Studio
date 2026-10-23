@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from api.config import settings
 from api.database import get_db
 from api.dataset_profile import build_profile
 from api.phi_gate import PhiGateResult, scan_upload
-from api.models_api import ColumnTypeUpdate, UploadOut
+from api.models_api import ColumnTypeUpdate, ReplaceUploadExtra, UploadOut
 from api.staleness import check_and_apply_inputs_fingerprint
 from api.models_db import Project, Upload, User
 from api.upload_utils import (
@@ -103,7 +104,12 @@ def run_data_quality(
         suggestion: str,
         blocks: str | None = None,
     ):
+        # Stable id: "<rule>:<col>" ("(dataset)" -> "dataset"); "#2", "#3" suffix
+        # only if a rule ever emits twice for one column.
+        base = f"{rule}:{'dataset' if col == '(dataset)' else col}"
+        n = sum(1 for f in flags if f["id"].split("#")[0] == base)
         flags.append({
+            "id": base if n == 0 else f"{base}#{n + 1}",
             "col": col,
             "rule": rule,
             "severity": severity,
@@ -556,6 +562,12 @@ def _store_upload(
         dictionary_text=dictionary_text,
     )
     db.add(upload)
+    try:
+        from api.handoff_service import create_handoff
+
+        create_handoff(db, db.get(Project, project_id), upload, df, flags, profile)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("handoff creation failed (%s); rebuild lazily", type(exc).__name__)
     return upload, col_summary, col_types, flags, {col: col_summary[col]["missing_pct"] for col in col_summary}, profile
 
 
@@ -628,14 +640,12 @@ async def upload_file(
 
 @router.patch("/{upload_id}/acknowledged-flags")
 def save_acknowledged_flags(upload_id: int, body: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Manual/old-client path: records the flags, advances only if the gating rule is met."""
     u = _require_upload_access(upload_id, db, user)
     u.acknowledged_flags = json.dumps(body.get("flags", []))
     db.commit()
-    project = db.get(Project, u.project_id)
-    from api.routers.projects import PHASES, _has_unacknowledged_flags, advance_phase
-    curr_idx = PHASES.index(project.workflow_phase or "intake") if project and (project.workflow_phase or "intake") in PHASES else 0
-    if project and curr_idx >= PHASES.index("review") and not _has_unacknowledged_flags(u):
-        advance_phase(db, project, "plan")
+    from api.routers.warning_groups import advance_if_clear
+    advance_if_clear(db, u)
     return {"ok": True}
 
 
@@ -652,7 +662,15 @@ def update_column_types(upload_id: int, body: ColumnTypeUpdate, db: Session = De
     return {"ok": True}
 
 
-@router.post("/{project_id}/replace/{upload_id}", response_model=UploadOut)
+class ReplaceUploadOut(UploadOut, ReplaceUploadExtra):
+    pass
+
+
+def _dict_checksum(text: str | None) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest() if text else ""
+
+
+@router.post("/{project_id}/replace/{upload_id}", response_model=ReplaceUploadOut)
 async def replace_upload(
     project_id: int,
     upload_id: int,
@@ -670,15 +688,37 @@ async def replace_upload(
     original_filename, _file_type, raw, df, restored_cols = await _read_validated_upload_file(file)
     dictionary_filename, dictionary_text = await _read_dictionary_file(dictionary)
     _enforce_phi_gate(df, dictionary_text, db=db, project_id=project_id)
+    same = (
+        hashlib.sha256(raw).hexdigest() == old_upload.checksum_sha256
+        and _dict_checksum(dictionary_text) == _dict_checksum(old_upload.dictionary_text)
+    )
+    # The old handoff goes to history now, so the project always has exactly one active upload.
+    try:
+        from api.handoff_service import ensure_handoff
+
+        ensure_handoff(db, project, old_upload)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("old handoff could not be built (%s)", type(exc).__name__)
     old_upload.status = "replaced"
+    if old_upload.handoff_status != "none":
+        old_upload.handoff_status = "replaced"
+        old_upload.handoff_replaced_at = datetime.utcnow()
     new_upload, _col_summary, _col_types, _flags, _missing_pct, _profile = _store_upload(
         db, project_id, original_filename, raw, df, restored_cols, dictionary_filename, dictionary_text
     )
-    check_and_apply_inputs_fingerprint(project, new_upload, db)
+    new_upload.handoff_source_upload_id = old_upload.id
+    if same:
+        # Plan fingerprint is settled by the keep/fresh choice.
+        if new_upload.handoff_status == "current":
+            new_upload.handoff_status = "pending_choice"
+    else:
+        check_and_apply_inputs_fingerprint(project, new_upload, db)
     db.commit()
     db.refresh(new_upload)
     log_action(db, project_id, "upload_replaced", {"old_upload_id": old_upload.id, "upload_id": new_upload.id, "file_type": new_upload.file_type, "size_bytes": new_upload.size_bytes})
-    return _upload_out(new_upload, _preview_rows(df))
+    out = _upload_out(new_upload, _preview_rows(df)).model_dump()
+    out.update(same_as_previous=same, started_fresh=not same, choice_required=same)
+    return out
 
 
 @router.delete("/{upload_id}")

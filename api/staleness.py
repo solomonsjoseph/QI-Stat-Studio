@@ -41,6 +41,10 @@ def compute_inputs_fingerprint(project: Project, upload: Upload | None) -> str:
         str(granularity),
         str(group_col),
     ]
+    # Only appended when steps exist, so fingerprints of uploads without steps stay unchanged.
+    steps = (upload.handoff_steps if upload else "") or "[]"
+    if steps != "[]":
+        components += [steps, str(upload.handoff_revision or 0)]
     raw = "|".join(components).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
 

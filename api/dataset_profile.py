@@ -238,11 +238,14 @@ def get_upload_profile(upload: Any) -> dict[str, Any]:
             pass
     dict_text = getattr(upload, "dictionary_text", None)
 
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
 
     try:
         df = load_upload_dataframe(upload)
         return build_profile(df, col_types, dict_text)
+    except StepsApplyError:
+        raise
     except Exception:
         return {
             "row_count": 0,

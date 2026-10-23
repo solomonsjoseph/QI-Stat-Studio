@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useApp } from '../App'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
+import AdvisorOffBanner from '../components/AdvisorOffBanner'
 import { api } from '../api'
 
 function parseNumberedQuestions(text) {
@@ -45,8 +46,66 @@ function StatusChip({ status }) {
   )
 }
 
+function ManualDesignForm({ colNames, initial, busy, onSubmit }) {
+  const [f, setF] = useState({
+    outcome: initial?.primary_outcome?.column || '',
+    start: initial?.intervention?.start_date || '',
+    gran: initial?.time_structure?.granularity || '',
+    dateCol: initial?.time_structure?.date_column || '',
+    group: initial?.group_column || '',
+  })
+  const set = k => e => setF({ ...f, [k]: e.target.value })
+  const opts = colNames.map(c => <option key={c} value={c}>{c}</option>)
+  function submit(e) {
+    e.preventDefault()
+    onSubmit({
+      ...(initial || {}),
+      primary_outcome: { ...(initial?.primary_outcome || {}), label: f.outcome, column: f.outcome },
+      intervention: { present: !!f.start, description: initial?.intervention?.description || null, start_date: f.start || null },
+      time_structure: { has_dates: !!f.dateCol, date_column: f.dateCol || null, granularity: f.gran || null },
+      group_column: f.group || null,
+    })
+  }
+  return (
+    <form onSubmit={submit} className="card space-y-4">
+      <div>
+        <label htmlFor="m-outcome" className="label">Primary outcome column</label>
+        <select id="m-outcome" className="input" value={f.outcome} onChange={set('outcome')} required>
+          <option value="">(Select)</option>{opts}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="m-date" className="label">Date column</label>
+        <select id="m-date" className="input" value={f.dateCol} onChange={set('dateCol')}>
+          <option value="">(None)</option>{opts}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="m-gran" className="label">Time granularity</label>
+        <select id="m-gran" className="input" value={f.gran} onChange={set('gran')}>
+          <option value="">(None)</option>
+          {['day', 'week', 'month', 'quarter'].map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="m-start" className="label">Intervention start date</label>
+        <input id="m-start" type="date" className="input" value={f.start} onChange={set('start')} />
+      </div>
+      <div>
+        <label htmlFor="m-group" className="label">Group column</label>
+        <select id="m-group" className="input" value={f.group} onChange={set('group')}>
+          <option value="">(None)</option>{opts}
+        </select>
+      </div>
+      <button type="submit" disabled={busy || !f.outcome} className="btn-primary text-xs">
+        {busy ? 'Saving…' : 'Save and continue to Data Review →'}
+      </button>
+    </form>
+  )
+}
+
 export default function ClarificationStage() {
-  const { ctx, update, next } = useApp()
+  const { ctx, update, next, advisorOff } = useApp()
   const [turns, setTurns] = useState([])
   const [confirmed, setConfirmed] = useState(false)
   const [isStale, setIsStale] = useState(false)
@@ -94,10 +153,10 @@ export default function ClarificationStage() {
 
   // Automatically start opening turn if no turns exist after hydration
   useEffect(() => {
-    if (hydrated && turns.length === 0 && !loading && !error) {
+    if (hydrated && !advisorOff && turns.length === 0 && !loading && !error) {
       startOpeningTurn()
     }
-  }, [hydrated, turns.length])
+  }, [hydrated, turns.length, advisorOff])
 
 
   async function startOpeningTurn() {
@@ -168,7 +227,7 @@ export default function ClarificationStage() {
     }
   }
 
-  async function handleConfirmAndProceed() {
+  async function handleConfirmAndProceed(d = design) {
     setLoading(true)
     setError('')
     try {
@@ -181,7 +240,7 @@ export default function ClarificationStage() {
       } catch {
         // Non-blocking advisory call
       }
-      update({ collectionRecs: guidanceRecs, design })
+      update({ collectionRecs: guidanceRecs, design: d })
       next()
     } catch (err) {
       setError(err.message || 'Could not confirm clarification.')
@@ -210,6 +269,37 @@ export default function ClarificationStage() {
     } finally {
       setSavingDesign(false)
     }
+  }
+
+  async function saveManualDesign(d) {
+    setSavingDesign(true)
+    setError('')
+    try {
+      const updated = await api.updateDesign(ctx.projectId, d)
+      const saved = updated.ai_project_design || d
+      setDesign(saved)
+      update({ design: saved })
+      await handleConfirmAndProceed(saved)
+    } catch (err) {
+      setError(err.message || 'Failed to save project design')
+    } finally {
+      setSavingDesign(false)
+    }
+  }
+
+  if (advisorOff) {
+    return (
+      <div className="screen max-w-2xl space-y-6">
+        <PageIntro
+          step="clarify"
+          title="Project Clarification"
+          lead="Describe the project yourself. The QI Stat Advisor is off, so there is no conversation."
+        />
+        <AdvisorOffBanner />
+        {error && <div className="alert-error" role="alert">{error}</div>}
+        <ManualDesignForm colNames={colNames} initial={design} busy={savingDesign || loading} onSubmit={saveManualDesign} />
+      </div>
+    )
   }
 
   return (
@@ -467,7 +557,7 @@ export default function ClarificationStage() {
               key={idx}
               className={`p-3 rounded-lg text-sm ${turn.role === 'ai' ? 'bg-canvas border border-line text-ink' : 'bg-primary/5 text-ink-soft ml-8'}`}
             >
-              <p className="font-semibold text-xs text-ink-soft mb-1">{turn.role === 'ai' ? 'AI Advisor' : 'You'}</p>
+              <p className="font-semibold text-xs text-ink-soft mb-1">{turn.role === 'ai' ? 'QI Stat Advisor' : 'You'}</p>
               <div className="whitespace-pre-wrap">{turn.content}</div>
             </div>
           ))}
@@ -535,7 +625,7 @@ export default function ClarificationStage() {
                   </p>
                   <button
                     type="button"
-                    onClick={handleConfirmAndProceed}
+                    onClick={() => handleConfirmAndProceed()}
                     disabled={loading}
                     className="btn-primary text-xs"
                   >
@@ -552,7 +642,7 @@ export default function ClarificationStage() {
             <span className="text-xs text-emerald-700 font-medium">✓ Project definition confirmed</span>
             <button
               type="button"
-              onClick={handleConfirmAndProceed}
+              onClick={() => handleConfirmAndProceed()}
               disabled={loading}
               className="btn-primary text-xs"
             >

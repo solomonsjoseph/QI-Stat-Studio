@@ -6,6 +6,7 @@ import MentorView from './MentorView'
 const { apiMock } = vi.hoisted(() => ({
   apiMock: {
     getMentorView: vi.fn(),
+    getMentorHandoff: vi.fn(),
     addComment: vi.fn(),
     editComment: vi.fn(),
     deleteComment: vi.fn(),
@@ -44,6 +45,8 @@ function mentorPayload(overrides = {}) {
 
 beforeEach(() => {
   apiMock.getMentorView.mockReset()
+  apiMock.getMentorHandoff.mockReset()
+  apiMock.getMentorHandoff.mockRejectedValue(new Error('none'))
   apiMock.addComment.mockReset()
   apiMock.editComment.mockReset()
   apiMock.deleteComment.mockReset()
@@ -134,5 +137,21 @@ describe('MentorView', () => {
     expect(apiMock.getMentorView).toHaveBeenCalledTimes(3)
 
     confirm.mockRestore()
+  })
+})
+
+describe('MentorView handoff section', () => {
+  it('shows the handoff and change log read-only', async () => {
+    apiMock.getMentorView.mockResolvedValue(mentorPayload())
+    apiMock.getMentorHandoff.mockResolvedValue({
+      upload_id: 3, markdown: '# Handoff text', read_only: true,
+      change_log: [{ revision: 1, kind: 'created', actor: 'system', created_at: '2026-01-01T00:00:00', summary: 'Built it' }],
+    })
+    render(<MentorView token="tok" />)
+    expect(await screen.findByRole('heading', { name: 'Handoff document and change log' })).toBeTruthy()
+    expect(screen.getByText('Handoff text')).toBeTruthy()
+    expect(screen.getByText('Built it')).toBeTruthy()
+    expect(apiMock.getMentorHandoff).toHaveBeenCalledWith('tok')
+    expect(screen.queryByRole('button', { name: /apply|undo|ask|chat/i })).toBeNull()
   })
 })

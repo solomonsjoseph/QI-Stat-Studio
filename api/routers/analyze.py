@@ -20,9 +20,11 @@ from api.models_api import (
     ValidatePlanRequest,
     ValidatePlanResponse,
 )
+from api.data_changes import build_data_changes
 from api.models_db import AnalysisRun, EditHistory, FailureLog, Project, Upload, User
 from api.upload_utils import load_upload_dataframe
-from api.routers.projects import _has_unacknowledged_flags, advance_phase, require_phase
+from api.routers.projects import _gating, advance_phase, require_phase
+from api.routers.warning_groups import gating_block_message
 from api.templates.registry import TEMPLATE_REGISTRY
 
 
@@ -180,9 +182,13 @@ def execute_template(
         result = TEMPLATE_REGISTRY[template](df, params)
         result = _json_safe(result)
 
-        code_r = generate_r_code(template, params, result)
-        code_spss = generate_spss_code(template, params, result)
-        code_sas = generate_sas_code(template, params, result)
+        # Snapshot now so a later handoff edit cannot rewrite this run's report or scripts.
+        data_changes = build_data_changes(db.get(Upload, upload_id))
+        code_r = generate_r_code(template, params, result, data_changes)
+        code_spss = generate_spss_code(template, params, result, data_changes)
+        code_sas = generate_sas_code(template, params, result, data_changes)
+        if data_changes:
+            result = {**result, "data_changes": data_changes}
 
         run = AnalysisRun(
             project_id=project_id,
@@ -280,7 +286,6 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
     require_phase(db, project, "plan")
     if upload.status != "active":
         raise HTTPException(400, "Upload is not active")
-
     df = load_upload_dataframe(upload)
     check = check_plan_item(db, project, upload, df, body.template, body.parameters)
     if not check["ok"]:
@@ -288,6 +293,10 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
             raise _bad_analysis_request("Invalid analysis parameters", check["field_errors"])
         err_msg = check["errors"][0] if check["errors"] else f"Missing required parameters: {check['missing_params']}"
         raise _bad_analysis_request(err_msg, {"parameters": check["errors"]})
+    # Gate after validation so malformed requests keep their specific error; nothing runs while blocked.
+    gate = _gating(db, upload)
+    if not gate.can_continue:
+        raise HTTPException(status_code=409, detail={"message": "Finish data review before running the analysis: %s." % gating_block_message(gate), "required_phase": "plan"})
     return execute_template(db, request, body.project_id, body.upload_id, df, body.template, check["parameters"])
 
 
@@ -323,8 +332,9 @@ def run_plan(
     if plan_dict.get("stale"):
         raise HTTPException(status_code=409, detail={"message": "The analysis plan is stale because an upstream input changed. Re-confirm the plan before running.", "required_phase": "plan"})
 
-    if _has_unacknowledged_flags(upload):
-        raise HTTPException(status_code=409, detail={"message": "All data quality warnings must be acknowledged before execution.", "required_phase": "plan"})
+    gate = _gating(db, upload)
+    if not gate.can_continue:
+        raise HTTPException(status_code=409, detail={"message": "Finish data review before running the analysis: %s." % gating_block_message(gate), "required_phase": "plan"})
 
     if not body.analyses:
         raise HTTPException(400, "analyses array cannot be empty")

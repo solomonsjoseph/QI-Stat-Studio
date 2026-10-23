@@ -37,7 +37,7 @@ function baseCtx(overrides = {}) {
 }
 
 describe('Results multi-run rendering', () => {
-  it('executes run-plan and interpret-results, then renders one section per run grouped by category', async () => {
+  it('executes run-plan and interpret-results, then renders one section per run', async () => {
     const update = vi.fn()
     const next = vi.fn()
     useAppMock.mockReturnValue({ ctx: baseCtx(), update, next, prev: vi.fn() })
@@ -60,8 +60,8 @@ describe('Results multi-run rendering', () => {
 
     render(<Results />)
 
-    expect(await screen.findByText('What the data show (descriptive)')).toBeInTheDocument()
-    expect(screen.getByText('Statistical tests')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Descriptive Summary' })).toBeInTheDocument()
+    expect(screen.queryByText('What the data show (descriptive)')).not.toBeInTheDocument()
     expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
     expect(screen.getByText('Mean decreased from 3 to 1')).toBeInTheDocument()
     expect(screen.getByText('Falls were stable at baseline.')).toBeInTheDocument()
@@ -75,6 +75,53 @@ describe('Results multi-run rendering', () => {
       expect(apiMock.interpretResults).toHaveBeenCalledWith(1)
       expect(update).toHaveBeenCalledWith(expect.objectContaining({ runs: expect.any(Array) }))
     })
+    expect(screen.getByText('Single site, no randomization')).toBeInTheDocument()
+  })
+
+  it('matches main layout for a single run: Summary card, AI Interpretation heading, methods, Edit & Review', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', methods: 'Methods text', table: [{ mean: 2.5 }] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [{ run_id: 1, text: 'Falls were stable.' }], limitations: [], abstract_draft: '' })
+
+    render(<Results />)
+
+    expect(await screen.findByRole('heading', { name: 'Summary' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'AI Interpretation' })).toBeInTheDocument()
+    expect(screen.getByText('Falls were stable.')).toBeInTheDocument()
+    expect(screen.getByText('Methods text')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit & Review' })).toBeInTheDocument()
+  })
+
+  it('shows the paired-rows note under the figure only when counts are present', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [
+        { run_id: 1, template: 'descriptive_summary', result_summary: 'A' },
+        { run_id: 2, template: 'before_after_mean', result_summary: 'B', n_pairs: 34, n_dropped_unpaired: 6 },
+      ],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+
+    render(<Results />)
+
+    expect(await screen.findByText(/34 paired observation\(s\)\. 6 record\(s\) excluded \(unpaired\)\./)).toBeInTheDocument()
+    expect(screen.getAllByText(/paired observation/)).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'Descriptive Summary' })).toBeInTheDocument()
+  })
+
+  it('keeps results and shows an interpretation error when interpret-results fails', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({ runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5' }], failures: [] })
+    apiMock.interpretResults.mockRejectedValue(new Error('no key'))
+
+    render(<Results />)
+
+    expect(await screen.findByText('Average falls: 2.5')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not generate AI interpretation: no key')
   })
 
   it('renders failures with a back-to-plan link naming the errors, without blocking successful runs', async () => {
@@ -126,5 +173,20 @@ describe('Results multi-run rendering', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Upload not found (Request ID: req-9)')
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+})
+
+describe('Results with the advisor off', () => {
+  it('shows the results and a short note when interpret-results returns advisor_unavailable', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockRejectedValue(Object.assign(new Error('off'), { code: 'advisor_unavailable' }))
+    render(<Results />)
+    expect(await screen.findByText('AI interpretation is off. You can write your own on the next screen.')).toBeInTheDocument()
+    expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

@@ -238,3 +238,18 @@ describe('AnalysisPlanStage rich plan review', () => {
     })
   })
 })
+
+describe('AnalysisPlanStage with the advisor off', () => {
+  it('shows a plain message instead of a crash when override-plan returns advisor_unavailable', async () => {
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan', confirmed: false, analyses: [makeItem()], turns: [{ role: 'ai', content: 'Plan' }],
+    })
+    apiMock.overridePlan.mockRejectedValue(Object.assign(new Error('Advisor unavailable'), { code: 'advisor_unavailable' }))
+    const user = userEvent.setup()
+    renderScreen()
+    await user.type(await screen.findByPlaceholderText(/paired test instead/), 'drop the run chart')
+    await user.click(screen.getByRole('button', { name: 'Submit request' }))
+    expect(await screen.findByText('The advisor is off; edit the plan items directly')).toBeInTheDocument()
+    expect(screen.getByText('Summary of Falls')).toBeInTheDocument()
+  })
+})

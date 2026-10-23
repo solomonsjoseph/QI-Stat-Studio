@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
+import HandoffViewer from '../components/HandoffViewer'
 import { api } from '../api'
 import { TEMPLATE_LABELS } from '../templateLabels'
 
@@ -88,12 +89,14 @@ export default function MentorView({ token }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [handoff, setHandoff] = useState(null)
 
   async function load() {
     setLoading(true)
     setError('')
     try {
       setData(await api.getMentorView(token))
+      setHandoff(await api.getMentorHandoff(token).catch(() => null))
     } catch (err) {
       setError(errorMessage(err, 'Share link not found or expired.'))
     } finally {
@@ -187,6 +190,13 @@ export default function MentorView({ token }) {
         <h2 className="mb-1 font-semibold text-ink">Limitations</h2>
         {limitations.length > 0 ? <ul className="list-disc pl-5 text-sm leading-6 text-ink-soft">{limitations.map((item, idx) => <li key={idx}>{item.msg || item.message || JSON.stringify(item)}</li>)}</ul> : <p className="text-sm text-ink-soft">No data quality issues were flagged for this dataset.</p>}
       </section>
+
+      {handoff && (
+        <section className="mb-6" aria-labelledby="mentor-handoff-heading">
+          <h2 id="mentor-handoff-heading" className="mb-3 font-semibold text-ink">Handoff document and change log</h2>
+          <HandoffViewer handoff={handoff} />
+        </section>
+      )}
 
       <section className="border-t border-line pt-6">
         <h2 className="mb-3 font-semibold text-ink">Mentor Comments</h2>

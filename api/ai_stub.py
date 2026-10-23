@@ -139,6 +139,40 @@ _CANNED_INTERPRET_ABSTRACT = (
 )
 
 
+_CANNED_HANDOFF_SUMMARY = json.dumps({
+    "summary": (
+        "This dataset has one row per observation with a date column, count columns, and a few grouping columns. "
+        "The quality warnings listed below are the main things to review before analysis."
+    ),
+})
+
+
+def _canned_advisor(system_text: str) -> str:
+    """Per warning id in the group: trim / lower-case for the two simple rules, otherwise note only."""
+    m = re.search(r"WARNING_IDS_IN_THIS_GROUP: (\[.*?\])", system_text, re.I)
+    try:
+        ids = [str(i) for i in json.loads(m.group(1))] if m else []
+    except ValueError:
+        ids = []
+    proposals = []
+    for wid in ids:
+        rule, _, col = wid.partition(":")
+        step = None
+        if rule == "whitespace_padding" and col:
+            step, text = {"op": "trim", "columns": [col]}, "strip leading and trailing spaces in %s" % col
+        elif rule == "case_inconsistent" and col:
+            step, text = {"op": "change_case", "columns": [col], "mode": "lower"}, "make %s lower case" % col
+        else:
+            text = "make no change to the data and record your decision"
+        if step:
+            step["warning_ids"] = [wid]
+        proposals.append({"warning_id": wid, "summary": "I would " + text + ".", "steps": [step] if step else []})
+    return json.dumps({
+        "message": "Here is what I would do for each selected warning. What do you suggest, or do you agree?",
+        "mode": "propose", "proposals": proposals, "unapplied_notes": [],
+    })
+
+
 def _canned_interpret(system_text: str) -> str:
     """Build one interpretation per run_id embedded in the interpret-results prompt's
     <untrusted_data> results payload, rather than hardcoding run_id 1 -- a real prompt
@@ -169,7 +203,9 @@ def canned_response(messages: list[dict[str, str]]) -> SimpleNamespace:
     """
     system_text = (messages[0].get("content", "") if messages else "").lower()
 
-    if "clarify a quality-improvement" in system_text or "what are you measuring" in system_text:
+    if "you are the qi stat advisor" in system_text:
+        content = _canned_advisor(messages[0].get("content", ""))
+    elif "clarify a quality-improvement" in system_text or "what are you measuring" in system_text:
         content = _CANNED_CLARIFY
     elif "adjusting an existing statistical analysis plan" in system_text:
         content = _CANNED_OVERRIDE
@@ -177,6 +213,8 @@ def canned_response(messages: list[dict[str, str]]) -> SimpleNamespace:
         content = _CANNED_COLLECTION
     elif "explaining a proposed statistical analysis plan" in system_text or "recommending a complete statistical analysis plan" in system_text:
         content = _CANNED_RECOMMEND
+    elif "summarizing a dataset handoff" in system_text:
+        content = _CANNED_HANDOFF_SUMMARY
     elif "unified interpretation of statistical results" in system_text:
         content = _canned_interpret(system_text)
     else:

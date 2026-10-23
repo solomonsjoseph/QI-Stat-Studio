@@ -197,7 +197,7 @@ export default function AnalysisPlanStage() {
       setOverrideInput('')
       if (body.analyses?.length) await refreshValidation(body.analyses)
     } catch (err) {
-      setError(errorMessage(err))
+      setError(err.code === 'advisor_unavailable' ? 'The advisor is off; edit the plan items directly' : errorMessage(err))
     } finally {
       setLoading(false)
     }
