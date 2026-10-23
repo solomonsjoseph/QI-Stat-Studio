@@ -252,3 +252,42 @@ reaches the Results screen, the DOCX/PDF report, and the mentor view with no
 `report.py` change. `before_after_pct`'s previously inverted odds ratio in
 the chi-square branch was corrected to match `fisher_exact`'s orientation in
 the same change.
+
+
+## ADR-013: Role detection and plan defaults are evidence-based, not size-based
+
+**Context:** A full resident test run with the diabetes clinic dataset showed
+that a column was guessed as a denominator because its values were larger than
+other integer columns (systolic blood pressure beat every 0/1 flag), which
+produced a blocking "numerator exceeds denominator" error between age and a
+visit count. The same run showed one chart point per day for a yes/no outcome,
+a t-test offered on a yes/no column, and pre and post labels left blank.
+
+**Decision:**
+
+- A denominator is a column whose name reads like one (`api/dataset_profile.py`
+  `_DENOM_RE`: total, denom, census, population, visits, patient days, and
+  similar). The pairwise size comparison only confirms numerators for such
+  columns, and a 0/1 column is never a numerator. `run_data_quality` uses the
+  same detector instead of its own.
+- A Yes/No outcome column with no stated kind is treated as binary. That gives
+  the percentage comparison and the P chart. The P chart needs no denominator,
+  and a guessed denominator is not attached to a binary outcome.
+- For binary and proportion outcomes the chart period is the finest of day,
+  week, month and quarter, no finer than the project's time unit, whose typical
+  period holds at least 20 records (`_MIN_RECORDS_PER_PERIOD` in
+  `api/plan_builder.py`). The plan states the grouping it chose. The number 20
+  is a placeholder pending the clinical owner's answer.
+- When the group column has exactly two levels that read like before and after
+  (case and padding ignored), those become `pre_val` and `post_val` at medium
+  confidence, so the resident still confirms them.
+- The "mixed case" warning fires only when one value appears in more than one
+  case. The small-group warning and group counts use the case-normalized values.
+- `POST /analyze/run-plan/{id}` is serialized by a process-wide lock, because
+  it deletes the prior runs and inserts new ones, and two overlapping requests
+  each kept a full set.
+
+**Consequences:** Unnamed denominators are no longer guessed, so a resident
+whose denominator column has an unusual name assigns it in the Data Review
+role table. A per-project lock replaces the process-wide one if runs ever
+become slow enough to queue.

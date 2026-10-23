@@ -220,3 +220,9 @@ def test_project_context_survives_the_ner_model_but_patient_identifiers_do_not()
     assert scrub_text(context) == (context, 0)
     result, count = scrub_text("John Smith was seen on March 5, 2024.")
     assert "John Smith" not in result and "March 5" not in result and count >= 2
+
+
+def test_a_name_followed_by_a_digit_is_still_redacted():
+    if phi_scrubber._get_nlp(wait=True) is None:
+        pytest.skip("spaCy model not installed")
+    assert "Maria Garcia" not in scrub_text("Maria Garcia 2B called")[0]

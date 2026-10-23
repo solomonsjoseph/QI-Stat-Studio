@@ -104,3 +104,11 @@ def test_large_clinical_values_are_not_guessed_as_denominators():
     roles = build_profile(df, col_types)["candidate_roles"]
     assert roles["denominator"] == []
     assert roles["numerator"] == []
+
+
+def test_dictionary_definitions_are_scrubbed_before_they_enter_the_profile():
+    df = pd.DataFrame({"provider_id": [1, 2, 3, 4, 5]})
+    dictionary = "provider_id: contact jane.doe@example.org or 617-555-0100 for questions\n"
+    profile = build_profile(df, {"provider_id": "Number"}, dictionary)
+    definition = profile["columns"][0]["dictionary_definition"]
+    assert "jane.doe@example.org" not in definition and "617-555-0100" not in definition

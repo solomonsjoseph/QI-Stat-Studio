@@ -141,6 +141,8 @@ def build_profile(
         if inferred == "Category" and 2 <= unique_count <= 10:
             candidate_roles["grouping"].append(col_str)
         col_def = _extract_column_definition(col_str, dictionary_text)
+        if col_def:
+            col_def = scrub_text(col_def)[0]  # the profile goes to the AI; dictionary prose can hold names and contacts
 
         col_data_list.append({
             "name": col_str,

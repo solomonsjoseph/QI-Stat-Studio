@@ -28,7 +28,13 @@ combines:
   street addresses.
 - spaCy's `en_core_web_sm` NER model (when installed, see
   {doc}`getting-started`) for `PERSON`, `DATE`, and `ORG` entities the
-  regexes would miss.
+  regexes would miss. The small model also tags project vocabulary, so
+  `_ner_redactable` in `api/middleware/phi_scrubber.py` keeps what is not an
+  identifier: a single token with a digit (SGLT2, GLP-1), payer names
+  (Medicaid, Medicare), and dates that do not reach a specific day ("January
+  2025", "3 months"). Multi-word names with a digit, such as "Maria Garcia 2B",
+  are still redacted. The dataset profile's dictionary definitions are scrubbed
+  when the profile is built, because the profile goes to the AI.
 
 Every match, from either method, is replaced with the literal string
 `[REDACTED]`, and a redaction count is returned alongside the cleaned text.

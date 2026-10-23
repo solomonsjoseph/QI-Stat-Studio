@@ -128,6 +128,9 @@ docker run -p 8000:8000 \
   qi-stat-studio
 ```
 
+The image sets `ENVIRONMENT=production`: the container refuses to start with the
+default `SECRET_KEY`, and the local-only `/dev/quit` route returns 404.
+
 The image is a two-stage build: `node:20-slim` builds `web/dist`, then
 `python:3.11-slim` installs `requirements.txt` plus the spaCy model and
 copies the built frontend in alongside the backend. The container's entry

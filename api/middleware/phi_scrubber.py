@@ -86,8 +86,8 @@ def _ner_redactable(ent) -> bool:
     """The small English model also tags drug classes (SGLT2, GLP-1), payers, durations ("3 months")
     and month-year ("January 2025"). Those are project context, not patient identifiers: keep
     names, organizations other than payers, and dates that reach a specific day."""
-    if ent.label_ in ("PERSON", "ORG") and any(ch.isdigit() for ch in ent.text):
-        return False  # drug classes and lab terms such as SGLT2 or GLP-1; no real name has a digit
+    if ent.label_ in ("PERSON", "ORG") and len(ent.text.split()) == 1 and any(ch.isdigit() for ch in ent.text):
+        return False  # one token with a digit is a drug class or lab term such as SGLT2 or GLP-1; "Maria Garcia 2B" stays redacted
     if ent.label_ == "ORG":
         return ent.text.strip().lower() not in _PAYERS
     if ent.label_ == "DATE":
