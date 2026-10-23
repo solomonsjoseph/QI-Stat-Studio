@@ -129,6 +129,7 @@ def compute_flag_states(db: Session, upload: Upload) -> FlagStatesOut:
         upload_id=upload.id, flags=out,
         unhandled_warning_count=sum(1 for s in out if s.severity == "WARNING" and s.state in ("unhandled", "open", "discussing")),
         unresolved_error_count=sum(1 for s in out if s.severity == "ERROR" and s.state != "resolved"),
+        pending_choice=upload.handoff_status == "pending_choice",
     )
 
 

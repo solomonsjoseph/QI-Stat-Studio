@@ -70,7 +70,7 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 | `id` | Integer PK | |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE` |
 | `upload_id` | Integer FK → `uploads.id` | `ondelete=CASCADE`, nullable (legacy runs predating this column) |
-| `template` | String(50) | one of the six template ids |
+| `template` | String(50) | one of the seven template ids |
 | `parameters`, `result_json` | Text (JSON) | the exact request params and the template's full return dict |
 | `code_r`, `code_spss`, `code_sas` | Text | generated code supplements (see {doc}`how-to`) |
 | `created_at` | DateTime | |

@@ -1,14 +1,11 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from api.audit import log_action
 from api import ai_key
 from api.auth import get_current_user, require_admin
 from api.database import get_db
-from api.models_api import SettingOut, SettingPayload
+from api.models_api import AIKeyPayload, AIKeyStatus, SettingOut, SettingPayload
 from api.models_db import User
 from api.settings_registry import list_runtime_settings, set_runtime_setting
 
@@ -25,18 +22,6 @@ def upsert_setting(payload: SettingPayload, db: Session = Depends(get_db), user:
     setting = set_runtime_setting(db, payload.key, payload.value)
     log_action(db, None, "setting_changed", {"key": setting.key, "type": setting.type, "runtime": setting.runtime})
     return setting
-
-
-class AIKeyPayload(BaseModel):
-    key: str = Field(min_length=8, max_length=512)
-
-
-class AIKeyStatus(BaseModel):
-    configured: bool
-    source: str  # settings | env | none
-    last4: Optional[str]
-    provider: str
-    advisor_available: bool
 
 
 def _ai_key_status(db: Session) -> AIKeyStatus:

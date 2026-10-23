@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import Results from './Results'
 
 const { apiMock, useAppMock } = vi.hoisted(() => ({
@@ -185,6 +186,39 @@ describe('Results multi-run rendering', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Upload not found (Request ID: req-9)')
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+})
+
+describe('Results regressions', () => {
+  it('renders an em dash instead of literal null for a CI cell', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 's',
+        table: [{ group: 'All', mean: 2.5, median_ci_low: null, median_ci_high: null }] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+    render(<Results />)
+    const table = await screen.findByRole('table')
+    expect(table).toHaveTextContent('Median CI low')
+    expect(table.textContent).not.toMatch(/\bnull\b/i)
+    expect(table.textContent).toContain('\u2014')
+  })
+
+  it('never blocks Edit & Review while the interpretation loads', async () => {
+    const next = vi.fn()
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next, prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({ runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5' }], failures: [] })
+    let rejectInterp
+    apiMock.interpretResults.mockReturnValue(new Promise((_, reject) => { rejectInterp = reject }))
+    render(<Results />)
+    const btn = await screen.findByRole('button', { name: 'Edit & Review' })
+    expect(await screen.findByText('Preparing AI interpretation…')).toBeInTheDocument()
+    expect(btn).not.toBeDisabled()
+    await userEvent.click(btn)
+    expect(next).toHaveBeenCalled()
+    await act(async () => { rejectInterp(new Error('late')) })
+    expect(screen.getByRole('button', { name: 'Edit & Review' })).not.toBeDisabled()
   })
 })
 

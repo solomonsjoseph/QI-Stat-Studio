@@ -2,7 +2,7 @@
 
 QI Stat Studio is a guided statistical analysis app for medical residents
 running quality-improvement (QI) projects. A resident describes a project,
-uploads a CSV or Excel file, confirms data-quality checks, runs one of six
+uploads a CSV or Excel file, confirms data-quality checks, runs one of seven
 guide-recommended analyses, edits the interpretation, and downloads a
 Word/PDF report or shares an in-browser mentor review link. No statistics
 training or coding required.
@@ -27,6 +27,18 @@ uploads cannot be decrypted without it.
 
 Open `http://127.0.0.1:5173` and register. First account becomes admin.
 
+The backend listens on `API_PORT` (default 8010; for example `make stub API_PORT=9000`).
+
+## QI Stat Advisor
+
+On Data Review the QI Stat Advisor explains each data warning and proposes
+fixes. You select warnings, then acknowledge them or clarify them with the
+advisor. Nothing changes until you confirm, and agreed changes are listed in a
+handoff document and applied to your data before any analysis. The advisor
+needs an AI key: put it in `.env` (`make real`) or paste it on the Settings
+screen, where a saved key overrides `.env`. Without a key the app still works
+manually.
+
 ## Commands
 
 | Command | Description |
@@ -49,7 +61,7 @@ Then open `docs/build/html/index.html` in a browser. The site has two
 independent guides:
 
 - **User Guide**: for residents and mentors. The full walkthrough, task
-  how-tos, exact intake question wording, and the six analyses explained in
+  how-tos, exact intake question wording, and the seven analyses explained in
   plain English.
 - **Developer Guide**: for engineers. Local setup, system architecture, the
   full data model, complete API reference, security/PHI design, the test

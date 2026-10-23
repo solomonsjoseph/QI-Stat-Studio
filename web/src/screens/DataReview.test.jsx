@@ -175,6 +175,14 @@ describe('DataReview', () => {
     expect(screen.getByRole('button', { name: /Continue to Analysis Selection/ })).toBeDisabled()
   })
 
+  it('keeps Continue disabled with a status while a re-upload choice is pending', async () => {
+    apiMock.getFlagStates.mockResolvedValue({ ...states([], 0, 0), pending_choice: true })
+    mountWarnings({}, [])
+    render(<DataReview />)
+    expect(await screen.findByRole('status')).toHaveTextContent('Choose whether to keep your earlier changes or start fresh above.')
+    expect(screen.getByRole('button', { name: /Continue to Analysis Selection/ })).toBeDisabled()
+  })
+
   it('disables Clarify but not Acknowledge when the advisor is unavailable', async () => {
     const user = userEvent.setup()
     apiMock.getFlagStates.mockResolvedValue(states([st('missing_values:age', 'unhandled')], 1, 0))

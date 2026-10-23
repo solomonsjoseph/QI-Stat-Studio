@@ -27,6 +27,23 @@ describe('ReuploadChoice', () => {
     expect(await screen.findByText('Your earlier changes were kept.')).toBeTruthy()
   })
 
+  it('applies the replace response to the context and tells the screen after a choice', async () => {
+    const onChosen = vi.fn()
+    apiMock.replaceUpload.mockResolvedValue({
+      id: 9, choice_required: true, col_types: { a: 'number' }, column_map: { a: 'a' }, column_roles: { a: 'outcome' },
+      quality_flags: [{ id: 'x' }], acknowledged_flags: [], preview_rows: [{ a: 1 }, { a: 2 }], dataset_profile: { row_count: 2 },
+    })
+    apiMock.reuploadChoice.mockResolvedValue({})
+    render(<ReuploadChoice onChosen={onChosen} />)
+    await pick()
+    await userEvent.click(await screen.findByRole('button', { name: 'Keep' }))
+    expect(appMock.update).toHaveBeenCalledWith({
+      uploadId: 9, colTypes: { a: 'number' }, columnMap: { a: 'a' }, columnRoles: { a: 'outcome' },
+      qualityFlags: [{ id: 'x' }], acknowledgedFlags: [], rowCount: 2, profile: { row_count: 2 },
+    })
+    await waitFor(() => expect(onChosen).toHaveBeenCalled())
+  })
+
   it('sends fresh when Start fresh is chosen', async () => {
     apiMock.replaceUpload.mockResolvedValue({ id: 9, choice_required: true })
     apiMock.reuploadChoice.mockResolvedValue({})

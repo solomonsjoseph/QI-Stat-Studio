@@ -15,8 +15,16 @@ def _row_key(provider: str) -> str:
     return f"ai_key_enc:{provider}"
 
 
+_PLACEHOLDERS = {"changeme", "change-me", "your-key-here", "your_key_here", "your-api-key", "xxx"}
+
+
 def env_key(provider: str) -> str | None:
-    return (getattr(settings, f"{provider}_api_key", "") or None) if provider in KEYED_PROVIDERS else None
+    if provider not in KEYED_PROVIDERS:
+        return None
+    key = (getattr(settings, f"{provider}_api_key", "") or "").strip()
+    if not key or key.endswith("...") or key.lower() in _PLACEHOLDERS:
+        return None
+    return key
 
 
 def stored_key(db: Session, provider: str) -> str | None:

@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
@@ -30,6 +29,7 @@ from api.models_api import (
     AdvisorConfirmIn,
     AdvisorConfirmOut,
     AdvisorMessageIn,
+    AdvisorModelOut,
     AdvisorReply,
     AdvisorThreadOut,
     AdvisorTurnOut,
@@ -48,22 +48,6 @@ MAX_HISTORY_TURNS = 20
 OPENING = "start"
 _LOG_RE = re.compile(r"(## Change log\n\n).*?(\n\n## Machine-readable steps)", re.S)
 _KIND = {"propose": "apply", "undo": "undo", "revise": "revise"}
-
-
-# ---------- model output schema ----------
-
-class _ModelProposal(BaseModel):
-    warning_id: str
-    summary: str = ""
-    steps: List[Dict[str, Any]] = Field(default_factory=list)
-
-
-class AdvisorModelOut(BaseModel):
-    """What the LLM must return (see ADVISOR_SYSTEM_V1)."""
-    message: str
-    mode: Literal["propose", "undo", "revise", "info"] = "propose"
-    proposals: List[_ModelProposal] = Field(default_factory=list)
-    unapplied_notes: List[str] = Field(default_factory=list)
 
 
 # ---------- helpers ----------

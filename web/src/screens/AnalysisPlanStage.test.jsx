@@ -255,7 +255,7 @@ describe('AnalysisPlanStage with the advisor off', () => {
     renderScreen()
     await user.type(await screen.findByPlaceholderText(/paired test instead/), 'drop the run chart')
     await user.click(screen.getByRole('button', { name: 'Submit request' }))
-    expect(await screen.findByText('The advisor is off; edit the plan items directly')).toBeInTheDocument()
+    expect(await screen.findByText('The QI Stat Advisor is off; edit the plan items directly')).toBeInTheDocument()
     expect(screen.getByText('Summary of Falls')).toBeInTheDocument()
   })
 })

@@ -9,7 +9,7 @@ function msg(err) {
 
 // Replace the data file. If the files are identical the user picks keep or fresh;
 // if they differ a new handoff is already started and the old one is in History.
-export default function ReuploadChoice() {
+export default function ReuploadChoice({ onChosen } = {}) {
   const { ctx, update } = useApp()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -23,7 +23,16 @@ export default function ReuploadChoice() {
     setBusy(true); setError(''); setNotice(''); setPending(null)
     try {
       const res = await api.replaceUpload(ctx.projectId, ctx.uploadId, file)
-      update({ uploadId: res.id, colTypes: res.col_types || {}, qualityFlags: res.quality_flags || [] })
+      update({
+        uploadId: res.id,
+        colTypes: res.col_types || {},
+        columnMap: res.column_map || {},
+        columnRoles: res.column_roles || {},
+        qualityFlags: res.quality_flags || [],
+        acknowledgedFlags: res.acknowledged_flags || [],
+        rowCount: res.preview_rows?.length || 0,
+        profile: res.dataset_profile || {},
+      })
       if (res.choice_required) setPending(res)
       else if (res.started_fresh) setNotice('A new handoff was started for this file. The old one is saved in History.')
     } catch (err) {
@@ -38,6 +47,7 @@ export default function ReuploadChoice() {
     try {
       await api.reuploadChoice(pending.id, choice)
       setPending(null)
+      onChosen?.()
       setNotice(choice === 'keep' ? 'Your earlier changes were kept.' : 'Started fresh. The old handoff is saved in History.')
     } catch (err) {
       setError(msg(err))

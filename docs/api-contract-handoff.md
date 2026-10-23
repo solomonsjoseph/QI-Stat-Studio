@@ -1,15 +1,15 @@
 # API contract: warning groups, handoff, advisor, key setting (T5)
 
-Status: contract only. Nothing here is implemented. Pydantic models are in `api/models_api.py` (section "Handoff / warning-group / advisor contract"). Backend tasks implement these paths and shapes. Frontend tasks T10 and T11 mock them in `web/src/api.js` until T20 to T22 switch to real calls.
+Status: this is the contract the implementation follows. Where the built behavior differs, the "Amendments after implementation" section at the end is authoritative. Pydantic models are in `api/models_api.py` (section "Handoff / warning-group / advisor contract"). The frontend calls these paths through `web/src/api.js`.
 
 ## Conventions
 
 - The handoff, steps and warning groups belong to an upload (`upload_id`). Replacing an upload creates a new upload with its own handoff, and the old one moves to history.
-- Routers: warning groups, flag states, handoff, reupload choice and history go in a new `api/routers/handoff.py` (prefix `/upload` for upload-scoped paths, `/projects` for history). Advisor chat goes in `api/routers/ai.py` under `/ai/advisor`. Key setting goes in `api/routers/settings_router.py`.
+- Routers: warning groups and flag states are in `api/routers/warning_groups.py` (prefix `/upload`). Handoff reads, the mentor handoff, project history, the resident handoff delete and the admin log purge are in `api/routers/handoff.py`. The re-upload choice is in `api/routers/reupload.py` (prefix `/upload`). Advisor chat is in `api/routers/advisor.py` (prefix `/ai/advisor`). The AI key is in `api/routers/settings_router.py`.
 - Auth "owner" means the existing project-access check used by `_require_upload_access` (project owner or admin). "Any user" means `get_current_user`. "Share token" means the mentor token used by `/share/{token}`.
 - Error bodies use the existing envelope `{"error": {"code", "message", "field_errors", "request_id"}}`.
 - Flag ids are the stable `id` strings added by T3 (rule + column, for example `missing_values:age`). Flags keep `severity` of `WARNING` or `ERROR`.
-- Step shape: `{op, ...args, warning_ids: [flag_id], note}`. `op` is one of `recode, merge_values, retype, rename, fill, set, drop_rows, exclude_rows, note`. Arg names per op belong to `api/cleaning_steps.py` (T4); the contract treats extra keys as op args. A `note` op never changes data.
+- Step shape: `{op, ...args, warning_ids: [flag_id], note}`. `op` is one of `recode, merge_values, trim, change_case, retype, rename_column, set_value, drop_duplicates, drop_rows, drop_column, set_role`, as defined by `OPS` in `api/cleaning_steps.py`, which also lists the required and optional args of each op. Steps outside this vocabulary are rejected (`step_rejected`) or returned in `unapplied_notes`. `set_role` changes the column role in the upload, not the data values.
 
 ## Warning-group state model
 
@@ -29,7 +29,7 @@ Status: contract only. Nothing here is implemented. Pydantic models are in `api/
 | 2 | POST | `/upload/{upload_id}/warnings/acknowledge` | `WarningBatchAcknowledge` | 201 `WarningGroupOut` (one group, action acknowledge, status handled) | owner | same as 1 |
 | 3 | GET | `/upload/{upload_id}/warning-groups` | none | `WarningGroupListOut` | owner | 404 |
 | 4 | GET | `/upload/{upload_id}/flag-states` | none | `FlagStatesOut` | owner | 404 |
-| 5 | GET | `/upload/{upload_id}/handoff` | none | `HandoffOut` (`read_only=false`) | owner | 404; 409 `handoff_pending_choice` is not an error, status is returned instead |
+| 5 | GET | `/upload/{upload_id}/handoff` | none | `HandoffOut` (`read_only=false`) | owner | 404; a pending choice is not an error, `status` is returned instead |
 | 6 | GET | `/upload/{upload_id}/handoff/revisions` | none | `HandoffRevisionListOut` | owner | 404 |
 | 7 | GET | `/share/{token}/handoff` | none | `HandoffOut` (`read_only=true`, current handoff and change log only) | share token | 404 invalid, revoked or expired token |
 | 8 | GET | `/ai/advisor/groups/{group_id}` | none | `AdvisorThreadOut` | owner | 404 |
@@ -39,11 +39,12 @@ Status: contract only. Nothing here is implemented. Pydantic models are in `api/
 | 12 | POST | `/upload/{upload_id}/reupload-choice` | `ReuploadFollowUpIn` | `ReuploadFollowUpOut` | owner | 404; 409 `no_choice_pending` |
 | 13 | GET | `/projects/{project_id}/handoff-history` | none | `HandoffHistoryOut` | owner | 404 |
 | 14 | DELETE | `/upload/{upload_id}/handoff` | none | `{"ok": true}` | owner | 404; 409 `handoff_is_current` (only a replaced handoff can be deleted) |
-| 15 | PUT | `/settings/ai-key` | `AIKeyIn` | `AIKeyStatus` | any user (admin-only later) | 422 `key_invalid` |
-| 16 | GET | `/settings/ai-key` | none | `AIKeyStatus` | any user | none |
+| 15 | PUT | `/settings/ai-key` | `{"key": "..."}` (8 to 512 chars) | `AIKeyStatus` | any user (admin-only later) | 422 on a key outside that length |
+| 16 | GET | `/settings/ai-key` | none | `AIKeyStatus` (also the source of advisor availability) | any user | none |
 | 17 | DELETE | `/settings/ai-key` | none | `AIKeyStatus` (falls back to env if set) | any user (admin-only later) | none |
-| 18 | GET | `/ai/provider-status` | none | `ProviderStatusOut` | any user | none |
-| 19 | GET | `/projects/{project_id}/resume` (existing) | none | existing `ProjectResumeOut` plus `gating: GatingOut` | owner | as today |
+| 18 | DELETE | `/upload/{upload_id}/warning-groups/{group_id}` | none | `FlagStatesOut` | owner | 404; 409 `group_not_cancellable` |
+| 19 | DELETE | `/admin/upload/{upload_id}/handoff-log` | none | `{"ok": true}` | admin | 404; 409 `handoff_not_deleted` (only the log of a deleted handoff can be purged) |
+| 20 | GET | `/projects/{project_id}/resume` (existing) | none | existing `ProjectResumeOut` plus `gating: GatingOut` | owner | as today |
 
 ### Notes per area
 
@@ -56,7 +57,7 @@ Groups (1 to 4)
 Handoff (5 to 7, 13, 14)
 - `status`: `none` (not built yet), `pending_choice` (same-file re-upload awaiting keep or fresh), `current`, `replaced`, `deleted`.
 - `change_log` is always returned. After deletion `markdown` is null and `steps` is empty, and the change log remains.
-- Deleting a replaced handoff clears the markdown, steps and revision snapshots, and keeps the change log entries. There is no resident endpoint to delete a change log. Log removal is an admin task outside this contract (use `require_admin` if an endpoint is added later).
+- Deleting a replaced handoff clears the markdown, steps and revision snapshots, and keeps the change log entries. There is no resident endpoint to delete a change log. An administrator can drop the log of a deleted handoff with `DELETE /admin/upload/{upload_id}/handoff-log`.
 - The mentor endpoint returns the current handoff only, never history, and has no write counterpart.
 
 Advisor chat (8 to 10)
@@ -78,13 +79,13 @@ Re-upload (11, 12)
 - Same file and same dictionary (both checksums equal): `same_as_previous: true`, `choice_required: true`. The new upload's handoff status is `pending_choice`. Gates treat it as fresh until a choice is made.
 - `keep` copies steps, markdown and change log from the previous upload and continues the revision number (log entry kind `keep_from_previous`). `fresh` builds a new handoff from the new upload. Both return the resulting `HandoffOut`.
 
-API key (15 to 18)
+API key (15 to 17)
 - The value is write-only. No response ever contains it. `last4` is null when `source` is `none`, and for `env` it is the last four characters of the env key.
 - `source` is `settings` when a stored key exists (it overrides env), `env` when only the environment variable is set, otherwise `none`.
-- `provider-status.advisor_available` is true when a key is configured or the stub provider is active. The no-key prompt uses it with `key_source`.
+- `advisor_available` on `AIKeyStatus` is true when a key is configured or the stub provider is active. There is no separate provider-status endpoint. The no-key prompt reads `GET /settings/ai-key`.
 - The key is app-wide. The UI text says a saved key replaces it for everyone.
 
-Gating (19)
+Gating (20)
 - `ProjectResumeOut.gating` is a `GatingOut`. `current_screen` derivation uses `can_continue`. Backend `_has_unacknowledged_flags` and the analyze gate use the same computation as `can_continue` so the screen and the server agree.
 
 ## Tables and columns for T8 (one Alembic revision)
@@ -143,9 +144,12 @@ Per-flag handled state is derived from `warning_groups` plus a re-run of the qua
     {"flag_id": "outcome_missing_30pct:readmit", "severity": "ERROR", "state": "open", "group_id": 9, "action": "clarify"}
   ],
   "unhandled_warning_count": 2,
-  "unresolved_error_count": 1
+  "unresolved_error_count": 1,
+  "pending_choice": false
 }
 ```
+
+`pending_choice` is true while an identical-file re-upload awaits keep or fresh. It is optional for older clients (treat a missing value as false).
 
 `POST /upload/42/warnings/acknowledge` with `{"flag_ids": ["missing_values:age"], "text": "Missing at random, reviewed"}`
 
@@ -184,7 +188,7 @@ Per-flag handled state is derived from `warning_groups` plus a re-run of the qua
   "proposals": [{
     "warning_id": "category_variants:unit",
     "summary": "Merge 'MG' into 'mg' in column unit",
-    "steps": [{"op": "merge_values", "column": "unit", "from": ["MG"], "to": "mg",
+    "steps": [{"op": "merge_values", "column": "unit", "values": ["MG"], "into": "mg",
                "warning_ids": ["category_variants:unit"], "note": "User asked to merge case variants"}]
   }],
   "needs_user_confirmation": true, "proposal_id": "p_8_3", "mode": "propose", "unapplied_notes": []
@@ -211,27 +215,17 @@ Advisor unavailable (HTTP 503):
 
 ### T10: key setting and no-key prompt
 
-`GET /ai/provider-status`
+`GET /settings/ai-key` when unset, after `PUT /settings/ai-key` with `{"key": "sk-or-v1-abcdef123456"}`, and when only env is set:
 
 ```json
-{"advisor_available": false, "key_source": "none", "provider": null}
-```
-
-`GET /settings/ai-key` when unset, after `PUT /settings/ai-key` with `{"value": "sk-or-v1-abcdef123456"}`, and when only env is set:
-
-```json
-{"configured": false, "source": "none", "last4": null}
-{"configured": true, "source": "settings", "last4": "3456"}
-{"configured": true, "source": "env", "last4": "9z1q"}
+{"configured": false, "source": "none", "last4": null, "provider": "openrouter", "advisor_available": false}
+{"configured": true, "source": "settings", "last4": "3456", "provider": "openrouter", "advisor_available": true}
+{"configured": true, "source": "env", "last4": "9z1q", "provider": "openrouter", "advisor_available": true}
 ```
 
 `DELETE /settings/ai-key` when an env key exists returns `{"configured": true, "source": "env", "last4": "9z1q"}`; otherwise the unset shape.
 
-`PUT` with a too-short value returns 422:
-
-```json
-{"error": {"code": "key_invalid", "message": "Enter the full key.", "field_errors": {"value": ["too short"]}, "request_id": "c4410e"}}
-```
+`PUT` with a key shorter than 8 or longer than 512 characters fails request validation with a 422. There is no `key_invalid` code.
 
 ### T21 reference: history and re-upload
 
@@ -259,6 +253,7 @@ The built behavior differs from the sections above in these places. The code is 
 - AI key: `PUT /settings/ai-key` takes `{"key": "<8 to 512 chars>"}` (not `{value}`); `GET`/`PUT`/`DELETE` return `{configured, source: settings|env|none, last4, provider, advisor_available}`. Any signed-in user may call them for now (admin-only later). The key is app-wide.
 - Handoff status values are `none, pending_choice, current, replaced, deleted`. The document is created as `current`.
 - Revision `kind` is `created, apply, undo, revise, keep_from_previous`. The stored and displayed `actor` is only `user`, `advisor` or `system`; an email never appears in the document, the change log, or the mentor view.
+- `FlagStatesOut.pending_choice` (bool, default false) mirrors the pending state on the flag-states response, so the review screen can keep Continue disabled until the resident chooses.
 - `GatingOut.pending_choice` (bool): `can_continue` is false while an identical-file re-upload awaits keep or fresh.
 - `DELETE /upload/{upload_id}/warning-groups/{group_id}` cancels an unconfirmed clarify group and returns `FlagStatesOut`; 409 `group_not_cancellable` for a handled group, an acknowledge group, or a group that applied steps. Acknowledging flags that sit in an unconfirmed clarify group cancels that group first.
 - Advisor replies: `ProposedSteps.dry_run` and `AdvisorReply.dry_run_error` are optional. A proposal records the handoff revision it was made against; confirming after the revision moved returns 409 `stale_proposal`. Any reply that is not a valid proposal clears the pending proposal. Confirm is claimed atomically, so a double confirm applies once.

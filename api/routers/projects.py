@@ -357,6 +357,7 @@ def delete_project(
     purge: bool = False,
     project: Project = Depends(require_project_owner),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     if not purge:
         project.status = "archived"
@@ -366,6 +367,14 @@ def delete_project(
         return {"ok": True, "purged": False}
 
     uploads = db.query(Upload).filter(Upload.project_id == project.id).all()
+    # Every handoff starts with a "created" entry; only entries past that count as a change log.
+    if user.role != "admin" and any(
+        r.get("kind") != "created" for u in uploads for r in _parse_json(u.handoff_revisions, [])
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This project has a change log. Ask an administrator to remove it.",
+        )
     for upload in uploads:
         if upload.encrypted_path:
             path = Path(upload.encrypted_path)

@@ -6,7 +6,7 @@ export default function NoKeyPrompt({ onSaved, onSkip }) {
     <div className="screen max-w-xl">
       <h1 className="text-2xl font-semibold text-ink">The QI Stat Advisor needs an AI key</h1>
       <p className="mt-2 text-sm leading-6 text-ink-soft">
-        The advisor reads your data warnings, proposes fixes, and writes interpretations. No key is configured yet.
+        The QI Stat Advisor reads your data warnings, proposes fixes, and writes interpretations. No key is configured yet.
       </p>
 
       <section className="card mt-6" aria-labelledby="nokey-enter">

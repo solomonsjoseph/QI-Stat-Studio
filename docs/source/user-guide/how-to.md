@@ -77,8 +77,9 @@ admin if you need a project permanently removed.
 Admins see a **Settings** link that residents don't. It lists the current
 values for things like the clinic name shown in reports, which AI
 provider/model is active, and the AI rate limit, and lets you add or update
-one setting at a time. Secrets (API keys, the database URL, the encryption
-key) are never editable here. They live only in the server's environment
+one setting at a time. Secrets (the database URL and the encryption
+key) are never editable here. The AI key has its own section; see
+"Set the AI key" below. They live only in the server's environment
 configuration; see {doc}`../developer-guide/how-to` if you're the one
 managing that deployment.
 
@@ -95,3 +96,46 @@ admin:
   any mentor whose share has a deadline within the next 7 days and who
   hasn't already been reminded. Run this periodically (e.g. from a scheduled
   job) if your deployment wants automatic reminders.
+
+## Set the AI key
+
+The QI Stat Advisor needs an AI key. Open **Settings**, paste the key under
+**AI key** and click **Save key**. The screen shows only the last four
+characters afterwards. A saved key is app-wide: it replaces the key for
+everyone using this build and overrides the one in `.env`. **Remove saved key**
+falls back to `.env`. Any signed-in user can do this; the other settings on the
+page are for admins.
+
+## Work without the QI Stat Advisor
+
+With no key set, the app shows a banner saying the QI Stat Advisor is off.
+Clarify is disabled, but you can still acknowledge warnings, edit the analysis
+plan items yourself, write your own interpretation, run analyses and download
+the report.
+
+## Read the handoff document
+
+On Data Review, open the handoff document to see the agreed changes, the
+change log and earlier revisions. Each change you confirm with the QI Stat
+Advisor is applied to your data before any analysis runs, so results and the
+report use the cleaned data. To undo or revise a change, reopen the warning and
+ask in the chat.
+
+## Replace a data file
+
+Use **Replace data file** on Data Review. A different file starts a new
+handoff and the old one is kept in History. If the files are identical you are
+asked whether to keep your earlier changes or start fresh, and Continue stays
+disabled until you choose.
+
+## History
+
+**History** lists the handoff documents of replaced files. You can view one or
+delete the document; its change log stays and only an administrator can
+remove it.
+
+## Mentor view
+
+A mentor opening a share link sees the results, comments and the current
+handoff document read-only. The document shows who acted as "user", "advisor"
+or "system", never an email address.

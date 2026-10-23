@@ -604,7 +604,7 @@ export default function ClarificationStage() {
                   className="input w-full min-h-24"
                   value={pendingRedacted ?? singleAnswer}
                   onChange={e => { setSingleAnswer(e.target.value); setPendingRedacted(null) }}
-                  placeholder="Provide clarification or ask the AI a question..."
+                  placeholder="Provide clarification or ask the QI Stat Advisor a question..."
                   disabled={loading}
                 />
               </div>

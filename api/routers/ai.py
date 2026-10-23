@@ -180,9 +180,28 @@ def _drop_irrelevant_questions(message: str, design: ProjectDesign | None) -> st
     return result.strip()
 
 
+def _scrub_design_text(db: Session, project_id: int, design: dict, source: str) -> dict:
+    """Copy of a project design with its free-text fields PHI-scrubbed (dates stay readable)."""
+    out = json.loads(json.dumps(design))
+    intervention = out.get("intervention")
+    holders = [(out, k) for k in ("aim", "population", "setting", "plain_restatement")]
+    if isinstance(intervention, dict):
+        holders.append((intervention, "description"))
+    total = 0
+    for holder, key in holders:
+        if isinstance(holder.get(key), str) and holder[key]:
+            holder[key], n = scrub_text(holder[key], redact_dates=False)
+            total += n
+    if total:
+        log_action(db, project_id, "phi_redacted", {"redaction_count": total, "source": source})
+    return out
+
+
 def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
     """Resolve (provider, api_key, api_base, default_model) for the configured AI provider."""
-    provider = (get_runtime_setting(db, "ai_provider") or settings.ai_provider or "openrouter").strip().lower()
+    env_provider = (settings.ai_provider or "").strip().lower()
+    runtime_provider = None if env_provider == "stub" else get_runtime_setting(db, "ai_provider")
+    provider = (runtime_provider or settings.ai_provider or "openrouter").strip().lower()
     if provider == "stub":
         return "stub", "stub", None, "stub"
     if provider == "openai":
@@ -469,9 +488,14 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
     dictionary_text_truncated, _ = scrub_text(dictionary_text[:4000])
 
+    clean_title, title_n = scrub_text(project.title or "(untitled)", redact_dates=False)
+    clean_desc, desc_n = scrub_text(project.description or "(no description yet)", redact_dates=False)
+    if title_n + desc_n:
+        log_action(db, project_id, "phi_redacted", {"redaction_count": title_n + desc_n, "source": "ai_clarify_project_text"})
+
     system_prompt = CLARIFY_SYSTEM_V1.format(
-        title=project.title or "(untitled)",
-        description=project.description or "(no description yet)",
+        title=clean_title,
+        description=clean_desc,
         dataset_profile=_untrusted(profile_json),
         dictionary_text=_untrusted(dictionary_text_truncated),
     )
@@ -553,7 +577,7 @@ def ai_collection_guidance(
         try:
             _enforce_ai_rate_limit(db, user)
             system_prompt = COLLECTION_SYSTEM_V1.format(
-                design=_untrusted(json.dumps(design.model_dump(), indent=2)),
+                design=_untrusted(json.dumps(_scrub_design_text(db, project_id, design.model_dump(), "ai_collection_guidance"), indent=2)),
                 dataset_profile=_untrusted(json.dumps(profile, indent=2)),
                 dictionary_text=_untrusted(scrub_text((upload.dictionary_text or "(none)")[:4000])[0]),
             )
@@ -719,7 +743,7 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
             for a in validated_analyses
         ]
         system_prompt = RECOMMEND_EXPLAIN_SYSTEM_V2.format(
-            design=_untrusted(json.dumps(design.model_dump(), indent=2)),
+            design=_untrusted(json.dumps(_scrub_design_text(db, project_id, design.model_dump(), "ai_recommend_plan"), indent=2)),
             dataset_profile=_untrusted(json.dumps(profile, indent=2)),
             quality_findings=_untrusted(quality_findings),
             dictionary_text=_untrusted(dictionary_text_scrubbed),
@@ -835,7 +859,7 @@ def ai_override_plan(
 
     system_prompt = OVERRIDE_SYSTEM_V1.format(
         method_library=_method_library_text(),
-        design=_untrusted(json.dumps(design, indent=2)),
+        design=_untrusted(json.dumps(_scrub_design_text(db, project_id, design, "ai_override_plan"), indent=2)),
         dataset_profile=_untrusted(profile_json),
         current_plan=_untrusted(json.dumps(current_plan.get("analyses", []), indent=2)),
         instruction=_untrusted(clean_instruction),

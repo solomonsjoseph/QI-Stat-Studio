@@ -94,9 +94,14 @@ def mentor_handoff(token: str, db: Session = Depends(get_db)):
     if not upload:
         raise HTTPException(status_code=404, detail="Handoff not found")
     out = _handoff_out(upload, read_only=True, with_steps=False)
-    # The document's change log prints the acting resident's email; mentors do not get it.
+    # Defensive: mask any email-shaped text in the change log section only. The data
+    # dictionary above it can hold legitimate emails and is left alone.
     if out.markdown:
-        out.markdown = re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "resident", out.markdown)
+        out.markdown = re.sub(
+            r"(## Change log\n.*?)(?=\n## Machine-readable steps|\Z)",
+            lambda m: re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "resident", m.group(1)),
+            out.markdown, count=1, flags=re.S,
+        )
     return out
 
 

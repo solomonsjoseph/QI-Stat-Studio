@@ -18,7 +18,8 @@ function normalizeSettings(data) {
 }
 
 export default function Settings() {
-  const { ctx, goTo, setAdvisorStatus } = useApp()
+  const { ctx, goTo, setAdvisorStatus, user } = useApp()
+  const isAdmin = user?.role === 'admin'
   const [keyStatus, setKeyStatus] = useState(null)
   const [keyError, setKeyError] = useState('')
   const [removing, setRemoving] = useState(false)
@@ -26,7 +27,7 @@ export default function Settings() {
   const [key, setKey] = useState('')
   const [val, setVal] = useState('')
   const [saved, setSaved] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(isAdmin)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -43,9 +44,9 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    load()
+    if (isAdmin) load()
     api.getAiKeyStatus().then(setKeyStatus).catch(err => setKeyError(errorMessage(err)))
-  }, [])
+  }, [isAdmin])
 
   function keySaved(status) {
     setKeyStatus(status)
@@ -113,6 +114,7 @@ export default function Settings() {
         )}
       </section>
 
+      {isAdmin && <>
       <section className="mb-6" aria-labelledby="current-settings-heading">
         <h2 id="current-settings-heading" className="mb-2 text-sm font-semibold text-ink">Current Settings</h2>
         {!loading && settings.length === 0 ? (
@@ -147,6 +149,7 @@ export default function Settings() {
           {saving ? 'Saving…' : saved ? 'Saved' : 'Save'}
         </button>
       </form>
+      </>}
     </div>
   )
 }

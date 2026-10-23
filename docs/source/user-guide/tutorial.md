@@ -82,8 +82,12 @@ dropdown next to each column, then click **Confirm Types**.
 The app runs a set of automatic checks and shows any **Data Quality
 Warnings** (mixed casing, missing data, outliers, gaps in your time series,
 and similar) alongside the row count and missing-value percentage per
-column. Check every warning's acknowledgement box to confirm you actually
-looked at it; **Continue** stays disabled until you have.
+column. Select the warnings you want to deal with. Click **Acknowledge
+selected** if a warning is expected and fine as it is, or **Clarify with QI
+Stat Advisor** to talk it through and agree on a fix. The advisor proposes a
+change, shows how many rows it affects, and nothing is applied until you
+confirm. Open the handoff document to read every agreed change. **Continue**
+stays disabled until each warning is acknowledged or handled.
 
 If a check finds something more serious, a true **ERROR** like duplicate
 patient IDs, the app blocks you outright and gives you a
@@ -95,7 +99,7 @@ acknowledged away; the underlying file has to change.
 The app ranks three analyses based on your intake answers and marks one
 **Recommended**. For this walkthrough (tracking a value over time, monthly,
 12 points) it recommends **Run Chart**. You can pick any of the three shown;
-the full list of six possible analyses is in {doc}`reference`.
+the full list of seven possible analyses is in {doc}`reference`.
 
 ## 9. Map your columns
 

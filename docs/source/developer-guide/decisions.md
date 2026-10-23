@@ -198,7 +198,7 @@ mentor-influenced code server-side. The tradeoff is that the generated code
 and the app's actual computed result can, in principle, drift if a template
 runner changes without its matching `codegen.py` branch being updated in the
 same change. `tests/test_codegen.py` exists specifically to catch that
-drift for the six shipped templates.
+drift for the shipped templates.
 
 ## ADR-011: Control charts downgrade to run charts instead of failing
 

@@ -498,6 +498,7 @@ class FlagStatesOut(BaseModel):
     flags: list[FlagStateOut]
     unhandled_warning_count: int
     unresolved_error_count: int
+    pending_choice: bool = False
 
 
 class CleaningStep(BaseModel):
@@ -634,10 +635,17 @@ class AIKeyIn(BaseModel):
     value: str = Field(min_length=8, max_length=512)   # write-only
 
 
+class AIKeyPayload(BaseModel):
+    """Body of PUT /settings/ai-key (the live request shape; AIKeyIn above is not wired to a route)."""
+    key: str = Field(min_length=8, max_length=512)
+
+
 class AIKeyStatus(BaseModel):
     configured: bool
     source: KeySource
-    last4: str | None = None
+    last4: str | None
+    provider: str
+    advisor_available: bool
 
 
 class ProviderStatusOut(BaseModel):
@@ -655,3 +663,17 @@ class GatingOut(BaseModel):
     handoff_status: Literal["none", "pending_choice", "current", "replaced", "deleted"] = "none"
     advisor_available: bool = False
     pending_choice: bool = False            # identical-file re-upload awaiting keep/fresh; forces can_continue false
+
+
+class AdvisorModelProposal(BaseModel):
+    warning_id: str
+    summary: str = ""
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AdvisorModelOut(BaseModel):
+    """What the LLM must return (see ADVISOR_SYSTEM_V1)."""
+    message: str
+    mode: Literal["propose", "undo", "revise", "info"] = "propose"
+    proposals: list[AdvisorModelProposal] = Field(default_factory=list)
+    unapplied_notes: list[str] = Field(default_factory=list)

@@ -98,6 +98,7 @@ export default function DataReview({ onOpenClarify } = {}) {
       byKey,
       unhandled_warning_count: res.unhandled_warning_count,
       unresolved_error_count: res.unresolved_error_count,
+      pending_choice: !!res.pending_choice,
     })
   }, [uploadId])
 
@@ -190,7 +191,7 @@ export default function DataReview({ onOpenClarify } = {}) {
   // Server gating decides. Without an upload there is nothing to ask the server, so use local state.
   const canContinue = !uploadId
     ? errors.length === 0 && warnings.every(f => legacyAcked.has(flagKey(f)))
-    : !!flagStates && flagStates.unhandled_warning_count === 0 && flagStates.unresolved_error_count === 0
+    : !!flagStates && !flagStates.pending_choice && flagStates.unhandled_warning_count === 0 && flagStates.unresolved_error_count === 0
 
   async function cancelGroup(groupId) {
     setBusy(true)
@@ -242,7 +243,7 @@ export default function DataReview({ onOpenClarify } = {}) {
   return (
     <div className="screen">
       <PageIntro step="review" title="Data Review" />
-      <ReuploadChoice />
+      <ReuploadChoice onChosen={loadStates} />
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}
       {statesError && (
         <div role="alert" className="alert-error mb-4 flex flex-wrap items-center gap-3">
@@ -412,6 +413,10 @@ export default function DataReview({ onOpenClarify } = {}) {
       )}
 
       {flags.length === 0 && <p className="alert-ok mb-6">No data quality issues detected.</p>}
+
+      {flagStates?.pending_choice && (
+        <p role="status" className="alert-info mb-3">Choose whether to keep your earlier changes or start fresh above.</p>
+      )}
 
       <div className="flex flex-wrap gap-3">
         <BackButton onClick={prev} disabled={saving} />
