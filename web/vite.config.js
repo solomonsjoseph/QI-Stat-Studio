@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Permit Cloudflare Quick Tunnels for temporary remote previews while
+    // retaining Vite's host-header protection for every other hostname.
+    allowedHosts: ['.trycloudflare.com'],
     proxy: {
       '/api': {
         target: `http://127.0.0.1:${process.env.API_PORT || 8000}`,
