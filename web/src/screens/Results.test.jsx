@@ -235,4 +235,16 @@ describe('Results with the advisor off', () => {
     expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('calls the interpretation a draft, not AI output, when the advisor is off', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [], interpretation: 'Falls averaged 2.5.' }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockRejectedValue(Object.assign(new Error('off'), { code: 'advisor_unavailable' }))
+    render(<Results />)
+    expect(await screen.findByRole('heading', { name: 'Draft interpretation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'AI Interpretation' })).not.toBeInTheDocument()
+  })
 })

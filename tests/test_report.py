@@ -596,3 +596,10 @@ def test_report_lists_run_snapshot_limitation(client):
     assert line in _docx_text(client.get(f"/report/project/{with_it['project_id']}/docx").content)
     without = _seed_report_run()
     assert line not in _docx_text(client.get(f"/report/project/{without['project_id']}/docx").content)
+
+
+def test_table_headers_read_as_words():
+    from api.routers.report import _header_text
+    assert _header_text("mean_ci_low") == "Mean CI low"
+    assert _header_text("group") == "Group"
+    assert _header_text("pct") == "%"

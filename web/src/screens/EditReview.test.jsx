@@ -112,4 +112,11 @@ describe('EditReview per-run edits', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Caption edit rejected (Request ID: req-edit-2)')
   })
+
+  it('does not say the interpretation came from AI when the advisor is off', () => {
+    useAppMock.mockReturnValue({ ctx: runsCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn(), advisorOff: true })
+    render(<EditReview />)
+    expect(screen.queryByText(/Pre-filled from AI/)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/Pre-filled from the results/).length).toBe(2)
+  })
 })

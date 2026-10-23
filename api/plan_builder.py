@@ -6,6 +6,7 @@ The resident remains the only authority that can confirm a plan; this module onl
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 import pandas as pd
@@ -162,6 +163,20 @@ def _bind_descriptive(
     return params, conf
 
 
+_PRE_RE = re.compile(r"^(pre|before|baseline|control|usual care)\b")
+_POST_RE = re.compile(r"^(post|after|intervention|follow[- ]?up)\b")
+
+
+def _guess_pre_post(col: pd.Series) -> tuple[str | None, str | None]:
+    """Pre and post labels when the column has exactly two levels (case and padding ignored) that read like them."""
+    levels = col.dropna().astype(str).str.strip().str.lower().unique().tolist()
+    if len(levels) != 2:
+        return None, None
+    pre = [v for v in levels if _PRE_RE.match(v)]
+    post = [v for v in levels if _POST_RE.match(v)]
+    return (pre[0], post[0]) if len(pre) == 1 and len(post) == 1 else (None, None)
+
+
 def _bind_before_after_mean(
     design: ProjectDesign, profile: dict[str, Any], df: pd.DataFrame
 ) -> tuple[dict[str, Any], dict[str, Confidence]]:
@@ -193,12 +208,16 @@ def _bind_before_after_mean(
             else "low"
         )
 
-    if design.pre_label:
-        params["pre_val"] = design.pre_label
-        conf["pre_val"] = _field_confidence(design, "pre_label", bound=True)
-    if design.post_label:
-        params["post_val"] = design.post_label
-        conf["post_val"] = _field_confidence(design, "post_label", bound=True)
+    pre, post = design.pre_label, design.post_label
+    if not (pre and post) and _column_exists(df, group):
+        guessed = _guess_pre_post(df[group])
+        pre, post = pre or guessed[0], post or guessed[1]
+    if pre:
+        params["pre_val"] = pre
+        conf["pre_val"] = _field_confidence(design, "pre_label", bound=True) if design.pre_label else "medium"
+    if post:
+        params["post_val"] = post
+        conf["post_val"] = _field_confidence(design, "post_label", bound=True) if design.post_label else "medium"
     return params, conf
 
 
@@ -269,7 +288,8 @@ def _bind_time_chart(
     denom = None
     if design.primary_outcome and design.primary_outcome.denominator_column:
         denom = design.primary_outcome.denominator_column
-    if not _column_exists(df, denom):
+    binary = bool(design.primary_outcome) and design.primary_outcome.kind in ("proportion", "binary")
+    if not _column_exists(df, denom) and not binary:
         denom = _first_role(profile, "denominator")
     if value_key in ("numerator_col", "count_col") and _column_exists(df, denom):
         params["denominator_col"] = denom
@@ -325,6 +345,17 @@ def _feasible_templates(profile: dict[str, Any], df: pd.DataFrame) -> set[str]:
     return feasible
 
 
+def _with_inferred_kind(design: ProjectDesign, profile: dict[str, Any]) -> ProjectDesign:
+    """The manual design form has no outcome kind; a Yes/No outcome column is a binary outcome."""
+    outcome = design.primary_outcome
+    if not outcome or outcome.kind not in (None, "unknown"):
+        return design
+    types = {c.get("name"): c.get("inferred_type") for c in profile.get("columns", [])}
+    if types.get(outcome.column) != "Yes/No":
+        return design
+    return design.model_copy(update={"primary_outcome": outcome.model_copy(update={"kind": "binary"})})
+
+
 def propose_analyses(
     design: ProjectDesign,
     profile: dict[str, Any],
@@ -332,6 +363,7 @@ def propose_analyses(
 ) -> list[AnalysisPlanItem]:
     """Draft analysis plan items from design + profile. Never marks the plan confirmed."""
     frame = df if df is not None else pd.DataFrame()
+    design = _with_inferred_kind(design, profile)
     feasible = _feasible_templates(profile, frame) if profile else set()
     # When profile has no candidate roles yet, do not hard-filter; still propose from design.
     apply_feasibility = bool(feasible)
@@ -348,7 +380,7 @@ def propose_analyses(
         needs_clarification = (not parameters) or any(c == "low" for c in param_confidence.values())
         limitations: list[str] = []
         kind = design.primary_outcome.kind if design.primary_outcome else "unknown"
-        if "denominator_col" not in parameters and (template == "p_chart" or (template == "u_c_chart" and kind == "rate")):
+        if "denominator_col" not in parameters and ((template == "p_chart" and kind not in ("proportion", "binary")) or (template == "u_c_chart" and kind == "rate")):
             limitations.append(
                 "No denominator column is assigned (for example patient days). "
                 "Assign one in the Data Review role table or in the project definition. "

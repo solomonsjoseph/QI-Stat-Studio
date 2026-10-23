@@ -87,3 +87,9 @@ def test_string_dtype_numeric_column_with_group_does_not_crash():
     result = run_descriptive(df, {"group_col": "unit", "value_cols": ["score"]})
     means = {row["group"]: row["mean"] for row in result["table"]}
     assert means == {"ICU": 1.5, "Ward": 3.5}
+
+
+def test_group_count_merges_case_variants():
+    df = pd.DataFrame({"period": ["pre", "PRE", "Post", "post"], "score": [1.0, 2.0, 3.0, 4.0]})
+    out = run_descriptive(df, {"group_col": "period", "value_cols": ["score"]})
+    assert "across 2 group(s)" in out["interpretation"]

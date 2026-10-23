@@ -156,8 +156,9 @@ def test_new_rules_and_metadata_emitted():
     df = pd.DataFrame({
         "padded_col": ["  val1", "val2  ", "val3"] * 7,
         "mixed_col": (["12", "15", "text_label", "another_text"] * 5) + ["99"],
-        "total_days": [10, 0, 15] * 7,  # nonpositive denominator (0)
-        "num_infections": [12, 5, 2] * 7,  # numerator exceeds denominator row 0 (12 > 10)
+        "total_days": [10] + [20, 25, 30] * 6 + [22, 24],  # row 0 is the only row where the numerator is larger
+        "eligible_n": [0, 5, 6] * 7,  # nonpositive denominator (0)
+        "num_infections": [12] + [5, 2, 3] * 6 + [4, 1],
         "bin_col": ["yes", "no", "maybe"] * 7,  # third value
         "sparse_cat": ["A"] * 20 + ["B"],  # B has 1 row (<5)
         "future_date": ["2099-01-01"] * n,
@@ -166,6 +167,7 @@ def test_new_rules_and_metadata_emitted():
         "padded_col": "Category",
         "mixed_col": "Category",
         "total_days": "Number",
+        "eligible_n": "Number",
         "num_infections": "Number",
         "bin_col": "Yes/No",
         "sparse_cat": "Category",
@@ -238,3 +240,19 @@ def test_dataset_level_flag_has_fixed_id():
     df = pd.DataFrame({"a": [1, 1], "b": ["x", "x"]})
     flags = run_data_quality(df, {"a": "Number", "b": "Category"})
     assert "duplicate_rows:dataset" in [f["id"] for f in flags]
+
+
+def test_case_variants_are_merged_before_the_sparse_level_check():
+    df = pd.DataFrame({"period": ["pre"] * 10 + ["PRE"] * 2 + ["post"] * 10 + ["Post"] * 2})
+    rules = {f["rule"] for f in run_data_quality(df, {"period": "Category"})}
+    assert "case_inconsistent" in rules
+    assert "sparse_category" not in rules
+
+
+def test_unrelated_numeric_columns_do_not_raise_numerator_exceeds_denominator():
+    df = pd.DataFrame({
+        "age_years": [70.5, 47.8, 63.2, 55.0, 81.4, 39.9, 66.1, 72.3],
+        "n_visits_last_12mo": [7, 5, 3, 4, 6, 2, 8, 5],
+    })
+    flags = run_data_quality(df, {"age_years": "Number", "n_visits_last_12mo": "Number"})
+    assert "numerator_exceeds_denominator" not in {f["rule"] for f in flags}

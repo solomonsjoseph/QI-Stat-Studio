@@ -213,3 +213,30 @@ def test_run_plan_wording_follows_the_review_flag(auth_client, reviewed, start):
     runs = r.json()["runs"]
     assert runs, r.json()
     assert runs[0]["limitations"][0].startswith(start)
+
+
+def test_overlapping_run_plan_requests_keep_one_set_of_runs(auth_client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    _register(auth_client, "overlap_run@example.com")
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Overlap", "description": "Two requests at once must not double the runs"},
+        files={"file": ("data.csv", b"month,falls,patient_days\n2024-01,2,100\n2024-02,3,110\n2024-03,1,105\n", "text/csv")},
+    )
+    pid, uid = resp.json()["project"]["id"], resp.json()["upload"]["id"]
+    advance_to_phase(pid, "plan")
+    with SessionLocal() as db:
+        db.get(Project, pid).ai_analysis_plan = json.dumps({"confirmed": True})
+        u = db.get(Upload, uid)
+        u.acknowledged_flags = u.quality_flags
+        db.commit()
+    payload = {"upload_id": uid, "analyses": [
+        {"template": "descriptive_summary", "parameters": {"value_cols": ["falls"]}},
+        {"template": "run_chart", "parameters": {"date_col": "month", "value_col": "falls"}},
+    ]}
+    with ThreadPoolExecutor(2) as pool:
+        codes = [f.result().status_code for f in [pool.submit(auth_client.post, f"/analyze/run-plan/{pid}", json=payload) for _ in range(2)]]
+    assert codes == [200, 200]
+    with SessionLocal() as db:
+        assert db.query(AnalysisRun).filter_by(project_id=pid).count() == 2

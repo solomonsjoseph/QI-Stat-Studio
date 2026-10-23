@@ -68,6 +68,7 @@ function ctxFromResume(resume) {
     uploadId: latestUpload?.id,
     colTypes: latestUpload?.col_types || {},
     columnMap: latestUpload?.column_map || {},
+    profile: latestUpload?.dataset_profile || {},
     qualityFlags: latestUpload?.quality_flags || [],
     acknowledgedFlags: latestUpload?.acknowledged_flags || [],
     shareToken: latestShare?.token,

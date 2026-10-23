@@ -201,3 +201,57 @@ def test_single_denominator_adds_no_conflict_note():
     up = _upload(df, {"staff_score": "outcome"})
     u = _uc(propose_analyses(_rate_design(), get_effective_profile(up), df))
     assert not any("set as Denominator" in x for x in u.limitations)
+
+
+def test_pre_post_labels_are_inferred_from_two_level_group_column():
+    df = pd.DataFrame({"period": ["pre", "PRE ", "Post", "post"], "score": [1.0, 2.0, 3.0, 4.0]})
+    profile = _profile(("period", "Category", "grouping"), ("score", "Number", "outcome"))
+    design = _design(
+        comparison="pre-post",
+        primary_outcome={"label": "Score", "column": "score", "kind": "continuous"},
+        time_structure={"has_dates": False},
+        group_column="period",
+    )
+    mean = next(i for i in propose_analyses(design, profile, df) if i.template == "before_after_mean")
+    assert (mean.parameters["pre_val"], mean.parameters["post_val"]) == ("pre", "post")
+    assert mean.param_confidence["pre_val"] == "medium"
+
+
+def test_pre_post_labels_stay_unbound_when_levels_do_not_read_like_them():
+    df = pd.DataFrame({"period": ["a", "b"], "score": [1.0, 2.0]})
+    profile = _profile(("period", "Category", "grouping"), ("score", "Number", "outcome"))
+    design = _design(
+        comparison="pre-post",
+        primary_outcome={"label": "Score", "column": "score", "kind": "continuous"},
+        time_structure={"has_dates": False},
+        group_column="period",
+    )
+    mean = next(i for i in propose_analyses(design, profile, df) if i.template == "before_after_mean")
+    assert "pre_val" not in mean.parameters
+
+
+def test_yes_no_outcome_gets_percentage_comparison_and_p_chart_without_a_guessed_denominator():
+    df = pd.DataFrame({
+        "period": ["pre", "post"] * 6,
+        "visit_date": pd.date_range("2024-01-01", periods=12, freq="MS").strftime("%Y-%m-%d"),
+        "at_goal": [1, 0] * 6,
+        "visits": [3, 4] * 6,
+    })
+    profile = _profile(
+        ("period", "Category", "grouping"),
+        ("visit_date", "Date", "date"),
+        ("at_goal", "Yes/No", "binary"),
+        ("visits", "Number", "denominator"),
+    )
+    design = _design(
+        comparison="pre-post",
+        primary_outcome={"label": "At goal", "column": "at_goal", "kind": "unknown"},
+        time_structure={"has_dates": True, "date_column": "visit_date", "granularity": "month"},
+        group_column="period",
+    )
+    items = propose_analyses(design, profile, df)
+    templates = [i.template for i in items]
+    assert "before_after_pct" in templates and "p_chart" in templates
+    assert "before_after_mean" not in templates and "u_c_chart" not in templates
+    p_chart = next(i for i in items if i.template == "p_chart")
+    assert "denominator_col" not in p_chart.parameters

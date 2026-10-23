@@ -45,8 +45,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function renderScreen(ctxOverrides = {}) {
+function renderScreen(ctxOverrides = {}, extra = {}) {
   const value = {
+    ...extra,
     ctx: {
       projectId: 1,
       uploadId: 10,
@@ -257,5 +258,20 @@ describe('AnalysisPlanStage with the advisor off', () => {
     await user.click(screen.getByRole('button', { name: 'Submit request' }))
     expect(await screen.findByText('The QI Stat Advisor is off; edit the plan items directly')).toBeInTheDocument()
     expect(screen.getByText('Summary of Falls')).toBeInTheDocument()
+  })
+
+  it('hides the advisor request box and conversation when the advisor is off', async () => {
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Here is your plan',
+      confirmed: false,
+      analyses: [makeItem({ needs_clarification: true })],
+      turns: [{ role: 'ai', content: 'Here is your plan' }],
+    })
+    renderScreen({}, { advisorOff: true })
+
+    expect(await screen.findByText('Summary of Falls')).toBeInTheDocument()
+    expect(screen.queryByText('Ask for a different approach')).not.toBeInTheDocument()
+    expect(screen.queryByText('Conversation history')).not.toBeInTheDocument()
+    expect(screen.getByText(/chosen automatically and are not certain/)).toBeInTheDocument()
   })
 })

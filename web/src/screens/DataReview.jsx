@@ -53,7 +53,7 @@ export default function DataReview({ onOpenClarify } = {}) {
   const { ctx, update, next, prev, advisorOff } = useApp()
   const flags = ctx.qualityFlags || []
   const colTypes = ctx.colTypes || {}
-  const missingPct = ctx.missingPct || {}
+  const missingPct = Object.fromEntries((ctx.profile?.columns || []).map(c => [c.name, c.missing_pct]))
   const rowCount = ctx.profile?.row_count ?? ctx.rowCount
   const collectionRecs = ctx.collectionRecs || []
 

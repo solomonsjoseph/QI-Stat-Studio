@@ -11,7 +11,7 @@ function errorMessage(err) {
 }
 
 export default function EditReview() {
-  const { ctx, update, next, prev } = useApp()
+  const { ctx, update, next, prev, advisorOff } = useApp()
   const runs = ctx.runs || []
   const originalTitle = ctx.projectTitle || ''
 
@@ -99,7 +99,7 @@ export default function EditReview() {
               </label>
               <label className="flex flex-col gap-1" htmlFor={`edit-interpretation-${run.run_id}`}>
                 <span className="label">Interpretation</span>
-                <span className="text-xs text-ink-faint">Pre-filled from AI. Edit to match your voice.</span>
+                <span className="text-xs text-ink-faint">{advisorOff ? 'Pre-filled from the results. Edit to match your voice.' : 'Pre-filled from AI. Edit to match your voice.'}</span>
                 <textarea
                   id={`edit-interpretation-${run.run_id}`}
                   className="input min-h-28"

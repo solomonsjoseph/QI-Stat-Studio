@@ -18,9 +18,9 @@ vi.mock('../App', () => ({ useApp: useAppMock }))
 
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
-function mount(flags, states) {
+function mount(flags, states, extraCtx = {}) {
   const value = {
-    ctx: { uploadId: 42, colTypes: { age: 'number' }, qualityFlags: flags, acknowledgedFlags: [], advisorAvailable: false },
+    ctx: { ...extraCtx, uploadId: 42, colTypes: { age: 'number' }, qualityFlags: flags, acknowledgedFlags: [], advisorAvailable: false },
     advisorAvailable: false, advisorOff: true,
     update: vi.fn(), next: vi.fn(), prev: vi.fn(),
   }
@@ -53,5 +53,11 @@ describe('DataReview with the advisor off', () => {
     expect(screen.getByRole('button', { name: /Continue to Analysis Selection/ })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: /Re-upload corrected file/ }))
     expect(value.prev).toHaveBeenCalled()
+  })
+
+  it('shows each column\'s missing percentage from the dataset profile', async () => {
+    mount([], { flags: [], unhandled_warning_count: 0, unresolved_error_count: 0 },
+      { profile: { columns: [{ name: 'age', missing_pct: 7.2 }] } })
+    expect(await screen.findByText('7.2%')).toBeInTheDocument()
   })
 })

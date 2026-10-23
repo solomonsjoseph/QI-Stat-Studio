@@ -36,6 +36,14 @@ def _esc(text: Any) -> str:
     return _xml_escape(str(text))
 
 
+_HEADER_WORDS = {"ci": "CI", "sd": "SD", "n": "N", "pct": "%"}
+
+
+def _header_text(key: str) -> str:
+    text = " ".join(_HEADER_WORDS.get(w.lower(), w) for w in str(key).split("_"))
+    return text[:1].upper() + text[1:]
+
+
 def _cell_text(value: Any) -> str:
     """Render a result-table cell value for DOCX/PDF export. Statistics such as
     confidence intervals are legitimately omitted (None) for small groups; show an
@@ -284,7 +292,7 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
             rt = doc.add_table(rows=1 + len(tbl_data), cols=len(headers))
             rt.style = "Table Grid"
             for j, h in enumerate(headers):
-                rt.rows[0].cells[j].text = h.capitalize()
+                rt.rows[0].cells[j].text = _header_text(h)
             for i, row in enumerate(tbl_data, 1):
                 for j, h in enumerate(headers):
                     rt.rows[i].cells[j].text = _cell_text(row.get(h, ""))
@@ -435,7 +443,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
         tbl_data = res.get("table", [])
         if tbl_data:
             headers = list(tbl_data[0].keys())
-            rows = [[h.capitalize() for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
+            rows = [[_header_text(h) for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
             col_w = 470 / len(headers)
             pt = Table(rows, colWidths=[col_w] * len(headers))
             pt.setStyle(TableStyle([
@@ -640,7 +648,7 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
         rt = doc.add_table(rows=1 + len(tbl_data), cols=len(headers))
         rt.style = "Table Grid"
         for j, h in enumerate(headers):
-            rt.rows[0].cells[j].text = h.capitalize()
+            rt.rows[0].cells[j].text = _header_text(h)
         for i, row in enumerate(tbl_data, 1):
             for j, h in enumerate(headers):
                 rt.rows[i].cells[j].text = _cell_text(row.get(h, ""))
@@ -749,7 +757,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
     tbl_data = result.get("table", [])
     if tbl_data:
         headers = list(tbl_data[0].keys())
-        rows = [[h.capitalize() for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
+        rows = [[_header_text(h) for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
         col_w = 470 / len(headers)
         pt = Table(rows, colWidths=[col_w] * len(headers))
         pt.setStyle(TableStyle([

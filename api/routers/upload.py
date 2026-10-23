@@ -321,20 +321,15 @@ def run_data_quality(
 
     # 11 & 12: Denominator and Numerator rules
     from api.dataset_profile import _DENOM_RE
-    den_cols: list[str] = []
-    num_cols: list[str] = []
-    if candidate_roles:
-        den_cols = candidate_roles.get("denominator", [])
-        num_cols = candidate_roles.get("numerator", [])
-    else:
-        for c in df.select_dtypes("number").columns:
-            if _DENOM_RE.search(c):
-                den_cols.append(c)
-            elif col_types.get(c) == "Number":
-                num_cols.append(c)
+    # One detector for roles: the same candidates the Review screen shows.
+    roles = candidate_roles or build_profile(df, col_types)["candidate_roles"]
+    den_cols: list[str] = roles.get("denominator", [])
+    num_cols: list[str] = roles.get("numerator", [])
+    # A zero disqualifies a column from the profile's denominators, but a denominator-named column with zeros must still be flagged.
+    named_den_cols = den_cols + [c for c in df.select_dtypes("number").columns if _DENOM_RE.search(c) and c not in den_cols]
 
     # nonpositive_denominator: a denominator candidate has a value <= 0
-    for den in den_cols:
+    for den in named_den_cols:
         if den in df.columns:
             vals = pd.to_numeric(df[den], errors="coerce").dropna()
             if (vals <= 0).any():
@@ -390,7 +385,10 @@ def run_data_quality(
     # 14. sparse_category: a grouping candidate has a level with < 5 rows
     for col in df.columns:
         if col_types.get(col) == "Category" or (candidate_roles and col in candidate_roles.get("grouping", [])):
-            counts = df[col].dropna().value_counts()
+            levels = df[col].dropna()
+            if col_types.get(col) == "Category":
+                levels = levels.astype(str).str.strip().str.lower()  # same normalization the case warning promises
+            counts = levels.value_counts()
             if 2 <= len(counts) <= 10:
                 sparse = counts[counts < 5]
                 if not sparse.empty:

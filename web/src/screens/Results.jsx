@@ -10,7 +10,7 @@ function errorMessage(err, fallback = 'Analysis failed') {
   return `${err.message || fallback}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
 }
 
-function ResultCard({ run, single }) {
+function ResultCard({ run, single, aiOff }) {
   const templateLabel = TEMPLATE_LABELS[run.template] || run.template
   const interpretation = run.ai_interpretation || run.interpretation
   const headingId = `run-${run.run_id}-heading`
@@ -67,7 +67,7 @@ function ResultCard({ run, single }) {
 
       {interpretation && (
         <div className="alert-info mb-4">
-          <h2 className="mb-1 font-medium">AI Interpretation</h2>
+          <h2 className="mb-1 font-medium">{aiOff ? 'Draft interpretation' : 'AI Interpretation'}</h2>
           <p>{interpretation}</p>
         </div>
       )}
@@ -196,7 +196,7 @@ export default function Results() {
         </div>
       )}
 
-      {runs.map(r => <ResultCard key={r.run_id} run={r} single={runs.length === 1} />)}
+      {runs.map(r => <ResultCard key={r.run_id} run={r} single={runs.length === 1} aiOff={interpretationOff} />)}
 
       {interpretationLoading && (
         <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Preparing AI interpretation…</p>

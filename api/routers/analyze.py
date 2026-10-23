@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from datetime import datetime
 
 import pandas as pd
@@ -340,6 +341,10 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
     return execute_template(db, request, body.project_id, body.upload_id, df, body.template, check["parameters"])
 
 
+# ponytail: one lock for the whole process; per-project locks only if runs get slow enough to queue.
+_RUN_PLAN_LOCK = threading.Lock()
+
+
 @router.post("/run-plan/{project_id}")
 def run_plan(
     project_id: int,
@@ -348,6 +353,12 @@ def run_plan(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Replacing the prior runs is read-then-delete-then-insert; two overlapping requests would each keep a full set.
+    with _RUN_PLAN_LOCK:
+        return _run_plan(project_id, body, request, db, user)
+
+
+def _run_plan(project_id: int, body: RunPlanRequest, request: Request, db: Session, user: User):
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(404, "Project not found")

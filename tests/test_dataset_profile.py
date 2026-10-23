@@ -92,3 +92,15 @@ def test_numeric_summary_and_date_range():
     assert col_map["vals"]["numeric_summary"]["mean"] == 25.0
     assert col_map["dates"]["date_range"]["min"] == "2023-01-01"
     assert col_map["dates"]["date_range"]["max"] == "2023-12-31"
+
+
+def test_large_clinical_values_are_not_guessed_as_denominators():
+    df = pd.DataFrame({
+        "sbp_mmhg": [128, 132, 141, 119, 150, 136, 127, 138],
+        "n_meds": [3, 5, 2, 4, 6, 1, 3, 2],
+        "on_statin": [1, 0, 1, 1, 0, 0, 1, 0],
+    })
+    col_types = {"sbp_mmhg": "Number", "n_meds": "Number", "on_statin": "Yes/No"}
+    roles = build_profile(df, col_types)["candidate_roles"]
+    assert roles["denominator"] == []
+    assert roles["numerator"] == []

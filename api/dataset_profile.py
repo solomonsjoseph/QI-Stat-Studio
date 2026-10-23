@@ -10,7 +10,7 @@ import pandas as pd
 
 from api.middleware.phi_scrubber import scrub_text
 
-_DENOM_RE = re.compile(r"(total|denom|opportunit|eligible|encounters|patient[_ ]?days|visits)", re.I)
+_DENOM_RE = re.compile(r"(total|denom|opportunit|eligible|encounters|patient[_ ]?days|visits|census|population|exposure)", re.I)
 
 
 def _is_numeric_series(s: pd.Series) -> bool:
@@ -174,11 +174,13 @@ def build_profile(
         for num_c in numeric_cols:
             num_s = pd.to_numeric(sample_df[num_c], errors="coerce")
             num_clean = num_s.dropna()
-            if num_clean.empty or (num_clean < 0).any() or not _is_integral_series(num_clean):
+            if num_clean.empty or (num_clean < 0).any() or not _is_integral_series(num_clean) or num_clean.max() <= 1:
                 continue
 
             for den_c in numeric_cols:
-                if num_c == den_c:
+                # Size alone is not evidence: sbp_mmhg is larger than every small count.
+                # A pairing only counts when the denominator's name reads like one.
+                if num_c == den_c or not _DENOM_RE.search(den_c):
                     continue
                 den_s = pd.to_numeric(sample_df[den_c], errors="coerce")
                 den_clean = den_s.dropna()

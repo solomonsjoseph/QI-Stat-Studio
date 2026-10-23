@@ -60,7 +60,7 @@ function ParamControl({ paramKey, value, onChange, colNames, disabled }) {
 }
 
 export default function AnalysisPlanStage() {
-  const { ctx, update, next } = useApp()
+  const { ctx, update, next, advisorOff } = useApp()
   const [turns, setTurns] = useState([])
   const [analyses, setAnalyses] = useState([])
   const [confirmed, setConfirmed] = useState(false)
@@ -308,7 +308,7 @@ export default function AnalysisPlanStage() {
 
                 {a.executable && a.needs_clarification && (
                   <div className="alert-warn mt-2 text-xs flex items-center justify-between gap-2">
-                    <span>The AI was not confident about one or more parameters above. Review them before running.</span>
+                    <span>One or more parameters above were chosen automatically and are not certain. Review them before running.</span>
                     <button type="button" onClick={() => acknowledgeClarification(a.id)} className="btn-secondary text-xs whitespace-nowrap">
                       I've reviewed this
                     </button>
@@ -385,7 +385,7 @@ export default function AnalysisPlanStage() {
         </div>
       )}
 
-      <div className="card flex flex-col gap-2 mb-6">
+      {!advisorOff && <div className="card flex flex-col gap-2 mb-6">
         <h3 className="font-medium text-ink text-sm">Ask for a different approach</h3>
         <p className="text-xs text-ink-faint">Don't include patient names, MRNs, or other identifying information in your messages.</p>
         {overrideChanges.length > 0 && (
@@ -414,9 +414,9 @@ export default function AnalysisPlanStage() {
             </button>
           )}
         </div>
-      </div>
+      </div>}
 
-      {turns.length > 0 && (
+      {!advisorOff && turns.length > 0 && (
         <div className="card flex flex-col gap-2 mb-6">
           <h3 className="font-medium text-ink text-sm">Conversation history</h3>
           {turns.map((turn, i) => (
