@@ -346,6 +346,27 @@ def propose_analyses(
         parameters, param_confidence = binder(design, profile, frame)
         display_name, question, rationale = _DISPLAY.get(template, (template, "", ""))
         needs_clarification = (not parameters) or any(c == "low" for c in param_confidence.values())
+        limitations: list[str] = []
+        kind = design.primary_outcome.kind if design.primary_outcome else "unknown"
+        if "denominator_col" not in parameters and (template == "p_chart" or (template == "u_c_chart" and kind == "rate")):
+            limitations.append(
+                "No denominator column is assigned (for example patient days). "
+                "Assign one in the Data Review role table or in the project definition. "
+                + (
+                    "Without a denominator this runs as a counts-only C chart, which assumes the same exposure every period."
+                    if template == "u_c_chart"
+                    else "Without a denominator each record is counted as one case in its period."
+                )
+            )
+            needs_clarification = True
+        den_roles = (profile.get("candidate_roles") or {}).get("denominator") or []
+        if len(den_roles) > 1 and "denominator_col" in parameters:
+            count = "Two columns are" if len(den_roles) == 2 else f"{len(den_roles)} columns are"
+            limitations.append(
+                f"{count} set as Denominator. This analysis will use {parameters['denominator_col']}. "
+                "Change the other one in the Data Review role table if that is wrong."
+            )
+            needs_clarification = True
         items.append(
             AnalysisPlanItem(
                 id=f"{template}-{idx + 1}",
@@ -356,7 +377,7 @@ def propose_analyses(
                 parameters=parameters,
                 param_confidence=param_confidence,
                 assumptions=[],
-                limitations=[],
+                limitations=limitations,
                 needs_clarification=needs_clarification,
             )
         )

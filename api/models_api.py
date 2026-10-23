@@ -188,6 +188,7 @@ class ProjectResumeOut(BaseModel):
     runs: list[dict[str, Any]] = []
     latest_share: Optional[ShareOut]
     current_screen: str
+    gating: Optional[GatingOut] = None
 
 class AnalysisRequest(BaseModel):
     project_id: int
@@ -261,6 +262,7 @@ class AnalysisPlanItem(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     needs_clarification: bool = False
+    flag_reviewed: bool = False             # resident pressed "I've reviewed this" on the needs-clarification flag
     executable: bool = False
     errors: list[str] = Field(default_factory=list)
     missing_params: list[str] = Field(default_factory=list)
@@ -436,3 +438,242 @@ class ErrorDetail(BaseModel):
 
 class ErrorEnvelope(BaseModel):
     error: ErrorDetail
+
+
+# ---------------------------------------------------------------------------
+# Handoff / warning-group / advisor contract (task T5). Contract only: no
+# endpoint or DB uses these yet. See docs/api-contract-handoff.md.
+# ---------------------------------------------------------------------------
+
+GroupAction = Literal["acknowledge", "clarify"]
+GroupStatus = Literal["open", "discussing", "handled"]
+# unhandled: in no group. open/discussing: in a group of that status.
+# handled: group handled (warnings). resolved: ERROR no longer present on cleaned data.
+FlagState = Literal["unhandled", "open", "discussing", "handled", "resolved"]
+StepOp = Literal["recode", "merge_values", "trim", "change_case", "retype", "rename_column", "set_value",
+                 "drop_duplicates", "drop_rows", "drop_column", "set_role", "note"]   # mirrors api/cleaning_steps.OPS
+KeySource = Literal["settings", "env", "none"]
+
+
+class WarningGroupCreate(BaseModel):
+    flag_ids: list[str] = Field(min_length=1)
+    action: GroupAction
+    text: str | None = None                 # optional at creation (note for acknowledge, first message for clarify)
+
+
+class WarningBatchAcknowledge(BaseModel):
+    flag_ids: list[str] = Field(min_length=1)   # WARNING flags only; ERROR ids -> 422
+    text: str | None = None
+
+
+class WarningGroupOut(BaseModel):
+    id: int
+    project_id: int
+    upload_id: int
+    flag_ids: list[str]
+    action: GroupAction
+    text: str | None = None
+    status: GroupStatus
+    turn_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+    handled_at: datetime | None = None
+
+
+class WarningGroupListOut(BaseModel):
+    upload_id: int
+    groups: list[WarningGroupOut]
+
+
+class FlagStateOut(BaseModel):
+    flag_id: str
+    severity: Literal["WARNING", "ERROR"]
+    state: FlagState
+    group_id: int | None = None
+    action: GroupAction | None = None
+
+
+class FlagStatesOut(BaseModel):
+    upload_id: int
+    flags: list[FlagStateOut]
+    unhandled_warning_count: int
+    unresolved_error_count: int
+    pending_choice: bool = False
+
+
+class CleaningStep(BaseModel):
+    """Step shape shared with api/cleaning_steps.py (T4). Extra keys are the op's args."""
+    model_config = ConfigDict(extra="allow")
+    op: StepOp
+    warning_ids: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
+class HandoffRevisionOut(BaseModel):
+    revision: int
+    created_at: datetime
+    actor: Literal["user", "advisor", "system"] = "advisor"
+    kind: Literal["created", "apply", "undo", "revise", "keep_from_previous"] = "apply"
+    group_id: int | None = None
+    summary: str = ""
+    rows_affected: dict[str, int] = Field(default_factory=dict)   # step index (as str) -> rows
+
+
+class HandoffOut(BaseModel):
+    upload_id: int
+    project_id: int
+    status: Literal["none", "pending_choice", "current", "replaced", "deleted"]
+    revision: int
+    markdown: str | None = None             # None when the document was deleted
+    steps: list[CleaningStep] = Field(default_factory=list)
+    change_log: list[HandoffRevisionOut] = Field(default_factory=list)
+    updated_at: datetime | None = None
+    read_only: bool = False
+
+
+class HandoffRevisionListOut(BaseModel):
+    upload_id: int
+    revisions: list[HandoffRevisionOut]
+
+
+class HandoffHistoryItem(BaseModel):
+    upload_id: int
+    file_name: str
+    created_at: datetime
+    replaced_at: datetime | None = None
+    status: Literal["current", "replaced", "deleted"]   # "deleted" = document removed, log kept
+    revision: int
+    change_log_entries: int
+
+
+class HandoffHistoryOut(BaseModel):
+    project_id: int
+    items: list[HandoffHistoryItem]
+
+
+class AdvisorMessageIn(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)   # PHI-scrubbed server-side
+    warning_id: str | None = None           # which warning the reply is about; None = whole group
+
+
+class ProposedSteps(BaseModel):
+    warning_id: str
+    steps: list[CleaningStep] = Field(default_factory=list)   # empty = note only, no data change
+    summary: str = ""
+    dry_run: list[dict[str, Any]] = Field(default_factory=list)   # per-step rows_changed etc. from apply_steps
+
+
+class AdvisorTurnOut(BaseModel):
+    role: Literal["user", "advisor"]
+    text: str
+    warning_id: str | None = None
+    created_at: datetime
+
+
+class AdvisorReply(BaseModel):
+    advisor_available: bool = True
+    group_id: int
+    group_status: GroupStatus
+    message: str                            # advisor text
+    proposals: list[ProposedSteps] = Field(default_factory=list)
+    needs_user_confirmation: bool = False
+    proposal_id: str | None = None          # echoed back in confirm; changes on every new proposal
+    mode: Literal["propose", "undo", "revise", "info"] = "propose"
+    unapplied_notes: list[str] = Field(default_factory=list)  # requests outside the step vocabulary
+    dry_run_error: str | None = None        # set when the proposal failed its dry run on the data
+
+
+class AdvisorConfirmIn(BaseModel):
+    proposal_id: str
+    decline: bool = False                   # True drops the proposal without applying
+
+
+class AdvisorConfirmOut(BaseModel):
+    group_id: int
+    group_status: GroupStatus
+    applied: bool
+    handoff_revision: int
+    rows_affected: dict[str, int] = Field(default_factory=dict)
+    flag_states: FlagStatesOut              # recomputed on the cleaned data
+    column_roles: dict[str, str] | None = None   # Upload.column_roles after the confirm, so the role table can refresh
+
+
+class AdvisorThreadOut(BaseModel):
+    group: WarningGroupOut
+    turns: list[AdvisorTurnOut]
+    pending: AdvisorReply | None = None     # last unconfirmed proposal, if any
+    advisor_available: bool
+
+
+class AdvisorUnavailableError(BaseModel):
+    """Body of the HTTP 503 returned by advisor/AI endpoints when no AI can answer."""
+    error: ErrorDetail                      # code = "advisor_unavailable"
+    advisor_available: Literal[False] = False
+    reason: Literal["no_key", "provider_error", "rate_limited"]
+    key_source: KeySource
+    manual_path_available: bool = True
+
+
+class ReuploadFollowUpIn(BaseModel):
+    choice: Literal["keep", "fresh"]
+
+
+class ReuploadFollowUpOut(BaseModel):
+    upload_id: int
+    choice: Literal["keep", "fresh"]
+    handoff: HandoffOut
+
+
+class ReplaceUploadExtra(BaseModel):
+    """Fields added to the replace response, alongside every existing UploadOut field."""
+    same_as_previous: bool = False          # file and dictionary checksums both match the replaced upload
+    started_fresh: bool = False             # different file: new handoff already built, old one moved to history
+    choice_required: bool = False           # same_as_previous and no choice made yet
+
+
+class AIKeyIn(BaseModel):
+    value: str = Field(min_length=8, max_length=512)   # write-only
+
+
+class AIKeyPayload(BaseModel):
+    """Body of PUT /settings/ai-key (the live request shape; AIKeyIn above is not wired to a route)."""
+    key: str = Field(min_length=8, max_length=512)
+
+
+class AIKeyStatus(BaseModel):
+    configured: bool
+    source: KeySource
+    last4: str | None
+    provider: str
+    advisor_available: bool
+
+
+class ProviderStatusOut(BaseModel):
+    advisor_available: bool
+    key_source: KeySource
+    provider: str | None = None             # e.g. "stub", "gemini", "openrouter"
+
+
+class GatingOut(BaseModel):
+    """Added to the resume / current-screen payload (ProjectResumeOut.gating)."""
+    unhandled_warning_count: int = 0
+    unresolved_error_count: int = 0
+    open_group_count: int = 0
+    can_continue: bool = True               # unhandled == 0 and unresolved errors == 0
+    handoff_status: Literal["none", "pending_choice", "current", "replaced", "deleted"] = "none"
+    advisor_available: bool = False
+    pending_choice: bool = False            # identical-file re-upload awaiting keep/fresh; forces can_continue false
+
+
+class AdvisorModelProposal(BaseModel):
+    warning_id: str
+    summary: str = ""
+    steps: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AdvisorModelOut(BaseModel):
+    """What the LLM must return (see ADVISOR_SYSTEM_V1)."""
+    message: str
+    mode: Literal["propose", "undo", "revise", "info"] = "propose"
+    proposals: list[AdvisorModelProposal] = Field(default_factory=list)
+    unapplied_notes: list[str] = Field(default_factory=list)

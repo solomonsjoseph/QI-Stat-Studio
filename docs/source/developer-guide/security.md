@@ -19,7 +19,7 @@ there is no accidental "run without encryption" mode.
 
 `api/middleware/phi_scrubber.py`'s `scrub_text(text)` runs on **every**
 string sent toward an LLM provider: the project description
-(`/ai/intake-prefill`) and every string field of every chat message
+(`/ai/clarify`) and every string field of every chat message
 (`/ai/chat`, scrubbed field by field, not just the `content` key). It
 combines:
 
@@ -45,7 +45,7 @@ into free-text fields in the first place.
 :::
 
 Independently of scrubbing, full spreadsheet rows are architecturally never
-in the AI request path at all. `/ai/chat` and `/ai/intake-prefill` only ever
+in the AI request path at all. `/ai/chat`, `/ai/clarify` and the advisor chat only ever
 see the project description, chat messages, and small pre-computed result
 summaries (`result_summary`, template name), never the uploaded dataframe.
 There's no code path that could leak raw CSV rows to a provider even if

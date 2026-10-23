@@ -221,3 +221,16 @@ def test_freq_derives_from_design_granularity(auth_client):
     assert _granularity_to_freq("quarter") == "QE"
     assert _granularity_to_freq("unknown") == "ME"
     assert _granularity_to_freq(None) == "ME"
+
+
+def test_run_blocked_when_gating_reopens_after_plan(auth_client):
+    pid, uid = _make_encrypted_csv(auth_client)
+    body = {"project_id": pid, "upload_id": uid, "template": "descriptive_summary",
+            "parameters": {"value_cols": ["hba1c"], "group_col": "period"}}
+    assert auth_client.post("/analyze/run", json=body).status_code == 200
+    with SessionLocal() as db:
+        db.get(Upload, uid).handoff_status = "pending_choice"  # any reopened gate; same rule as run-plan
+        db.commit()
+    resp = auth_client.post("/analyze/run", json=body)
+    assert resp.status_code == 409, resp.text
+    assert "data review" in resp.text.lower()

@@ -182,7 +182,7 @@ export default function AnalysisPlanStage() {
   }
 
   function acknowledgeClarification(analysisId) {
-    setAnalyses(prev => prev.map(a => a.id === analysisId ? { ...a, needs_clarification: false } : a))
+    setAnalyses(prev => prev.map(a => a.id === analysisId ? { ...a, needs_clarification: false, flag_reviewed: true } : a))
   }
 
   async function submitOverride() {
@@ -197,7 +197,7 @@ export default function AnalysisPlanStage() {
       setOverrideInput('')
       if (body.analyses?.length) await refreshValidation(body.analyses)
     } catch (err) {
-      setError(errorMessage(err))
+      setError(err.code === 'advisor_unavailable' ? 'The QI Stat Advisor is off; edit the plan items directly' : errorMessage(err))
     } finally {
       setLoading(false)
     }

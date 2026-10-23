@@ -208,6 +208,12 @@ describe('AnalysisPlanStage rich plan review', () => {
     await user.click(ackBtn)
 
     await waitFor(() => expect(continueBtn).toBeEnabled())
+
+    await user.click(continueBtn)
+    await user.click(await screen.findByRole('button', { name: 'Run these analyses' }))
+    await waitFor(() => expect(apiMock.confirmPlan).toHaveBeenCalled())
+    const sent = apiMock.confirmPlan.mock.calls[0][1]
+    expect(sent.filter(a => a.flag_reviewed).length).toBe(1)
   })
 
   it('submits an override request and shows what changed', async () => {
@@ -236,5 +242,20 @@ describe('AnalysisPlanStage rich plan review', () => {
       expect(apiMock.overridePlan).toHaveBeenCalledWith(1, 'Use a run chart instead')
       expect(screen.getByText('Added run chart for simplified timeline plotting.')).toBeInTheDocument()
     })
+  })
+})
+
+describe('AnalysisPlanStage with the advisor off', () => {
+  it('shows a plain message instead of a crash when override-plan returns advisor_unavailable', async () => {
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan', confirmed: false, analyses: [makeItem()], turns: [{ role: 'ai', content: 'Plan' }],
+    })
+    apiMock.overridePlan.mockRejectedValue(Object.assign(new Error('Advisor unavailable'), { code: 'advisor_unavailable' }))
+    const user = userEvent.setup()
+    renderScreen()
+    await user.type(await screen.findByPlaceholderText(/paired test instead/), 'drop the run chart')
+    await user.click(screen.getByRole('button', { name: 'Submit request' }))
+    expect(await screen.findByText('The QI Stat Advisor is off; edit the plan items directly')).toBeInTheDocument()
+    expect(screen.getByText('Summary of Falls')).toBeInTheDocument()
   })
 })

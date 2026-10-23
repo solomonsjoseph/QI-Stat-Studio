@@ -122,3 +122,24 @@ def test_intervention_questions_stripped_regardless_of_exact_phrasing():
 
     also_worded = "What outcome are you measuring?\nWhen did you roll out the new protocol?"
     assert _drop_irrelevant_questions(also_worded, design) == "What outcome are you measuring?"
+
+
+def test_put_design_validates_and_keeps_denominator_column(auth_client):
+    _register(auth_client, "design_den@example.com")
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Design Den Test", "description": "desc"},
+        files={"file": ("data.csv", b"falls,patient_days\n1,100\n", "text/csv")},
+    )
+    pid = resp.json()["project"]["id"]
+    outcome = {"label": "Falls", "column": "falls", "kind": "rate"}
+
+    bad = auth_client.put(f"/projects/{pid}/design", json={"primary_outcome": {**outcome, "denominator_column": "nope"}})
+    assert bad.status_code == 422
+    assert "primary_outcome.denominator_column" in bad.json()["error"]["field_errors"]
+
+    ok = auth_client.put(f"/projects/{pid}/design", json={"primary_outcome": {**outcome, "denominator_column": "patient_days"}})
+    assert ok.status_code == 200, ok.text
+    design = ok.json()["ai_project_design"]
+    assert design["primary_outcome"]["denominator_column"] == "patient_days"
+    assert design["status"]["primary_outcome.denominator_column"] == "user-confirmed"

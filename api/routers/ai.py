@@ -20,7 +20,7 @@ from api.ai_prompts import (
     RECOMMEND_EXPLAIN_SYSTEM_V2,
     RECOMMEND_SYSTEM_V1,
 )
-from api.dataset_profile import get_upload_profile
+from api.dataset_profile import get_effective_profile, get_upload_profile
 from api.models_api import (
     AnalysisPlanItem,
     AnalysisPlanRequest,
@@ -54,6 +54,7 @@ from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.audit import log_action, safe_diagnostic_message
 from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
+from api.ai_key import advisor_unavailable, resolve_key
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -179,23 +180,42 @@ def _drop_irrelevant_questions(message: str, design: ProjectDesign | None) -> st
     return result.strip()
 
 
+def _scrub_design_text(db: Session, project_id: int, design: dict, source: str) -> dict:
+    """Copy of a project design with its free-text fields PHI-scrubbed (dates stay readable)."""
+    out = json.loads(json.dumps(design))
+    intervention = out.get("intervention")
+    holders = [(out, k) for k in ("aim", "population", "setting", "plain_restatement")]
+    if isinstance(intervention, dict):
+        holders.append((intervention, "description"))
+    total = 0
+    for holder, key in holders:
+        if isinstance(holder.get(key), str) and holder[key]:
+            holder[key], n = scrub_text(holder[key], redact_dates=False)
+            total += n
+    if total:
+        log_action(db, project_id, "phi_redacted", {"redaction_count": total, "source": source})
+    return out
+
+
 def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
     """Resolve (provider, api_key, api_base, default_model) for the configured AI provider."""
-    provider = (get_runtime_setting(db, "ai_provider") or settings.ai_provider or "openrouter").strip().lower()
+    env_provider = (settings.ai_provider or "").strip().lower()
+    runtime_provider = None if env_provider == "stub" else get_runtime_setting(db, "ai_provider")
+    provider = (runtime_provider or settings.ai_provider or "openrouter").strip().lower()
     if provider == "stub":
         return "stub", "stub", None, "stub"
     if provider == "openai":
         model = get_runtime_setting(db, "openai_model") or settings.openai_model
-        return provider, settings.openai_api_key or None, None, model
+        return provider, resolve_key(db, provider)[0], None, model
     if provider == "gemini":
         model = get_runtime_setting(db, "gemini_model") or settings.gemini_model
-        return provider, settings.gemini_api_key or None, None, model
+        return provider, resolve_key(db, provider)[0], None, model
     if provider == "local":
         model = get_runtime_setting(db, "local_model") or settings.local_model
         base = get_runtime_setting(db, "local_api_base") or settings.local_api_base or "http://localhost:11434"
-        return provider, settings.local_api_key or None, base, model
+        return provider, resolve_key(db, provider)[0], base, model
     model = get_runtime_setting(db, "openrouter_model") or settings.openrouter_model
-    return "openrouter", settings.openrouter_api_key or None, None, model
+    return "openrouter", resolve_key(db, "openrouter")[0], None, model
 
 
 def _llm_completion(
@@ -371,7 +391,7 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
         log_action(db, req.project_id, "phi_redacted", {"redaction_count": total_redactions, "source": "ai_chat"})
     if not api_key and provider != "local":
         _record_ai_usage(db, user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=prompt_chars, status="not_configured")
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     try:
         resp = _llm_completion(provider, api_key, api_base, selected_model, scrubbed_messages)
@@ -452,7 +472,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     clean_message = None
     redaction_count = 0
@@ -468,9 +488,14 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
     dictionary_text_truncated, _ = scrub_text(dictionary_text[:4000])
 
+    clean_title, title_n = scrub_text(project.title or "(untitled)", redact_dates=False)
+    clean_desc, desc_n = scrub_text(project.description or "(no description yet)", redact_dates=False)
+    if title_n + desc_n:
+        log_action(db, project_id, "phi_redacted", {"redaction_count": title_n + desc_n, "source": "ai_clarify_project_text"})
+
     system_prompt = CLARIFY_SYSTEM_V1.format(
-        title=project.title or "(untitled)",
-        description=project.description or "(no description yet)",
+        title=clean_title,
+        description=clean_desc,
         dataset_profile=_untrusted(profile_json),
         dictionary_text=_untrusted(dictionary_text_truncated),
     )
@@ -533,10 +558,13 @@ def ai_collection_guidance(
         return {"recommendations": [], "generated_at": datetime.utcnow().isoformat()}
 
     from api.collection_guidance import deterministic_recommendations
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
 
     try:
         df = load_upload_dataframe(upload)
+    except StepsApplyError:
+        raise
     except Exception:
         df = pd.DataFrame()
 
@@ -549,7 +577,7 @@ def ai_collection_guidance(
         try:
             _enforce_ai_rate_limit(db, user)
             system_prompt = COLLECTION_SYSTEM_V1.format(
-                design=_untrusted(json.dumps(design.model_dump(), indent=2)),
+                design=_untrusted(json.dumps(_scrub_design_text(db, project_id, design.model_dump(), "ai_collection_guidance"), indent=2)),
                 dataset_profile=_untrusted(json.dumps(profile, indent=2)),
                 dictionary_text=_untrusted(scrub_text((upload.dictionary_text or "(none)")[:4000])[0]),
             )
@@ -600,9 +628,12 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         # Resident's explicit confirmation of the (possibly edited) plan is itself
         # the sign-off -- persist deterministically, no LLM round-trip.
         upload = _latest_active_upload(db, project_id)
+        from api.cleaning_runtime import StepsApplyError
         from api.upload_utils import load_upload_dataframe
         try:
             df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+        except StepsApplyError:
+            raise
         except Exception:
             df = pd.DataFrame()
 
@@ -651,7 +682,7 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         turns.append({"role": "user", "content": clean_message})
 
     upload = _latest_active_upload(db, project_id)
-    profile = get_upload_profile(upload) if upload else {}
+    profile = get_effective_profile(upload) if upload else {}
     quality_flags_raw = json.loads(upload.quality_flags) if upload and upload.quality_flags else []
     quality_findings, _ = scrub_text(json.dumps(quality_flags_raw, indent=2))
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
@@ -659,9 +690,12 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
     design_dict = json.loads(project.ai_project_design) if project.ai_project_design else {}
     design = ProjectDesign.model_validate(design_dict)
 
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
     try:
         df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+    except StepsApplyError:
+        raise
     except Exception:
         df = pd.DataFrame()
 
@@ -709,7 +743,7 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
             for a in validated_analyses
         ]
         system_prompt = RECOMMEND_EXPLAIN_SYSTEM_V2.format(
-            design=_untrusted(json.dumps(design.model_dump(), indent=2)),
+            design=_untrusted(json.dumps(_scrub_design_text(db, project_id, design.model_dump(), "ai_recommend_plan"), indent=2)),
             dataset_profile=_untrusted(json.dumps(profile, indent=2)),
             quality_findings=_untrusted(quality_findings),
             dictionary_text=_untrusted(dictionary_text_scrubbed),
@@ -811,7 +845,7 @@ def ai_override_plan(
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     clean_instruction, redaction_count = scrub_text(body.instruction)
     if redaction_count > 0:
@@ -825,7 +859,7 @@ def ai_override_plan(
 
     system_prompt = OVERRIDE_SYSTEM_V1.format(
         method_library=_method_library_text(),
-        design=_untrusted(json.dumps(design, indent=2)),
+        design=_untrusted(json.dumps(_scrub_design_text(db, project_id, design, "ai_override_plan"), indent=2)),
         dataset_profile=_untrusted(profile_json),
         current_plan=_untrusted(json.dumps(current_plan.get("analyses", []), indent=2)),
         instruction=_untrusted(clean_instruction),
@@ -847,9 +881,12 @@ def ai_override_plan(
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
         raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
 
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
     try:
         df = load_upload_dataframe(upload) if upload else pd.DataFrame()
+    except StepsApplyError:
+        raise
     except Exception:
         df = pd.DataFrame()
 
@@ -906,7 +943,7 @@ def ai_interpret_results(
 
     provider, api_key, api_base, default_model = _provider_settings(db)
     if not api_key and provider != "local":
-        raise HTTPException(status_code=503, detail=f"{provider.upper()}_API_KEY not configured")
+        raise advisor_unavailable(db, provider)
 
     upload = _latest_active_upload(db, project_id)
     if not upload:

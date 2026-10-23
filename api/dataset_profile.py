@@ -238,11 +238,14 @@ def get_upload_profile(upload: Any) -> dict[str, Any]:
             pass
     dict_text = getattr(upload, "dictionary_text", None)
 
+    from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
 
     try:
         df = load_upload_dataframe(upload)
         return build_profile(df, col_types, dict_text)
+    except StepsApplyError:
+        raise
     except Exception:
         return {
             "row_count": 0,
@@ -275,3 +278,39 @@ def get_upload_profile(upload: Any) -> dict[str, Any]:
                 "pairing_id": [],
             },
         }
+
+
+# Roles the Data Review role table offers (web/src/screens/DataReview.jsx ROLE_OPTIONS).
+# 'date' and 'binary' are profile-only; the table auto-saves them but cannot assign them.
+_SELECTABLE_ROLES = ("outcome", "numerator", "denominator", "grouping", "identifier", "pairing_id")
+
+
+def effective_roles(candidate_roles: dict[str, list[str]], saved_roles: dict[str, str]) -> dict[str, list[str]]:
+    """Overlay the resident's saved column roles on the guessed candidate roles.
+
+    A saved role replaces the guessed selectable roles for that column; an empty/'none'/'excluded'
+    role removes the column from all of them. Columns with no saved entry keep their guesses.
+    """
+    roles = {k: list(v) for k, v in (candidate_roles or {}).items()}
+    for col, role in (saved_roles or {}).items():
+        role = (role or "").strip().lower()
+        if role in ("date", "binary"):
+            continue  # auto-saved profile guess, not a resident decision
+        for r in _SELECTABLE_ROLES:
+            if col in roles.get(r, []):
+                roles[r].remove(col)
+        if role in _SELECTABLE_ROLES:
+            roles.setdefault(role, []).insert(0, col)
+    return roles
+
+
+def get_effective_profile(upload: Any) -> dict[str, Any]:
+    """Profile whose candidate_roles reflect Upload.column_roles. Use for plan building and feasibility."""
+    profile = get_upload_profile(upload)
+    try:
+        saved = json.loads(getattr(upload, "column_roles", None) or "{}")
+    except (TypeError, json.JSONDecodeError):
+        saved = {}
+    if not saved or not isinstance(saved, dict) or "candidate_roles" not in profile:
+        return profile
+    return {**profile, "candidate_roles": effective_roles(profile["candidate_roles"], saved)}

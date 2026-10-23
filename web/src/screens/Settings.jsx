@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useApp } from '../App'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
+import AiKeyField from '../components/AiKeyField'
 import { api } from '../api'
 
 function errorMessage(err) {
@@ -17,12 +18,16 @@ function normalizeSettings(data) {
 }
 
 export default function Settings() {
-  const { ctx, goTo } = useApp()
+  const { ctx, goTo, setAdvisorStatus, user } = useApp()
+  const isAdmin = user?.role === 'admin'
+  const [keyStatus, setKeyStatus] = useState(null)
+  const [keyError, setKeyError] = useState('')
+  const [removing, setRemoving] = useState(false)
   const [settings, setSettings] = useState([])
   const [key, setKey] = useState('')
   const [val, setVal] = useState('')
   const [saved, setSaved] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(isAdmin)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -39,8 +44,27 @@ export default function Settings() {
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    if (isAdmin) load()
+    api.getAiKeyStatus().then(setKeyStatus).catch(err => setKeyError(errorMessage(err)))
+  }, [isAdmin])
+
+  function keySaved(status) {
+    setKeyStatus(status)
+    setKeyError('')
+    setAdvisorStatus?.(status)
+  }
+
+  async function removeKey() {
+    setRemoving(true)
+    setKeyError('')
+    try {
+      keySaved(await api.clearAiKey())
+    } catch (err) {
+      setKeyError(errorMessage(err))
+    } finally {
+      setRemoving(false)
+    }
+  }
 
   async function save(e) {
     e.preventDefault()
@@ -70,6 +94,27 @@ export default function Settings() {
       {loading && <p aria-live="polite" className="mb-4 flex items-center gap-2 text-sm text-ink-soft"><Spinner />Loading settings…</p>}
       {error && <p role="alert" className="alert-error mb-4">{error}</p>}
 
+      <section className="card mb-6 flex flex-col gap-3" aria-labelledby="ai-key-heading">
+        <h2 id="ai-key-heading" className="text-sm font-semibold text-ink">AI key</h2>
+        <p className="text-sm text-ink-soft" aria-live="polite">
+          {!keyStatus ? 'Checking key status…'
+            : keyStatus.configured
+              ? `Key set from ${keyStatus.source === 'env' ? '.env' : 'Settings'}, ending in ${keyStatus.last4}.`
+              : 'No key set. The QI Stat Advisor is off.'}
+        </p>
+        {keyError && <p role="alert" className="alert-error">{keyError}</p>}
+        <AiKeyField onSaved={keySaved} label="New key" />
+        <p className="text-xs leading-5 text-ink-soft">
+          A saved key is app-wide. It replaces the key for everyone using this build, and overrides the key in .env.
+        </p>
+        {keyStatus?.source === 'settings' && (
+          <button type="button" onClick={removeKey} disabled={removing} className="btn-secondary self-start">
+            {removing ? 'Removing…' : 'Remove saved key'}
+          </button>
+        )}
+      </section>
+
+      {isAdmin && <>
       <section className="mb-6" aria-labelledby="current-settings-heading">
         <h2 id="current-settings-heading" className="mb-2 text-sm font-semibold text-ink">Current Settings</h2>
         {!loading && settings.length === 0 ? (
@@ -104,6 +149,7 @@ export default function Settings() {
           {saving ? 'Saving…' : saved ? 'Saved' : 'Save'}
         </button>
       </form>
+      </>}
     </div>
   )
 }

@@ -62,7 +62,7 @@ def _sas_date_bucket(params: dict) -> str:
     return f"intnx('{bucket}', {dc}, 0, 'b') AS date_bucket FORMAT=date9."
 
 
-def generate_r_code(template: str, params: dict, result: dict | None = None) -> str:
+def _r_body(template: str, params: dict, result: dict | None = None) -> str:
     if template == "descriptive_summary":
         cols = ", ".join(f'"{c}"' for c in params.get("value_cols", [])) or '"var1"'
         grp = params.get("group_col")
@@ -243,7 +243,7 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
     return f'# R code for template "{template}" not yet implemented.'
 
 
-def generate_spss_code(template: str, params: dict, result: dict | None = None) -> str:
+def _spss_body(template: str, params: dict, result: dict | None = None) -> str:
     if template == "descriptive_summary":
         cols = " ".join(params.get("value_cols", ["var1"]))
         grp = params.get("group_col")
@@ -338,7 +338,7 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
     return f'* SPSS code for template "{template}" not yet implemented.'
 
 
-def generate_sas_code(template: str, params: dict, result: dict | None = None) -> str:
+def _sas_body(template: str, params: dict, result: dict | None = None) -> str:
     if template == "descriptive_summary":
         cols = " ".join(params.get("value_cols", ["var1"]))
         grp = params.get("group_col")
@@ -428,3 +428,21 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         return f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; cbar=mean(cnt); /* c-chart */ RUN;"
 
     return f'/* SAS code for template "{template}" not yet implemented. */'
+
+
+def _with_header(body: str, data_changes: dict | None, language: str) -> str:
+    from api.data_changes import comment_block, data_change_lines
+
+    return comment_block(data_change_lines(data_changes), language) + body
+
+
+def generate_r_code(template: str, params: dict, result: dict | None = None, data_changes: dict | None = None) -> str:
+    return _with_header(_r_body(template, params, result), data_changes, "r")
+
+
+def generate_spss_code(template: str, params: dict, result: dict | None = None, data_changes: dict | None = None) -> str:
+    return _with_header(_spss_body(template, params, result), data_changes, "spss")
+
+
+def generate_sas_code(template: str, params: dict, result: dict | None = None, data_changes: dict | None = None) -> str:
+    return _with_header(_sas_body(template, params, result), data_changes, "sas")

@@ -3,6 +3,8 @@ uvicorn[standard]==0.39.0
 sqlalchemy==2.0.51
 alembic==1.16.5
 pydantic-settings==2.11.0
+# needed on Python 3.9 so pydantic can evaluate `X | None` annotations in models
+eval_type_backport==0.4.0
 pandas==2.2.3
 scipy==1.13.1
 pingouin==0.5.4

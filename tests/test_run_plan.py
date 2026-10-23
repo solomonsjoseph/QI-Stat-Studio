@@ -185,3 +185,31 @@ def test_rerun_replaces_prior_runs_and_preserves_edits(auth_client):
         assert len(edits) == 1
         assert edits[0].field == "caption"
         assert edits[0].edited_text == "Resident's custom edited caption"
+
+
+@pytest.mark.parametrize("reviewed,start", [(True, "No denominator was assigned. The resident reviewed this flag"),
+                                            (False, "No denominator was assigned, so")])
+def test_run_plan_wording_follows_the_review_flag(auth_client, reviewed, start):
+    _register(auth_client, "reviewed_%s@example.com" % reviewed)
+    resp = auth_client.post(
+        "/projects/intake",
+        data={"title": "Review Flag", "description": "Testing the review flag wording"},
+        files={"file": ("data.csv", b"month,falls,patient_days\n" + b"".join(
+            b"2024-%02d,%d,100\n" % (m, 2 + m % 3) for m in range(1, 13)), "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    pid, uid = resp.json()["project"]["id"], resp.json()["upload"]["id"]
+    advance_to_phase(pid, "plan")
+    item = {"template": "u_c_chart", "parameters": {"date_col": "month", "count_col": "falls"}}
+    with SessionLocal() as db:
+        p = db.get(Project, pid)
+        p.ai_project_design = json.dumps({"primary_outcome": {"label": "Falls", "column": "falls", "kind": "rate"}})
+        p.ai_analysis_plan = json.dumps({"confirmed": True, "analyses": [dict(item, flag_reviewed=reviewed)]})
+        u = db.get(Upload, uid)
+        u.acknowledged_flags = u.quality_flags
+        db.commit()
+    r = auth_client.post(f"/analyze/run-plan/{pid}", json={"upload_id": uid, "analyses": [item]})
+    assert r.status_code == 200, r.text
+    runs = r.json()["runs"]
+    assert runs, r.json()
+    assert runs[0]["limitations"][0].startswith(start)

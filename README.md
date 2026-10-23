@@ -2,7 +2,7 @@
 
 QI Stat Studio is a guided statistical analysis app for medical residents
 running quality-improvement (QI) projects. A resident describes a project,
-uploads a CSV or Excel file, confirms data-quality checks, runs one of six
+uploads a CSV or Excel file, confirms data-quality checks, runs one of seven
 guide-recommended analyses, edits the interpretation, and downloads a
 Word/PDF report or shares an in-browser mentor review link. No statistics
 training or coding required.
@@ -13,16 +13,31 @@ built with Sphinx. See **Documentation** below to build and browse it.
 
 ## Quick start
 
-**Prerequisites:** Python 3.10+ (3.11 recommended), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
+**Prerequisites:** Python 3.9+ (3.11 recommended; 3.9 needs `eval_type_backport`, which requirements.txt installs), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
 
 ```bash
-pip install -r requirements.txt && python -m spacy download en_core_web_sm
-cd web && npm install && cd ..
-cp .env.example .env   # set FERNET_KEY; for real AI also set the provider key
-make stub              # or: make real
+git clone <repo-url> && cd qi_stat_studio
+make stub   # offline AI stub, no key needed. Or: make real (set your AI key in .env first)
 ```
 
+The first run creates `.venv`, installs Python and npm dependencies, downloads
+the spaCy model, creates a git-ignored `.env` with a generated `FERNET_KEY`, and
+applies migrations. Later runs skip finished steps. Back up `FERNET_KEY`:
+uploads cannot be decrypted without it.
+
 Open `http://127.0.0.1:5173` and register. First account becomes admin.
+
+The backend listens on `API_PORT` (default 8010; for example `make stub API_PORT=9000`).
+
+## QI Stat Advisor
+
+On Data Review the QI Stat Advisor explains each data warning and proposes
+fixes. You select warnings, then acknowledge them or clarify them with the
+advisor. Nothing changes until you confirm, and agreed changes are listed in a
+handoff document and applied to your data before any analysis. The advisor
+needs an AI key: put it in `.env` (`make real`) or paste it on the Settings
+screen, where a saved key overrides `.env`. Without a key the app still works
+manually.
 
 ## Commands
 
@@ -46,7 +61,7 @@ Then open `docs/build/html/index.html` in a browser. The site has two
 independent guides:
 
 - **User Guide**: for residents and mentors. The full walkthrough, task
-  how-tos, exact intake question wording, and the six analyses explained in
+  how-tos, exact intake question wording, and the seven analyses explained in
   plain English.
 - **Developer Guide**: for engineers. Local setup, system architecture, the
   full data model, complete API reference, security/PHI design, the test

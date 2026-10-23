@@ -225,7 +225,7 @@ def _record_failure(request: Request, exc: Exception, request_id: str, ids: dict
         db.close()
 
 
-def _error_response(status_code: int, code: str, message: str, request_id: str, field_errors=None):
+def _error_response(status_code: int, code: str, message: str, request_id: str, field_errors=None, extra=None):
     return JSONResponse(
         status_code=status_code,
         content={
@@ -234,6 +234,7 @@ def _error_response(status_code: int, code: str, message: str, request_id: str, 
                 "message": message,
                 "field_errors": field_errors or {},
                 "request_id": request_id,
+                **(extra or {}),
             }
         },
         headers={"X-Request-ID": request_id},
@@ -248,7 +249,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(detail, dict):
         message = str(detail.get("message") or "HTTP error")
         field_errors = detail.get("field_errors") if isinstance(detail.get("field_errors"), dict) else {}
-        return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id, field_errors)
+        code = detail["code"] if isinstance(detail.get("code"), str) else f"HTTP_{exc.status_code}"
+        extra = {"key_source": detail["key_source"]} if code == "advisor_unavailable" else None
+        return _error_response(exc.status_code, code, message, request_id, field_errors, extra)
     message = detail if isinstance(detail, str) else "HTTP error"
     return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id)
 
@@ -280,15 +283,19 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return _error_response(500, "INTERNAL_ERROR", "Internal server error", request_id)
 
 
-from api.routers import auth, projects, upload, analyze, ai, report, share, settings_router, notifications, health, dev  # noqa: E402,F401
+from api.routers import auth, projects, upload, analyze, ai, report, share, settings_router, notifications, health, dev, warning_groups, reupload, handoff, advisor  # noqa: E402,F401
 
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(dev.router)
 app.include_router(projects.router)
 app.include_router(upload.router)
+app.include_router(reupload.router)
+app.include_router(warning_groups.router)
+app.include_router(handoff.router)
 app.include_router(analyze.router)
 app.include_router(ai.router)
+app.include_router(advisor.router)
 app.include_router(report.router)
 app.include_router(share.router)
 app.include_router(settings_router.router)

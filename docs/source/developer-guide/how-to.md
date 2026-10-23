@@ -15,13 +15,13 @@ matching credentials:
 | `gemini` | `GEMINI_API_KEY` | `GEMINI_MODEL` (default `gemini-3.5-flash`) |
 | `local` (e.g. Ollama) | (none) | `LOCAL_API_BASE` (default `http://localhost:11434`), `LOCAL_API_KEY`, `LOCAL_MODEL` (default `llama3.1`) |
 
-Without valid provider credentials, AI endpoints (`/ai/intake-prefill`,
-`/ai/chat`) return an "unavailable" response. Core upload/analysis/report
+Without valid provider credentials, AI endpoints (`/ai/chat`, the advisor
+chat and `/ai/interpret-results`) return an "unavailable" response. Core upload/analysis/report
 functionality doesn't depend on the AI provider and keeps working either
 way. `ai_provider` and the per-provider model names are also editable at
 runtime by an admin from **Settings** (backed by `api/settings_registry.py`)
-without restarting the server. API keys are not: they're boot-time-only and
-never exposed through that screen (see {doc}`security`).
+without restarting the server. API keys are not editable in that generic table (see {doc}`security`).
+The AI key has its own section on Settings; see "AI key" below.
 
 ## Analysis plan selection (rules propose, human confirms)
 
@@ -35,13 +35,13 @@ LLM-assisted edit path and also leaves `confirmed` false until that human step.
 ## Add a new statistical template
 
 A template isn't just one function; it's eight coordinated pieces. Use the
-six existing templates in `api/templates/` as your model:
+seven existing templates in `api/templates/` as your model:
 
 1. **The runner** (`api/templates/your_template.py`): a function
    `run_your_template(df, params)` returning a dict with (at minimum) `table`,
    `figure_base64`, `methods`, `result_summary`, and `interpretation` keys.
    Every template must include `interpretation`
-   (`tests/test_interpretation.py` enforces this contract across all six).
+   (`tests/test_interpretation.py` enforces this contract across all seven).
 2. **Register it**: add `"your_template": run_your_template` to
    `TEMPLATE_REGISTRY` in `api/templates/registry.py`.
 3. **Parameter schema** (`api/analysis_schemas.py`): a
@@ -161,3 +161,47 @@ Docker/production build; in local dev, Vite serves the frontend itself.
 Without SMTP credentials, share/reminder emails fail but the share link
 itself is still created. See the `notification_status` field returned by
 `POST /share/{project_id}/create` in {doc}`api-reference`.
+
+## AI key: `.env` or Settings
+
+The active provider key can come from two places. A key saved on the
+Settings screen (`PUT /settings/ai-key`) is stored encrypted, applies app-wide,
+and overrides the `.env` value. Without a saved key the `.env` variable for the
+active provider is used. `GET /settings/ai-key` reports `configured`, the
+`source` (`settings`, `env` or `none`), the last four characters and
+`advisor_available`. The key value is never returned. Deleting the saved key
+falls back to `.env`. Any signed-in user can use these routes for now.
+
+## No-AI mode
+
+With no key (and a provider other than `stub` or `local`), every AI route
+that depends on the model answers 503 with `error.code = "advisor_unavailable"`.
+The frontend branches on that code, shows the "QI Stat Advisor is off" banner
+and a link to Settings, and keeps the manual path open: acknowledging
+warnings, group creation, flag states, handoff reads, editing the plan items
+directly, writing the interpretation by hand, analysis and reports. Clarify
+buttons are disabled. `make stub` runs the offline stub provider, which counts
+as available.
+
+## Handoff document and how changes reach results
+
+Each upload has a handoff (`api/handoff_service.py`): a markdown document, a list of
+cleaning steps, a revision number and a change log, stored on the `uploads`
+row. A step uses one of the ops in `OPS` in `api/cleaning_steps.py`. The advisor only
+proposes steps. A resident confirms with `proposal_id`, and only then are the
+steps applied, a revision written and the group marked handled. Every analysis
+path loads the frame through `load_upload_dataframe` (`api/upload_utils.py`),
+which replays the agreed steps on the raw file, so results, the plan checks and
+the reports see the cleaned data. Upload-time profiling and quality checks use
+`load_raw_upload_dataframe`. Replacing the file builds a new handoff and moves
+the old one to History; an identical re-upload waits for a keep or fresh choice
+(`pending_choice`) before Continue is allowed.
+
+## History and mentor view
+
+`GET /projects/{id}/handoff-history` lists replaced and deleted handoffs, and
+`DELETE /upload/{id}/handoff` removes a replaced document while keeping its
+change log. An admin can purge a deleted handoff's log with
+`DELETE /admin/upload/{id}/handoff-log`. The mentor page calls
+`GET /share/{token}/handoff`, which returns the current handoff read-only. Actors
+are stored as `user`, `advisor` or `system`, never as an email.

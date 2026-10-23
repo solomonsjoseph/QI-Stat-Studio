@@ -34,7 +34,7 @@ flowchart LR
   `{ message, code, requestId, fieldErrors }`.
 - **Backend** (`api/`): a FastAPI app assembled in `api/main.py` from 11
   routers under `api/routers/`, each with its own URL prefix (`/auth`,
-  `/projects`, `/upload`, `/intake`, `/analyze`, `/ai`, `/report`, `/share`,
+  `/projects`, `/upload`, `/analyze`, `/ai`, `/report`, `/share`,
   `/settings`, `/notifications`, plus unprefixed `/health` + `/readyz` +
   `/admin/failures`).
 - **Database**: SQLite by default (`DB_URL`), reached through SQLAlchemy 2.0

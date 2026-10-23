@@ -129,15 +129,16 @@ def _share_out(share: MentorShare | None) -> ShareOut | None:
     return ShareOut.model_validate(share)
 
 
-def _has_unacknowledged_flags(upload: Upload | None) -> bool:
-    if not upload:
-        return False
-    flags = _parse_json(upload.quality_flags, [])
-    if not flags:
-        return False
-    acknowledged = _parse_json(upload.acknowledged_flags, []) or []
-    acknowledged_keys = {json.dumps(flag, sort_keys=True) for flag in acknowledged}
-    return any(json.dumps(flag, sort_keys=True) not in acknowledged_keys for flag in flags)
+def _gating(db: Session, upload: Upload | None):
+    """GatingOut for the upload; the single rule lives in warning_groups.gating_summary."""
+    from api.models_api import GatingOut
+    from api.routers.warning_groups import gating_summary
+
+    return gating_summary(db, upload) if upload else GatingOut()
+
+
+def _has_unacknowledged_flags(db: Session, upload: Upload | None) -> bool:
+    return not _gating(db, upload).can_continue
 
 
 def _derive_current_screen(db: Session, project: Project, latest_upload: Upload | None, runs: list[AnalysisRun]) -> str:
@@ -145,7 +146,7 @@ def _derive_current_screen(db: Session, project: Project, latest_upload: Upload 
         return "description"
     if not json.loads(project.ai_clarification_state or "{}").get("confirmed"):
         return "clarify"
-    if _has_unacknowledged_flags(latest_upload):
+    if _has_unacknowledged_flags(db, latest_upload):
         return "review"
     plan = json.loads(project.ai_analysis_plan or "{}")
     if not plan.get("confirmed") or not runs:
@@ -280,6 +281,12 @@ def resume_project(project: Project = Depends(require_project_owner), db: Sessio
 
     runs_out = [run_hydration_dict(r, db, raw_caption=True) for r in runs]
 
+    gating = _gating(db, latest_upload)
+    try:
+        from api.routers.settings_router import _ai_key_status
+        gating.advisor_available = _ai_key_status(db).advisor_available
+    except Exception:
+        pass
     return ProjectResumeOut(
         project=project,
         latest_upload=_upload_out(latest_upload),
@@ -287,6 +294,7 @@ def resume_project(project: Project = Depends(require_project_owner), db: Sessio
         runs=runs_out,
         latest_share=_share_out(latest_share),
         current_screen=_derive_current_screen(db, project, latest_upload, runs),
+        gating=gating,
     )
 
 
@@ -349,6 +357,7 @@ def delete_project(
     purge: bool = False,
     project: Project = Depends(require_project_owner),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     if not purge:
         project.status = "archived"
@@ -358,6 +367,14 @@ def delete_project(
         return {"ok": True, "purged": False}
 
     uploads = db.query(Upload).filter(Upload.project_id == project.id).all()
+    # Every handoff starts with a "created" entry; only entries past that count as a change log.
+    if user.role != "admin" and any(
+        r.get("kind") != "created" for u in uploads for r in _parse_json(u.handoff_revisions, [])
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This project has a change log. Ask an administrator to remove it.",
+        )
     for upload in uploads:
         if upload.encrypted_path:
             path = Path(upload.encrypted_path)

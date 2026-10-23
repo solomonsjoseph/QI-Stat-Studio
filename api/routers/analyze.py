@@ -20,9 +20,11 @@ from api.models_api import (
     ValidatePlanRequest,
     ValidatePlanResponse,
 )
+from api.data_changes import build_data_changes
 from api.models_db import AnalysisRun, EditHistory, FailureLog, Project, Upload, User
 from api.upload_utils import load_upload_dataframe
-from api.routers.projects import _has_unacknowledged_flags, advance_phase, require_phase
+from api.routers.projects import _gating, advance_phase, require_phase
+from api.routers.warning_groups import gating_block_message
 from api.templates.registry import TEMPLATE_REGISTRY
 
 
@@ -153,6 +155,42 @@ def determine_feasible_templates(profile: dict[str, Any], df: pd.DataFrame) -> l
     return [t for t in TEMPLATE_REGISTRY.keys() if t in feasible]
 
 
+NO_DENOMINATOR_LIMITATION = (
+    "No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period."
+)
+NO_DENOMINATOR_LIMITATION_P = (
+    "No denominator was assigned, so each record was counted as one case in its period."
+)
+
+
+REVIEWED_NO_DENOMINATOR_LIMITATION = (
+    "No denominator was assigned. The resident reviewed this flag and chose to run a counts-only chart, "
+    "which assumes the same exposure every period."
+)
+REVIEWED_NO_DENOMINATOR_LIMITATION_P = (
+    "No denominator was assigned. The resident reviewed this flag and chose to run it with each record "
+    "counted as one case in its period."
+)
+
+
+def _missing_denominator(db: Session, project_id: int, template: str, params: dict[str, Any],
+                         flag_reviewed: bool = False) -> str | None:
+    """Limitation text when a rate/proportion chart ran without a denominator, else None."""
+    if params.get("denominator_col"):
+        return None
+    if template == "p_chart":
+        return REVIEWED_NO_DENOMINATOR_LIMITATION_P if flag_reviewed else NO_DENOMINATOR_LIMITATION_P
+    if template == "u_c_chart":
+        project = db.get(Project, project_id)
+        try:
+            kind = json.loads(project.ai_project_design or "{}").get("primary_outcome", {}).get("kind")
+        except (AttributeError, TypeError, ValueError):
+            kind = None
+        if kind == "rate":
+            return REVIEWED_NO_DENOMINATOR_LIMITATION if flag_reviewed else NO_DENOMINATOR_LIMITATION
+    return None
+
+
 def execute_template(
     db: Session,
     request: Request | None,
@@ -161,6 +199,7 @@ def execute_template(
     df: pd.DataFrame,
     template: str,
     parameters: dict[str, Any],
+    flag_reviewed: bool = False,
 ) -> dict[str, Any]:
     """Runs maybe_downgrade_control_chart + TEMPLATE_REGISTRY + codegen, persists one AnalysisRun."""
     from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
@@ -180,9 +219,16 @@ def execute_template(
         result = TEMPLATE_REGISTRY[template](df, params)
         result = _json_safe(result)
 
-        code_r = generate_r_code(template, params, result)
-        code_spss = generate_spss_code(template, params, result)
-        code_sas = generate_sas_code(template, params, result)
+        # Snapshot now so a later handoff edit cannot rewrite this run's report or scripts.
+        data_changes = build_data_changes(db.get(Upload, upload_id))
+        code_r = generate_r_code(template, params, result, data_changes)
+        code_spss = generate_spss_code(template, params, result, data_changes)
+        code_sas = generate_sas_code(template, params, result, data_changes)
+        if data_changes:
+            result = {**result, "data_changes": data_changes}
+        missing_den = _missing_denominator(db, project_id, template, params, flag_reviewed)
+        if missing_den:
+            result = {**result, "limitations": [missing_den]}
 
         run = AnalysisRun(
             project_id=project_id,
@@ -254,8 +300,8 @@ def validate_plan(
         raise HTTPException(404, "Upload not found")
 
     df = load_upload_dataframe(upload)
-    from api.dataset_profile import get_upload_profile
-    profile = get_upload_profile(upload)
+    from api.dataset_profile import get_effective_profile
+    profile = get_effective_profile(upload)
 
     items = [
         check_plan_item(db, project, upload, df, item["template"], item.get("parameters", {}))
@@ -280,7 +326,6 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
     require_phase(db, project, "plan")
     if upload.status != "active":
         raise HTTPException(400, "Upload is not active")
-
     df = load_upload_dataframe(upload)
     check = check_plan_item(db, project, upload, df, body.template, body.parameters)
     if not check["ok"]:
@@ -288,6 +333,10 @@ def run_analysis(body: AnalysisRequest, request: Request, db: Session = Depends(
             raise _bad_analysis_request("Invalid analysis parameters", check["field_errors"])
         err_msg = check["errors"][0] if check["errors"] else f"Missing required parameters: {check['missing_params']}"
         raise _bad_analysis_request(err_msg, {"parameters": check["errors"]})
+    # Gate after validation so malformed requests keep their specific error; nothing runs while blocked.
+    gate = _gating(db, upload)
+    if not gate.can_continue:
+        raise HTTPException(status_code=409, detail={"message": "Finish data review before running the analysis: %s." % gating_block_message(gate), "required_phase": "plan"})
     return execute_template(db, request, body.project_id, body.upload_id, df, body.template, check["parameters"])
 
 
@@ -323,8 +372,9 @@ def run_plan(
     if plan_dict.get("stale"):
         raise HTTPException(status_code=409, detail={"message": "The analysis plan is stale because an upstream input changed. Re-confirm the plan before running.", "required_phase": "plan"})
 
-    if _has_unacknowledged_flags(upload):
-        raise HTTPException(status_code=409, detail={"message": "All data quality warnings must be acknowledged before execution.", "required_phase": "plan"})
+    gate = _gating(db, upload)
+    if not gate.can_continue:
+        raise HTTPException(status_code=409, detail={"message": "Finish data review before running the analysis: %s." % gating_block_message(gate), "required_phase": "plan"})
 
     if not body.analyses:
         raise HTTPException(400, "analyses array cannot be empty")
@@ -356,6 +406,8 @@ def run_plan(
     runs: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
+    reviewed_templates = {a.get("template") for a in plan_dict.get("analyses", []) if a.get("flag_reviewed")}
+
     for item in body.analyses:
         template = item.get("template", "")
         params = item.get("parameters", {})
@@ -369,7 +421,8 @@ def run_plan(
             continue
 
         try:
-            res = execute_template(db, request, project_id, body.upload_id, df, template, check["parameters"])
+            res = execute_template(db, request, project_id, body.upload_id, df, template, check["parameters"],
+                                   flag_reviewed=template in reviewed_templates)
             new_run_id = res["run_id"]
 
             # Re-attach carried-forward edits

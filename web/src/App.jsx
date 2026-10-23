@@ -9,8 +9,10 @@ import Results from './screens/Results'
 import EditReview from './screens/EditReview'
 import DownloadShare from './screens/DownloadShare'
 import Settings from './screens/Settings'
+import History from './screens/History'
 import MentorView from './screens/MentorView'
 import Spinner from './components/Spinner'
+import NoKeyPrompt from './components/NoKeyPrompt'
 import { api } from './api'
 
 export const AppCtx = createContext(null)
@@ -21,7 +23,7 @@ export const SCREENS = [
   'analysis', 'results', 'edit', 'download',
 ]
 
-const ROUTE_SCREENS = new Set([...SCREENS, 'settings'])
+const ROUTE_SCREENS = new Set([...SCREENS, 'settings', 'history'])
 
 const COMPONENTS = {
   landing: Landing,
@@ -33,6 +35,7 @@ const COMPONENTS = {
   edit: EditReview,
   download: DownloadShare,
   settings: Settings,
+  history: History,
 }
 
 export const STEP_LABELS = {
@@ -89,7 +92,7 @@ function GearIcon() {
 }
 
 function Progress({ screen, maxStepIdx, goTo, hydrating }) {
-  if (screen === 'landing' || screen === 'settings') return null
+  if (screen === 'landing' || screen === 'settings' || screen === 'history') return null
   const steps = SCREENS.filter(s => s !== 'landing')
   return (
     <nav className="border-b border-line bg-surface" aria-label="Wizard progress">
@@ -132,6 +135,9 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false)
   const [hydrating, setHydrating] = useState(false)
   const [quitDone, setQuitDone] = useState(false)
+  // null until the key status loads; then the boolean from GET /settings/ai-key.
+  const [advisorAvailable, setAdvisorAvailable] = useState(null)
+  const [advisorSkipped, setAdvisorSkipped] = useState(() => window.sessionStorage.getItem('qiss:advisorSkipped') === '1')
   const headingScopeRef = useRef(null)
 
   const path = window.location.pathname
@@ -200,6 +206,11 @@ export default function App() {
     const idx = SCREENS.indexOf(screen)
     if (idx > 0) goTo(SCREENS[idx - 1])
   }
+  const setAdvisorStatus = (status) => setAdvisorAvailable(status ? !!status.advisor_available : null)
+  const skipAdvisor = () => {
+    window.sessionStorage.setItem('qiss:advisorSkipped', '1')
+    setAdvisorSkipped(true)
+  }
   const logout = async () => {
     await api.logout().catch(() => null)
     window.localStorage.removeItem('qiss:lastProjectId')
@@ -242,6 +253,15 @@ export default function App() {
       })
     return () => { cancelled = true }
   }, [isMentor])
+
+  useEffect(() => {
+    if (isMentor || !user) return
+    let cancelled = false
+    api.getAiKeyStatus()
+      .then(status => { if (!cancelled) setAdvisorStatus(status) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [isMentor, user])
 
   useEffect(() => {
     if (isMentor || !authChecked || !user) return
@@ -336,7 +356,9 @@ export default function App() {
   const Screen = COMPONENTS[screen] || Landing
 
   return (
-    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, quit, resumeProject, resetProject }}>
+    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, quit, resumeProject, resetProject,
+      advisorAvailable, advisorOff: advisorAvailable === false, advisorSkipped, setAdvisorStatus, skipAdvisor,
+    }}>
       <div className="min-h-screen bg-canvas">
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
@@ -345,6 +367,9 @@ export default function App() {
             </button>
             <div className="flex items-center gap-3 text-sm text-ink-soft">
               <span className="hidden sm:inline">{user.email}</span>
+              <button type="button" onClick={() => goTo('history')} disabled={hydrating} aria-current={screen === 'history' ? 'page' : undefined} className="btn-secondary px-3 py-2">
+                History
+              </button>
               <button type="button" onClick={() => goTo('settings')} disabled={hydrating} aria-label="Open settings" className="btn-secondary px-3 py-2">
                 <GearIcon />
               </button>
@@ -365,7 +390,9 @@ export default function App() {
           </div>
         )}
         <main ref={headingScopeRef} aria-busy={hydrating} className={hydrating ? 'pointer-events-none opacity-60' : ''}>
-          <Screen />
+          {advisorAvailable === false && !advisorSkipped && screen !== 'settings' && screen !== 'history'
+            ? <NoKeyPrompt onSaved={setAdvisorStatus} onSkip={skipAdvisor} />
+            : <Screen />}
         </main>
       </div>
     </AppCtx.Provider>
