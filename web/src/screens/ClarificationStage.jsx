@@ -49,6 +49,7 @@ function StatusChip({ status }) {
 function ManualDesignForm({ colNames, initial, busy, onSubmit }) {
   const [f, setF] = useState({
     outcome: initial?.primary_outcome?.column || '',
+    denom: initial?.primary_outcome?.denominator_column || '',
     start: initial?.intervention?.start_date || '',
     gran: initial?.time_structure?.granularity || '',
     dateCol: initial?.time_structure?.date_column || '',
@@ -60,7 +61,7 @@ function ManualDesignForm({ colNames, initial, busy, onSubmit }) {
     e.preventDefault()
     onSubmit({
       ...(initial || {}),
-      primary_outcome: { ...(initial?.primary_outcome || {}), label: f.outcome, column: f.outcome },
+      primary_outcome: { ...(initial?.primary_outcome || {}), label: f.outcome, column: f.outcome, denominator_column: f.denom || null },
       intervention: { present: !!f.start, description: initial?.intervention?.description || null, start_date: f.start || null },
       time_structure: { has_dates: !!f.dateCol, date_column: f.dateCol || null, granularity: f.gran || null },
       group_column: f.group || null,
@@ -72,6 +73,12 @@ function ManualDesignForm({ colNames, initial, busy, onSubmit }) {
         <label htmlFor="m-outcome" className="label">Primary outcome column</label>
         <select id="m-outcome" className="input" value={f.outcome} onChange={set('outcome')} required>
           <option value="">(Select)</option>{opts}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="m-denom" className="label">Denominator column (for rates, such as patient days)</label>
+        <select id="m-denom" className="input" value={f.denom} onChange={set('denom')}>
+          <option value="">(None)</option>{opts}
         </select>
       </div>
       <div>

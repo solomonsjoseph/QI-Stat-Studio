@@ -35,7 +35,7 @@ function renderScreen(ctxOverrides = {}, extra = {}) {
       projectId: 1,
       projectTitle: 'Falls QI',
       projectDesc: 'Reduce falls on 3W',
-      colTypes: { month: 'Date', falls: 'Number' },
+      colTypes: { month: 'Date', falls: 'Number', patient_days: 'Number' },
       ...ctxOverrides,
     },
     update: vi.fn(),
@@ -196,6 +196,7 @@ describe('ClarificationStage with the advisor off', () => {
     expect(save).toBeDisabled()
 
     await user.selectOptions(screen.getByLabelText('Primary outcome column'), 'falls')
+    await user.selectOptions(screen.getByLabelText(/Denominator column/), 'patient_days')
     await user.selectOptions(screen.getByLabelText('Date column'), 'month')
     await user.selectOptions(screen.getByLabelText('Time granularity'), 'month')
     await user.type(screen.getByLabelText('Intervention start date'), '2025-03-01')
@@ -203,7 +204,7 @@ describe('ClarificationStage with the advisor off', () => {
 
     await waitFor(() => expect(value.next).toHaveBeenCalled())
     expect(apiMock.updateDesign).toHaveBeenCalledWith(1, expect.objectContaining({
-      primary_outcome: expect.objectContaining({ column: 'falls' }),
+      primary_outcome: expect.objectContaining({ column: 'falls', denominator_column: 'patient_days' }),
       intervention: { present: true, description: null, start_date: '2025-03-01' },
       time_structure: { has_dates: true, date_column: 'month', granularity: 'month' },
       group_column: null,

@@ -260,8 +260,8 @@ def validate_plan(
         raise HTTPException(404, "Upload not found")
 
     df = load_upload_dataframe(upload)
-    from api.dataset_profile import get_upload_profile
-    profile = get_upload_profile(upload)
+    from api.dataset_profile import get_effective_profile
+    profile = get_effective_profile(upload)
 
     items = [
         check_plan_item(db, project, upload, df, item["template"], item.get("parameters", {}))

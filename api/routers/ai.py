@@ -20,7 +20,7 @@ from api.ai_prompts import (
     RECOMMEND_EXPLAIN_SYSTEM_V2,
     RECOMMEND_SYSTEM_V1,
 )
-from api.dataset_profile import get_upload_profile
+from api.dataset_profile import get_effective_profile, get_upload_profile
 from api.models_api import (
     AnalysisPlanItem,
     AnalysisPlanRequest,
@@ -658,7 +658,7 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
         turns.append({"role": "user", "content": clean_message})
 
     upload = _latest_active_upload(db, project_id)
-    profile = get_upload_profile(upload) if upload else {}
+    profile = get_effective_profile(upload) if upload else {}
     quality_flags_raw = json.loads(upload.quality_flags) if upload and upload.quality_flags else []
     quality_findings, _ = scrub_text(json.dumps(quality_flags_raw, indent=2))
     dictionary_text = (upload.dictionary_text if upload else None) or "(none provided)"
