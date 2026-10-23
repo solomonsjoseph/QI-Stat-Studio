@@ -262,6 +262,7 @@ class AnalysisPlanItem(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     needs_clarification: bool = False
+    flag_reviewed: bool = False             # resident pressed "I've reviewed this" on the needs-clarification flag
     executable: bool = False
     errors: list[str] = Field(default_factory=list)
     missing_params: list[str] = Field(default_factory=list)
@@ -450,7 +451,7 @@ GroupStatus = Literal["open", "discussing", "handled"]
 # handled: group handled (warnings). resolved: ERROR no longer present on cleaned data.
 FlagState = Literal["unhandled", "open", "discussing", "handled", "resolved"]
 StepOp = Literal["recode", "merge_values", "trim", "change_case", "retype", "rename_column", "set_value",
-                 "drop_duplicates", "drop_rows", "drop_column", "note"]   # mirrors api/cleaning_steps.OPS
+                 "drop_duplicates", "drop_rows", "drop_column", "set_role", "note"]   # mirrors api/cleaning_steps.OPS
 KeySource = Literal["settings", "env", "none"]
 
 
@@ -593,6 +594,7 @@ class AdvisorConfirmOut(BaseModel):
     handoff_revision: int
     rows_affected: dict[str, int] = Field(default_factory=dict)
     flag_states: FlagStatesOut              # recomputed on the cleaned data
+    column_roles: dict[str, str] | None = None   # Upload.column_roles after the confirm, so the role table can refresh
 
 
 class AdvisorThreadOut(BaseModel):

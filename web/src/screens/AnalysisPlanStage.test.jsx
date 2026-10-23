@@ -208,6 +208,12 @@ describe('AnalysisPlanStage rich plan review', () => {
     await user.click(ackBtn)
 
     await waitFor(() => expect(continueBtn).toBeEnabled())
+
+    await user.click(continueBtn)
+    await user.click(await screen.findByRole('button', { name: 'Run these analyses' }))
+    await waitFor(() => expect(apiMock.confirmPlan).toHaveBeenCalled())
+    const sent = apiMock.confirmPlan.mock.calls[0][1]
+    expect(sent.filter(a => a.flag_reviewed).length).toBe(1)
   })
 
   it('submits an override request and shows what changed', async () => {

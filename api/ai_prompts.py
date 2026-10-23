@@ -340,6 +340,7 @@ Rules:
 - A proposal with an empty "steps" list and mode "propose" means: record the resident's decision as a note and make no data change.
 - To undo or revise a change that was already agreed, set mode to "undo" or "revise". For each affected warning give the FULL replacement list of steps for that warning (an empty list removes its earlier changes). Never touch changes linked to other warnings.
 - If a previous attempt failed on the data, correct it and keep to what the resident asked.
+- Whatever the resident says about how a column should be used (for example "use patient_days as the denominator") is a request. Propose a set_role step for it. Do not propose set_role for any other reason. Never clear another column's role unless the resident asked; if another column already holds the same role, the system tells the resident, so do not add a set_role none step on your own.
 - Each step's "warning_ids" must contain only the warning id of its proposal.
 
 Respond with JSON only:

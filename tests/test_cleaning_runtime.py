@@ -132,3 +132,16 @@ def test_build_data_changes_counts_resolves_warnings_and_lists_note_only_decisio
     assert (s["rows_before"], s["rows_after"], s["rows_removed"]) == (4, 3, 1)
     assert s["warnings"] == ["falls has outliers"] and s["note"] == "mentor agreed"
     assert dc["decisions"] == ["Kept id duplicates"]
+
+
+def test_set_role_lines_say_no_rows_changed_in_snapshot_and_script_comments(upload):
+    from api.data_changes import build_data_changes, comment_block, data_change_lines
+
+    _steps(upload, [{"op": "set_role", "column": "falls", "role": "denominator", "note": "resident asked"}])
+    dc = build_data_changes(upload)
+    s = dc["steps"][0]
+    assert s["op"] == "set_role" and s["rows_removed"] == 0 and s["cells_changed"] == 0
+    line = data_change_lines(dc)[0]
+    assert line == "Set the role of column falls to denominator. No rows changed. Note: resident asked"
+    assert "Rows before" not in line and "cells changed" not in line
+    assert "No rows changed." in comment_block([line], "r")

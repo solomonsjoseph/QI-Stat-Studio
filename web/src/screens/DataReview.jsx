@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useApp } from '../App'
 import BackButton from '../components/BackButton'
 import PageIntro from '../components/PageIntro'
@@ -79,6 +79,10 @@ export default function DataReview({ onOpenClarify } = {}) {
     })
     return init
   })
+  // Roles the advisor set this session, in the order set (last one wins a denominator tie), and the last
+  // role table the server is known to hold, so a later save cannot overwrite what the advisor changed.
+  const [advisorRoles, setAdvisorRoles] = useState({})
+  const serverRoles = useRef({ ...(ctx.columnRoles || {}) })
   const [saving, setSaving] = useState(false)
   const denomCols = denominatorColumns(ctx.profile?.candidate_roles, columnRoles)
   const denomUsed = denominatorUsed(denomCols, ctx.design, colTypes)
@@ -112,6 +116,33 @@ export default function DataReview({ onOpenClarify } = {}) {
 
   function setRole(col, role) {
     setColumnRoles(r => ({ ...r, [col]: role }))
+    setAdvisorRoles(a => {
+      if (!(col in a)) return a
+      const { [col]: _gone, ...rest } = a
+      return rest
+    })
+  }
+
+  // After an advisor confirm: take the server's value for every column it changed, keep other local edits.
+  function applyServerRoles(roles, roleCols = []) {
+    const before = serverRoles.current
+    const cols = new Set([...Object.keys(roles), ...Object.keys(before)])
+    const changed = [...cols].filter(c => roles[c] !== before[c])
+    serverRoles.current = { ...roles }
+    setColumnRoles(local => {
+      const merged = { ...local }
+      changed.forEach(c => {
+        merged[c] = c in roles ? (roles[c] === 'none' ? '' : roles[c]) : primaryRoleFor(c, ctx.profile)
+      })
+      return merged
+    })
+    setAdvisorRoles(a => {
+      const out = { ...a }
+      changed.forEach(c => { delete out[c] })
+      Object.keys(roles).filter(c => changed.includes(c) && roleCols.includes(c)).forEach(c => { out[c] = roles[c] })
+      return out
+    })
+    update({ columnRoles: { ...(ctx.columnRoles || {}), ...roles } })
   }
 
   const selectable = flags.filter(f => !SETTLED.has(stateOf(f)))
@@ -191,11 +222,15 @@ export default function DataReview({ onOpenClarify } = {}) {
     setError('')
     try {
       const ackedFlags = warnings.filter(f => stateOf(f) === 'handled')
+      // Advisor-set roles go last, in the order set, so the newest denominator wins the plan builder's tie-break.
+      const orderedRoles = {}
+      Object.entries(columnRoles).filter(([c]) => !(c in advisorRoles)).forEach(([c, r]) => { orderedRoles[c] = r })
+      Object.keys(advisorRoles).forEach(c => { if (c in columnRoles) orderedRoles[c] = columnRoles[c] })
       if (ctx.uploadId) {
         await api.saveAcknowledgedFlags(ctx.uploadId, ackedFlags)
-        await api.confirmColTypes(ctx.uploadId, colTypes, ctx.columnMap || {}, columnRoles)
+        await api.confirmColTypes(ctx.uploadId, colTypes, ctx.columnMap || {}, orderedRoles)
       }
-      update({ acknowledgedFlags: ackedFlags, columnRoles })
+      update({ acknowledgedFlags: ackedFlags, columnRoles: orderedRoles })
       next()
     } catch (err) {
       setError(errorMessage(err))
@@ -281,6 +316,7 @@ export default function DataReview({ onOpenClarify } = {}) {
                     >
                       {ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
+                    {col in advisorRoles && <span className="ml-2 text-xs text-ink-soft">Set by the QI Stat Advisor</span>}
                   </td>
                 </tr>
               ))}
@@ -369,6 +405,7 @@ export default function DataReview({ onOpenClarify } = {}) {
           flagLabels={flagLabels}
           resume={clarifyGroup.resume}
           onChanged={loadStates}
+          onRolesChanged={applyServerRoles}
           onUnavailable={() => setAdvisorGone(true)}
           onClose={() => setClarifyGroup(null)}
         />

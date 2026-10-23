@@ -163,12 +163,23 @@ NO_DENOMINATOR_LIMITATION_P = (
 )
 
 
-def _missing_denominator(db: Session, project_id: int, template: str, params: dict[str, Any]) -> str | None:
+REVIEWED_NO_DENOMINATOR_LIMITATION = (
+    "No denominator was assigned. The resident reviewed this flag and chose to run a counts-only chart, "
+    "which assumes the same exposure every period."
+)
+REVIEWED_NO_DENOMINATOR_LIMITATION_P = (
+    "No denominator was assigned. The resident reviewed this flag and chose to run it with each record "
+    "counted as one case in its period."
+)
+
+
+def _missing_denominator(db: Session, project_id: int, template: str, params: dict[str, Any],
+                         flag_reviewed: bool = False) -> str | None:
     """Limitation text when a rate/proportion chart ran without a denominator, else None."""
     if params.get("denominator_col"):
         return None
     if template == "p_chart":
-        return NO_DENOMINATOR_LIMITATION_P
+        return REVIEWED_NO_DENOMINATOR_LIMITATION_P if flag_reviewed else NO_DENOMINATOR_LIMITATION_P
     if template == "u_c_chart":
         project = db.get(Project, project_id)
         try:
@@ -176,7 +187,7 @@ def _missing_denominator(db: Session, project_id: int, template: str, params: di
         except (AttributeError, TypeError, ValueError):
             kind = None
         if kind == "rate":
-            return NO_DENOMINATOR_LIMITATION
+            return REVIEWED_NO_DENOMINATOR_LIMITATION if flag_reviewed else NO_DENOMINATOR_LIMITATION
     return None
 
 
@@ -188,6 +199,7 @@ def execute_template(
     df: pd.DataFrame,
     template: str,
     parameters: dict[str, Any],
+    flag_reviewed: bool = False,
 ) -> dict[str, Any]:
     """Runs maybe_downgrade_control_chart + TEMPLATE_REGISTRY + codegen, persists one AnalysisRun."""
     from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
@@ -214,7 +226,7 @@ def execute_template(
         code_sas = generate_sas_code(template, params, result, data_changes)
         if data_changes:
             result = {**result, "data_changes": data_changes}
-        missing_den = _missing_denominator(db, project_id, template, params)
+        missing_den = _missing_denominator(db, project_id, template, params, flag_reviewed)
         if missing_den:
             result = {**result, "limitations": [missing_den]}
 
@@ -394,6 +406,8 @@ def run_plan(
     runs: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
+    reviewed_templates = {a.get("template") for a in plan_dict.get("analyses", []) if a.get("flag_reviewed")}
+
     for item in body.analyses:
         template = item.get("template", "")
         params = item.get("parameters", {})
@@ -407,7 +421,8 @@ def run_plan(
             continue
 
         try:
-            res = execute_template(db, request, project_id, body.upload_id, df, template, check["parameters"])
+            res = execute_template(db, request, project_id, body.upload_id, df, template, check["parameters"],
+                                   flag_reviewed=template in reviewed_templates)
             new_run_id = res["run_id"]
 
             # Re-attach carried-forward edits

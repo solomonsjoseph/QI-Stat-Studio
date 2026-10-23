@@ -32,7 +32,9 @@ OPS: dict[str, tuple[set[str], set[str]]] = {
     "drop_duplicates": (set(), {"subset", "keep"}),
     "drop_rows": ({"where"}, set()),
     "drop_column": ({"column"}, set()),
+    "set_role": ({"column", "role"}, set()),
 }
+ROLES = {"outcome", "numerator", "denominator", "grouping", "identifier", "pairing_id", "none"}
 CONDITION_OPS = {"eq", "ne", "lt", "le", "gt", "ge", "in", "not_in", "isnull", "notnull", "contains"}
 CASE_MODES = {"lower", "upper", "title", "capitalize"}
 RETYPE_TARGETS = {"numeric", "date", "string", "category"}
@@ -50,6 +52,7 @@ Ops:
 - drop_duplicates: subset [..] (optional, default all columns), keep (first|last, default first).
 - drop_rows: where (condition). Removes matching rows.
 - drop_column: column.
+- set_role: column, role (outcome|numerator|denominator|grouping|identifier|pairing_id|none). Only when the resident asks to use a column in that role (for example "use patient_days as the denominator"); none clears the role. It changes no data, only how the column is used in the analysis.
 Condition: {"column": c, "op": eq|ne|lt|le|gt|ge|in|not_in|isnull|notnull|contains, "value": v}
   (value is omitted for isnull/notnull, a list for in/not_in, text for contains),
   or {"all": [conditions]} / {"any": [conditions]}.
@@ -144,6 +147,8 @@ def _check_step(s: Any, i: int) -> None:
         raise StepError(i, "value must be a single value")
     if op == "merge_values" and not all(_scalar(v) for v in s["values"]):
         raise StepError(i, "values must be single values")
+    if op == "set_role" and s["role"] not in ROLES:
+        raise StepError(i, f"role must be one of {sorted(ROLES)}")
     if op == "drop_duplicates" and s.get("keep", "first") not in ("first", "last"):
         raise StepError(i, "keep must be first or last")
     if "where" in s:
@@ -217,6 +222,10 @@ def describe_step(step: dict) -> str:
         return f"Removed rows where {_cond_text(step['where'])}."
     if op == "drop_column":
         return f"Removed column {col}."
+    if op == "set_role":
+        if step["role"] == "none":
+            return f"Clear the role of column {col}."
+        return f"Set the role of column {col} to {step['role']}."
     return f"Unknown step {op}."
 
 
@@ -394,7 +403,7 @@ def apply_steps(df: pd.DataFrame, steps: list[dict]) -> tuple[pd.DataFrame, list
     for i, step in enumerate(steps):
         op = step["op"]
         row_op = op in ("drop_rows", "drop_duplicates")
-        cols = [] if row_op or op in ("rename_column", "drop_column") else (
+        cols = [] if row_op or op in ("rename_column", "drop_column", "set_role") else (
             [step["column"]] if "column" in step else step["columns"])
         _need(cur, cols, i)
         before = {c: cur[c].copy() for c in cols}

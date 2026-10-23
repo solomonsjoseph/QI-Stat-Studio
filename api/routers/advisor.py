@@ -151,16 +151,51 @@ def _evaluate(out: AdvisorModelOut, group_ids: List[str], only_id: Optional[str]
     i = 0
     for p in proposals:
         k = len(p["steps"])
-        p["dry_run"] = report[i:i + k]
+        p["dry_run"] = [dict(r) for r in report[i:i + k]]
         i += k
+    _annotate_roles(upload, proposals)
     return res
+
+
+def _roles_of(upload: Upload) -> Dict[str, str]:
+    d = _loads(upload.column_roles, {})
+    return d if isinstance(d, dict) else {}
+
+
+def _set_last(roles: Dict[str, str], col: str, role: Optional[str]) -> None:
+    """Remove the column and, for a real role, re-insert it at the end (last saved denominator wins)."""
+    roles.pop(col, None)
+    if role is not None:
+        roles[col] = role
+
+
+def _role_steps(steps: List[dict]) -> List[dict]:
+    return [s for s in steps if s.get("op") == "set_role"]
+
+
+def _annotate_roles(upload: Upload, proposals: List[dict]) -> None:
+    """Add a plain note to each set_role dry-run entry that would leave two denominators."""
+    sim = dict(_roles_of(upload))
+    for p in proposals:
+        for step, entry in zip(p["steps"], p.get("dry_run", [])):
+            if step.get("op") != "set_role":
+                continue
+            col, role = step["column"], step["role"]
+            _set_last(sim, col, role)
+            others = [c for c, r in sim.items() if r == "denominator" and c != col]
+            if role == "denominator" and others:
+                entry["note"] = "%s is also set as Denominator; the analysis will use %s." % (
+                    " and ".join(others), col)
 
 
 def _plain_report(proposals: List[dict]) -> str:
     lines = []
     for p in proposals:
         for r in p.get("dry_run", []):
-            lines.append("- %s: %d rows affected." % (r["description"], r["rows_changed"]))
+            if r.get("op") == "set_role":
+                lines.append("- %s No data changes.%s" % (r["description"], " " + r["note"] if r.get("note") else ""))
+            else:
+                lines.append("- %s: %d rows affected." % (r["description"], r["rows_changed"]))
     return "Checked on your data:\n" + "\n".join(lines) if lines else ""
 
 
@@ -190,6 +225,14 @@ def _claim_revision(db: Session, upload_id: int, old: int, new: int) -> bool:
     res = db.execute(update(Upload).where(Upload.id == upload_id, Upload.handoff_revision == old)
                      .values(handoff_revision=new).execution_options(synchronize_session=False))
     return res.rowcount == 1
+
+
+def _find_role_before(revisions: List[dict], col: str, role: str) -> Optional[str]:
+    """The table value a column had before the latest confirmed step that set it to `role`."""
+    for r in reversed(revisions):
+        if (r.get("roles_set") or {}).get(col) == role and col in (r.get("roles_before") or {}):
+            return r["roles_before"][col]
+    return None
 
 
 def _reopen(upload: Upload, group: WarningGroup, ids: List[str]) -> None:
@@ -377,12 +420,33 @@ def confirm(group_id: int, body: AdvisorConfirmIn, db: Session = Depends(get_db)
     entry = new_revision_entry(_KIND.get(mode, "apply"), summary, current, candidate, warning_ids,
                                "user", revision=rev_no)
     entry["group_id"], entry["rows_affected"] = group.id, rows
+    roles = _roles_of(upload)
+    roles_before: Dict[str, Optional[str]] = {}
+    roles_set: Dict[str, str] = {}
+    if mode in ("undo", "revise"):
+        ids = set(warning_ids)
+        removed = [s for s in _role_steps(current) if set(s.get("warning_ids") or []) & ids]
+        for st in removed:
+            col = st["column"]
+            if (roles.get(col) or "none") != st["role"]:
+                continue  # the resident changed it since; leave their value
+            prev = _find_role_before(_loads(upload.handoff_revisions, []), col, st["role"])
+            _set_last(roles, col, prev if prev is not None else None)
+    new_steps = [s for p in proposals for s in p["steps"]]
+    for st in _role_steps(new_steps):
+        col = st["column"]
+        roles_before.setdefault(col, roles.get(col))
+        _set_last(roles, col, st["role"])
+        roles_set[col] = st["role"]
+    if roles_before:
+        entry["roles_before"], entry["roles_set"] = roles_before, roles_set
     revisions = _loads(upload.handoff_revisions, []) + [entry]
 
     # Atomic claim: only one confirm can clear the pending proposal and move the revision from base_rev.
     if not _claim_pending(db, group.id, group.pending_proposal) or not _claim_revision(db, upload.id, base_rev, rev_no):
         db.rollback()
         raise _err(409, "stale_proposal", "That proposal was already confirmed or is no longer current.")
+    upload.column_roles = json.dumps(roles)
     upload.handoff_steps = json.dumps(candidate)
     upload.handoff_md = _refresh_log(md, revisions)
     upload.handoff_revisions = json.dumps(revisions)
@@ -398,4 +462,5 @@ def confirm(group_id: int, body: AdvisorConfirmIn, db: Session = Depends(get_db)
                                                     "step_count": len(candidate), "warning_count": len(warning_ids)})
     mark_group_handled(db, upload, group)
     return AdvisorConfirmOut(group_id=group.id, group_status=group.status, applied=True, handoff_revision=rev_no,
-                             rows_affected=rows, flag_states=compute_flag_states(db, upload))
+                             rows_affected=rows, flag_states=compute_flag_states(db, upload),
+                             column_roles=roles)

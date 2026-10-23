@@ -315,6 +315,72 @@ describe('DataReview', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Continue to Analysis Selection/ })).toBeEnabled())
   })
 
+  const roleProposal = () => ({
+    group_id: 8, group_status: 'discussing', message: 'I would set patient_days as the denominator.', mode: 'propose',
+    needs_user_confirmation: true, proposal_id: 'p_8_3', unapplied_notes: [],
+    proposals: [{
+      warning_id: 'category_variants:unit', summary: 'Use patient_days as the denominator',
+      steps: [{ op: 'set_role', column: 'patient_days', role: 'denominator', warning_ids: ['category_variants:unit'], note: '' }],
+      dry_run: [{
+        op: 'set_role', description: 'Set the role of column patient_days to denominator.', rows_changed: 0,
+        note: 'staff_hours is also set as Denominator; the analysis will use patient_days.',
+      }],
+    }],
+  })
+
+  async function openRoleChat(ctxExtra, savedRoles) {
+    const user = userEvent.setup()
+    apiMock.getFlagStates.mockResolvedValue(states([
+      st('category_variants:unit', 'unhandled'), st('missing_values:age', 'unhandled'),
+    ], 2, 0))
+    apiMock.createWarningGroup.mockResolvedValue({ id: 8, action: 'clarify', status: 'open' })
+    apiMock.sendAdvisorMessage.mockResolvedValueOnce(roleProposal())
+    mountWarnings({
+      colTypes: { falls: 'Number', staff_hours: 'Number', patient_days: 'Number' },
+      columnRoles: savedRoles, ...ctxExtra,
+    }, unitFlags)
+    render(<DataReview />)
+    await waitFor(() => expect(apiMock.getFlagStates).toHaveBeenCalled())
+    await user.click(screen.getByRole('checkbox', { name: /Unit has case variants/ }))
+    await user.click(screen.getByRole('button', { name: 'Clarify with QI Stat Advisor' }))
+    return user
+  }
+
+  it('shows a role proposal as a role change with the conflict note and no rows-affected wording', async () => {
+    await openRoleChat({}, { falls: 'outcome', staff_hours: 'denominator' })
+    const readback = await screen.findByRole('group', { name: /read-back/ })
+    expect(within(readback).getByText(/Set the role of column patient_days to denominator\. No data changes\./)).toBeInTheDocument()
+    expect(within(readback).getByText(/staff_hours is also set as Denominator; the analysis will use patient_days\./)).toBeInTheDocument()
+    expect(readback.textContent).not.toMatch(/rows affected/)
+  })
+
+  it('refreshes the role table after confirm, marks the advisor role, and Continue keeps it last', async () => {
+    const user = await openRoleChat({}, { falls: 'outcome', staff_hours: 'denominator' })
+    // The resident edits another row before confirming; that unsaved edit must survive the refresh.
+    await user.selectOptions(screen.getByLabelText('Role for falls'), 'numerator')
+    apiMock.confirmAdvisorProposal.mockResolvedValue({
+      group_id: 8, group_status: 'handled', applied: true, handoff_revision: 4, rows_affected: { 0: 0 },
+      flag_states: states([], 0, 0),
+      column_roles: { falls: 'outcome', staff_hours: 'denominator', patient_days: 'denominator' },
+    })
+    apiMock.getFlagStates.mockResolvedValue(states([
+      st('category_variants:unit', 'handled', 'WARNING', 8, 'clarify'), st('missing_values:age', 'handled'),
+    ], 0, 0))
+    await user.click(await screen.findByRole('button', { name: 'Confirm these changes' }))
+    await waitFor(() => expect(screen.getByLabelText('Role for patient_days')).toHaveValue('denominator'))
+    expect(screen.getByLabelText('Role for falls')).toHaveValue('numerator')
+    expect(screen.getByText('Set by the QI Stat Advisor')).toBeInTheDocument()
+
+    apiMock.saveAcknowledgedFlags.mockResolvedValue({})
+    apiMock.confirmColTypes.mockResolvedValue({})
+    await waitFor(() => expect(screen.getByRole('button', { name: /Continue to Analysis Selection/ })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: /Continue to Analysis Selection/ }))
+    await waitFor(() => expect(apiMock.confirmColTypes).toHaveBeenCalled())
+    const saved = apiMock.confirmColTypes.mock.calls[0][3]
+    expect(saved.patient_days).toBe('denominator')
+    expect(Object.keys(saved).pop()).toBe('patient_days')
+  })
+
   it('decline drops the proposal without applying', async () => {
     const user = await openChat(proposal(8))
     apiMock.declineAdvisorProposal.mockResolvedValue({ group_id: 8, group_status: 'discussing', applied: false })

@@ -25,8 +25,8 @@ function problemText(err) {
 
 // Conversation for one Clarify group. Nothing is applied until the user presses Confirm.
 // Props: groupId, flagIds, flagLabels ({id: text}), resume (reopen an existing thread),
-// onChanged (refetch flag states), onUnavailable, onClose.
-export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, resume = false, onChanged, onUnavailable, onClose }) {
+// onChanged (refetch flag states), onRolesChanged (server column roles after a confirm), onUnavailable, onClose.
+export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, resume = false, onChanged, onRolesChanged, onUnavailable, onClose }) {
   const [turns, setTurns] = useState([])
   const [pending, setPending] = useState(null)
   const [input, setInput] = useState('')
@@ -108,8 +108,10 @@ export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, re
     setBusy(true)
     setError('')
     try {
+      const roleCols = (pending.proposals || []).flatMap(p => p.steps || []).filter(st => st.op === 'set_role').map(st => st.column)
       const out = await api.confirmAdvisorProposal(groupId, pending.proposal_id)
       setPending(null)
+      if (out.column_roles && onRolesChanged) onRolesChanged(out.column_roles, roleCols)
       const blocked = (out.flag_states?.flags || []).filter(f => flagIds.includes(f.flag_id) && f.severity === 'ERROR' && f.state !== 'resolved')
       setNotice(
         `Applied as revision ${out.handoff_revision}. The group is now ${out.group_status}.` +
@@ -180,6 +182,14 @@ export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, re
                   <ol className="list-decimal pl-5 text-sm">
                     {p.steps.map((s, i) => {
                       const dry = p.dry_run?.[i]
+                      if (s.op === 'set_role') {
+                        return (
+                          <li key={i}>
+                            {describeStep(s, dry)} No data changes.
+                            {dry?.note && <span className="block text-ink-soft">{dry.note}</span>}
+                          </li>
+                        )
+                      }
                       return (
                         <li key={i}>{describeStep(s, dry)}{dry ? ` (${dry.rows_changed} rows affected)` : ''}</li>
                       )

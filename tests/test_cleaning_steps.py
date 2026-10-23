@@ -237,3 +237,31 @@ def test_index_is_renumbered_and_input_untouched():
     steps = [{"op": "drop_rows", "where": {"column": "a", "op": "eq", "value": 1}}]
     out, _ = apply_steps(df, steps)
     assert list(out.index) == [0, 1] and list(df.index) == [10, 20, 30] and len(df) == 3
+
+
+# ---------- set_role ----------
+
+def test_set_role_changes_no_data_and_is_not_flagged():
+    df = make()
+    out, rep = run([{"op": "set_role", "column": "dose", "role": "denominator"}], df)
+    pd.testing.assert_frame_equal(out, df)
+    r = rep[0]
+    assert (r["rows_changed"], r["cells_changed"], r["no_effect"]) == (0, 0, False)
+    assert r["description"] == "Set the role of column dose to denominator."
+    assert describe_step({"op": "set_role", "column": "dose", "role": "none"}) == "Clear the role of column dose."
+
+
+def test_set_role_validation_and_vocabulary():
+    for bad in ({"op": "set_role", "column": "dose"}, {"op": "set_role", "column": "dose", "role": "boss"},
+                {"op": "set_role", "column": 3, "role": "outcome"},
+                {"op": "set_role", "column": "dose", "role": "outcome", "extra": 1}):
+        with pytest.raises(StepError):
+            validate_steps([bad])
+    with pytest.raises(StepError, match="unknown column"):
+        run([{"op": "set_role", "column": "nope", "role": "outcome"}])
+    with pytest.raises(StepError, match="unknown column"):  # column must exist at that point
+        run([{"op": "drop_column", "column": "dose"}, {"op": "set_role", "column": "dose", "role": "outcome"}])
+    assert "set_role" in STEP_VOCABULARY
+    validate_steps([{"op": "set_role", "column": "dose", "role": "none"}] * 100)
+    with pytest.raises(StepError):
+        validate_steps([{"op": "set_role", "column": "dose", "role": "none"}] * 101)

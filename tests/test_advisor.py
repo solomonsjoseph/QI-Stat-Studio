@@ -332,3 +332,111 @@ def test_legacy_flags_without_ids_end_to_end(auth_client, provider, mock_llm):
     mock_llm.push(_out(mode="undo", proposals=[_prop(W_UNIT, [], "Undo")]))
     auth_client.post(MSG % gid, json={"message": "undo"})
     assert _upload(uid).acknowledged_flags == "[]"  # legacy ack removed on reopen
+
+
+# ---------- set_role ----------
+
+ROLE_DEN = {"op": "set_role", "column": "age", "role": "denominator"}
+
+
+def _roles(uid):
+    return json.loads(_upload(uid).column_roles)
+
+
+def _set_roles(uid, roles):
+    with SessionLocal() as db:
+        db.get(Upload, uid).column_roles = json.dumps(roles)
+        db.commit()
+
+
+def _propose_and_confirm(client, mock_llm, gid, steps, message="go", wid=W_AGE, mode="propose"):
+    mock_llm.push(_out("ok", mode=mode, proposals=[_prop(wid, steps)]))
+    d = client.post(MSG % gid, json={"message": message}).json()
+    return d, client.post(CONF % gid, json={"proposal_id": d["proposal_id"]})
+
+
+def test_set_role_read_back_mentions_conflict_and_changes_no_data(auth_client, provider, mock_llm):
+    uid, gid = _group(auth_client)
+    _set_roles(uid, {"encounter_id": "denominator"})
+    mock_llm.push(_out("ok", proposals=[_prop(W_AGE, [ROLE_DEN])]))
+    d = auth_client.post(MSG % gid, json={"message": "use age as the denominator"}).json()
+    dry = d["proposals"][0]["dry_run"][0]
+    assert dry["rows_changed"] == 0 and dry["description"] == "Set the role of column age to denominator."
+    assert dry["note"] == "encounter_id is also set as Denominator; the analysis will use age."
+    assert "rows affected" not in d["message"] and "encounter_id is also set as Denominator" in d["message"]
+    assert _roles(uid) == {"encounter_id": "denominator"}  # nothing changes before Confirm
+
+
+def test_confirm_writes_role_last_plan_picks_it_and_marks_stale(auth_client, provider, mock_llm):
+    from api.dataset_profile import get_effective_profile
+    from api.models_db import Project
+    from api.staleness import check_and_apply_inputs_fingerprint
+    uid, gid = _group(auth_client)
+    _set_roles(uid, {"age": "numerator", "encounter_id": "denominator", "unit": "grouping"})
+    with SessionLocal() as db:
+        u = db.get(Upload, uid)
+        p = db.get(Project, u.project_id)
+        p.ai_analysis_plan = json.dumps({"analyses": [{"template": "run_chart"}], "confirmed": True, "stale": False})
+        check_and_apply_inputs_fingerprint(p, u, db)
+        db.commit()
+        pid = p.id
+    d, r = _propose_and_confirm(auth_client, mock_llm, gid, [ROLE_DEN])
+    assert r.status_code == 200, r.text
+    assert list(r.json()["column_roles"].items())[-1] == ("age", "denominator")
+    roles = _roles(uid)
+    assert list(roles)[-1] == "age" and roles["age"] == "denominator"
+    assert get_effective_profile(_upload(uid))["candidate_roles"]["denominator"][0] == "age"
+    rev = json.loads(_upload(uid).handoff_revisions)[-1]
+    assert rev["roles_before"] == {"age": "numerator"}
+    with SessionLocal() as db:
+        assert json.loads(db.get(Project, pid).ai_analysis_plan)["stale"] is True
+    steps = extract_steps(_upload(uid).handoff_md)
+    assert steps[0]["op"] == "set_role" and "Set the role of column age to denominator." in _upload(uid).handoff_md
+
+
+def test_undo_restores_role_unless_resident_changed_it_since(auth_client, provider, mock_llm):
+    uid, gid = _group(auth_client, (W_AGE,))
+    _set_roles(uid, {"age": "numerator", "unit": "grouping"})
+    _propose_and_confirm(auth_client, mock_llm, gid, [ROLE_DEN])
+    assert _roles(uid)["age"] == "denominator"
+    d, r = _propose_and_confirm(auth_client, mock_llm, gid, [], "undo it", mode="undo")
+    assert r.json()["column_roles"]["age"] == "numerator" and _roles(uid)["age"] == "numerator"
+
+    # roles absent before: undo removes the key
+    _set_roles(uid, {"unit": "grouping"})
+    _propose_and_confirm(auth_client, mock_llm, gid, [ROLE_DEN])
+    assert "age" in _roles(uid)
+    _propose_and_confirm(auth_client, mock_llm, gid, [], "undo", mode="undo")
+    assert "age" not in _roles(uid) and _roles(uid)["unit"] == "grouping"
+
+    # the resident edited the table after the advisor set it: undo leaves their value
+    _propose_and_confirm(auth_client, mock_llm, gid, [ROLE_DEN])
+    _set_roles(uid, {**_roles(uid), "age": "outcome"})
+    _propose_and_confirm(auth_client, mock_llm, gid, [], "undo", mode="undo")
+    assert _roles(uid)["age"] == "outcome"
+
+
+def test_set_role_for_unknown_column_is_not_applied(auth_client, provider, mock_llm):
+    uid, gid = _group(auth_client)
+    bad = {"op": "set_role", "column": "nope", "role": "denominator"}
+    mock_llm.push(_out(proposals=[_prop(W_AGE, [bad])]))
+    mock_llm.push(_out(proposals=[_prop(W_AGE, [bad])]))
+    d = auth_client.post(MSG % gid, json={"message": "x"}).json()
+    assert d["dry_run_error"] and not d["needs_user_confirmation"] and _roles(uid) == {}
+
+
+def test_role_table_edit_alone_marks_plan_stale_and_empty_roles_keep_fingerprint(auth_client):
+    from api.models_db import Project
+    from api.staleness import compute_inputs_fingerprint
+    uid, _ = _group(auth_client)
+    with SessionLocal() as db:
+        u = db.get(Upload, uid)
+        p = db.get(Project, u.project_id)
+        base = compute_inputs_fingerprint(p, u)
+        u.column_roles = "{}"
+        assert compute_inputs_fingerprint(p, u) == base
+        u.column_roles = json.dumps({"age": "date"})  # auto-saved guess, not a decision
+        assert compute_inputs_fingerprint(p, u) == base
+        u.column_roles = json.dumps({"age": "denominator"})
+        assert compute_inputs_fingerprint(p, u) != base
+        db.rollback()

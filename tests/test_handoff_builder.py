@@ -27,6 +27,7 @@ ALL_OPS = [
     {"op": "drop_duplicates", "subset": ["sex"], "keep": "last"},
     {"op": "drop_rows", "where": {"any": [{"column": "age", "op": "lt", "value": 0}]}},
     {"op": "drop_column", "column": "age"},
+    {"op": "set_role", "column": "sex", "role": "denominator"},
 ]
 
 

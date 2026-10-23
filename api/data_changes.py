@@ -1,7 +1,7 @@
 """Data changes applied to an upload, as plain dicts for exports (report and R/SAS/SPSS scripts).
 
 Snapshot shape (stored under result_json["data_changes"]):
-  {"steps": [{"description", "rows_before", "rows_after", "rows_removed", "cells_changed",
+  {"steps": [{"op", "description", "rows_before", "rows_after", "rows_removed", "cells_changed",
               "warnings": [message, ...], "note"}],
    "decisions": [text, ...]}   # agreements recorded without a data change
 Returns None when there is nothing to list.
@@ -40,6 +40,7 @@ def build_data_changes(upload: Any) -> Optional[Dict[str, Any]]:
         _, report = load_cleaned_dataframe(upload, with_report=True)
         for r in report:
             steps.append({
+                "op": r.get("op", ""),
                 "description": r["description"],
                 "rows_before": r["rows_before"],
                 "rows_after": r["rows_after"],
@@ -59,6 +60,13 @@ def build_data_changes(upload: Any) -> Optional[Dict[str, Any]]:
 
 def step_line(s: dict) -> str:
     """One-line text for a snapshot step, used by the report and the script comments."""
+    if s.get("op") == "set_role":
+        out = f"{s['description']} No rows changed."
+        if s.get("warnings"):
+            out += " Warnings: " + "; ".join(s["warnings"]) + "."
+        if s.get("note"):
+            out += f" Note: {s['note']}"
+        return one_line(out)
     out = (f"{s['description']} Rows before {s['rows_before']}, after {s['rows_after']}, "
            f"removed {s['rows_removed']}, cells changed {s['cells_changed']}.")
     if s.get("warnings"):
