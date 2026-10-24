@@ -209,9 +209,11 @@ def _bind_before_after_mean(
         )
 
     pre, post = design.pre_label, design.post_label
-    if not (pre and post) and _column_exists(df, group):
-        guessed = _guess_pre_post(df[group])
-        pre, post = pre or guessed[0], post or guessed[1]
+    if _column_exists(df, group):
+        # Labels written into the design (often by the advisor, from prose) must be levels of the column.
+        levels = set(df[group].dropna().astype(str).str.strip().str.lower())
+        if not ((pre or "").strip().lower() in levels and (post or "").strip().lower() in levels):
+            pre, post = _guess_pre_post(df[group])
     if pre:
         params["pre_val"] = pre
         conf["pre_val"] = _field_confidence(design, "pre_label", bound=True) if design.pre_label else "medium"
@@ -402,6 +404,10 @@ def propose_analyses(
         if not binder:
             continue
         parameters, param_confidence = binder(design, profile, frame)
+        group = parameters.get("group_col")
+        if template.startswith("before_after") and group in frame.columns:
+            if frame[group].dropna().astype(str).str.strip().str.lower().nunique() != 2:
+                continue  # a before/after comparison needs a two-level column; offering one that cannot run blocks the plan
         display_name, question, rationale = _DISPLAY.get(template, (template, "", ""))
         needs_clarification = (not parameters) or any(c == "low" for c in param_confidence.values())
         limitations: list[str] = []

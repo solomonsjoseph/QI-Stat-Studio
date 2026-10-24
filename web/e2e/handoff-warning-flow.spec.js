@@ -10,7 +10,7 @@ const mode = process.env.QISS_E2E_MODE || 'stub'
 // 60 monthly rows. unit and ward carry whitespace padding and mixed case.
 // staff_score is an integer column with 10% blanks and is not named like a denominator, so it must not be
 // guessed as one; census_days is picked up as the denominator by its name.
-// The review shows six warnings (the date gap rule also fires).
+// The review shows five warnings (the monthly dates are regular, so no date gap warning).
 function buildCsv() {
   const units = ['ICU', ' icu', 'Med', 'med ', 'Surg']
   const wards = ['North', ' north', 'South', 'south ', 'East']
@@ -121,7 +121,7 @@ test.describe('handoff and warning review', () => {
     const rows = page.getByRole('listitem').filter({ has: page.getByRole('checkbox') })
     const openBoxes = rows.getByRole('checkbox').and(page.locator(':not(:disabled)'))
     const remaining = await openBoxes.count()
-    expect(remaining).toBe(4)
+    expect(remaining).toBe(3)
     for (let i = 0; i < remaining; i += 1) await openBoxes.nth(i).check()
     await expect(page.getByText(`${remaining} selected`)).toBeVisible()
     await page.getByRole('button', { name: 'Clarify with QI Stat Advisor' }).click()
@@ -141,7 +141,7 @@ test.describe('handoff and warning review', () => {
 
     await chat.getByRole('button', { name: 'Confirm these changes' }).click()
     await expect(chat.getByText(/Applied as revision/)).toBeVisible()
-    await expect(page.getByText('(Handled)')).toHaveCount(6)
+    await expect(page.getByText('(Handled)')).toHaveCount(5)
     await chat.getByRole('button', { name: 'Close chat' }).click()
 
     // Handoff document: one example shown, the rest collapsed.
@@ -161,8 +161,8 @@ test.describe('handoff and warning review', () => {
 
     await planToResults(page)
     await expect(page.getByText(/must contain only positive values/)).toHaveCount(0)
-    await expect(page.getByRole('heading', { name: 'AI Interpretation' }).first()).toBeVisible()
-    await expect(page.getByText('AI interpretation is off')).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'QI Stat Advisor interpretation' }).first()).toBeVisible()
+    await expect(page.getByText('The QI Stat Advisor is off. You can write your own')).toHaveCount(0)
     const body = await page.locator('body').innerText()
     expect(body).not.toMatch(/AI advisor/i)
   })
@@ -199,7 +199,7 @@ test.describe('handoff and warning review', () => {
     await page.getByRole('button', { name: 'Continue to Analysis Selection' }).click()
 
     await planToResults(page)
-    await expect(page.getByText('AI interpretation is off')).toBeVisible()
+    await expect(page.getByText('The QI Stat Advisor is off. You can write your own')).toBeVisible()
 
     // Settings: a typed key is reported by source and last four characters only.
     await page.getByRole('button', { name: 'Open settings' }).click()

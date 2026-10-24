@@ -291,3 +291,31 @@ a t-test offered on a yes/no column, and pre and post labels left blank.
 whose denominator column has an unusual name assigns it in the Data Review
 role table. A per-project lock replaces the process-wide one if runs ever
 become slow enough to queue.
+
+
+## ADR-014: The QI Stat Advisor is optional at every step
+
+**Context:** A provider rate limit made every advisor call fail with the same
+"AI service unavailable" text. The resident saw a dead end on the clarification
+screen, and the same screen had no way to describe the project by hand while a
+key was configured.
+
+**Decision:**
+
+- Residents see one name for the assistant everywhere: "QI Stat Advisor". "AI
+  key" stays, because it is the provider key. Every system prompt starts with
+  the same identity directive (`IDENTITY_DIRECTIVE` in `api/ai_prompts.py`).
+- Provider failures are classified by exception class into `advisor_busy` and
+  `advisor_error`, with fixed sentences (ADR-004 still holds: no provider text
+  reaches the resident).
+- The clarification screen offers "Continue without the QI Stat Advisor" next
+  to "Try again", which shows the manual project form, and a way back.
+- Plan recommendation already falls back to the rules-first draft when the
+  provider fails. Interpretation text is labelled "Draft interpretation" whenever
+  the QI Stat Advisor did not write it.
+- The Results screen shares one run-and-interpret job per project, upload and
+  attempt, so a double effect or double click cannot run the plan twice.
+
+**Consequences:** A resident can finish a project with a dead provider. Draft
+text is rule-generated and still carries the bracketed prompts described in the
+owner questions.

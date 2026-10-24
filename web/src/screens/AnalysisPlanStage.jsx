@@ -13,7 +13,7 @@ const COLUMN_PARAM_KEYS = new Set([
 ])
 
 function errorMessage(err) {
-  return `${err.message || 'AI analysis planning failed'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
+  return `${err.message || 'The QI Stat Advisor could not plan the analyses'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
 }
 
 function ConfidenceChip({ level }) {
@@ -304,6 +304,11 @@ export default function AnalysisPlanStage() {
                   <div className="alert-warn mt-2 text-xs">
                     {a.errors?.map((e, i) => <p key={i}>{e}</p>)}
                     {a.missing_params?.length > 0 && <p>Missing: {a.missing_params.join(', ')}</p>}
+                    {!a.executable && (
+                      <button type="button" onClick={() => removeAnalysis(a.id)} className="btn-secondary mt-2 text-xs">
+                        This analysis cannot run on your data. Remove it
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -422,7 +427,7 @@ export default function AnalysisPlanStage() {
           <h3 className="font-medium text-ink text-sm">Conversation history</h3>
           {turns.map((turn, i) => (
             <p key={i} className={turn.role === 'ai' ? 'text-ink text-sm' : 'text-ink-soft text-sm'}>
-              <strong>{turn.role === 'ai' ? 'AI' : 'You'}:</strong> {turn.content}
+              <strong>{turn.role === 'ai' ? 'QI Stat Advisor' : 'You'}:</strong> {turn.content}
             </p>
           ))}
         </div>

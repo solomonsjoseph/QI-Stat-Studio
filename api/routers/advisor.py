@@ -7,6 +7,7 @@ applied to the handoff only when the user confirms. No AI-written code is ever e
 from __future__ import annotations
 
 import json
+import sys
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -15,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
-from api.ai_key import advisor_unavailable
+from api.ai_key import advisor_failed, advisor_unavailable
 from api.ai_prompts import ADVISOR_SYSTEM_V1
 from api.audit import log_action, safe_diagnostic_message
 from api.auth import get_current_user
@@ -302,7 +303,7 @@ def post_message(group_id: int, body: AdvisorMessageIn, db: Session = Depends(ge
             raise
         except Exception:
             ai_router._record_ai_usage(db, user_id=user.id, project_id=project.id, model=model, prompt_chars=chars, status="error")
-            raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+            raise advisor_failed(sys.exc_info()[1])
         ai_router._record_ai_usage(db, user_id=user.id, project_id=project.id, model=model,
                                    prompt_chars=chars, completion_chars=len(out.message), status="ok")
         result = _evaluate(out, ids, body.warning_id, current, prev_pending, upload)

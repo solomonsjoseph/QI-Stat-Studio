@@ -72,3 +72,21 @@ def advisor_unavailable(db: Session, provider: str) -> HTTPException:
             "key_source": source,
         },
     )
+
+
+_BUSY_ERRORS = {"RateLimitError", "Timeout", "APITimeoutError", "APIConnectionError", "ServiceUnavailableError", "InternalServerError"}
+
+
+def advisor_failed(exc: BaseException | None) -> HTTPException:
+    """Resident-safe error for a provider call that raised. Only the exception class is used to pick
+    the sentence; the provider's own text can carry request content and is never returned."""
+    busy = exc is not None and any(c.__name__ in _BUSY_ERRORS for c in type(exc).__mro__)
+    if busy:
+        return HTTPException(status_code=503, detail={
+            "code": "advisor_busy",
+            "message": "The QI Stat Advisor is busy right now. Wait a minute and try again, or continue without it.",
+        })
+    return HTTPException(status_code=502, detail={
+        "code": "advisor_error",
+        "message": "The QI Stat Advisor could not answer. Try again, or continue without it.",
+    })

@@ -158,7 +158,7 @@ export default function ProjectIntake() {
           disabled={loading}
         />
         {dictionary && <p className="text-sm text-ink-soft">Selected: <span className="font-medium text-ink">{dictionary.name}</span> ({formatFileSize(dictionary)})</p>}
-        <p className="text-sm text-ink-faint">Optional. A dictionary helps the AI read your columns instead of guessing from raw values.</p>
+        <p className="text-sm text-ink-faint">Optional. A dictionary tells the QI Stat Advisor and the column checks what your columns mean, instead of guessing from raw values.</p>
 
         <div className="flex flex-wrap gap-3 pt-2">
           <button

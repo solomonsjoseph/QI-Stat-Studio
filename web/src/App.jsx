@@ -40,7 +40,7 @@ const COMPONENTS = {
 
 export const STEP_LABELS = {
   description: 'Project Intake',
-  clarify: 'AI Clarification',
+  clarify: 'Clarification',
   review: 'Review',
   analysis: 'Analysis Plan',
   results: 'Results',

@@ -203,13 +203,13 @@ def canned_response(messages: list[dict[str, str]]) -> SimpleNamespace:
     """
     system_text = (messages[0].get("content", "") if messages else "").lower()
 
-    if "you are the qi stat advisor" in system_text:
+    if "decide what to do about data quality warnings" in system_text:
         content = _canned_advisor(messages[0].get("content", ""))
     elif "clarify a quality-improvement" in system_text or "what are you measuring" in system_text:
         content = _CANNED_CLARIFY
     elif "adjusting an existing statistical analysis plan" in system_text:
         content = _CANNED_OVERRIDE
-    elif "methodology advisor reviewing" in system_text:
+    elif "reviewing a medical resident's qi project definition" in system_text:
         content = _CANNED_COLLECTION
     elif "explaining a proposed statistical analysis plan" in system_text or "recommending a complete statistical analysis plan" in system_text:
         content = _CANNED_RECOMMEND

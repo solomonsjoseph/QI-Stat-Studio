@@ -285,7 +285,7 @@ def test_chat_transport_exception_records_error_usage_and_returns_safe_502(clien
         )
 
     assert response.status_code == 502
-    assert response.json()["error"]["message"] == "AI service unavailable"
+    assert response.json()["error"]["message"] == "The QI Stat Advisor could not answer. Try again, or continue without it."
     assert "MRN 123456" not in response.text
     assert "secret@example.com" not in response.text
     rows = _ai_usage_rows()
@@ -308,7 +308,7 @@ def test_chat_upstream_error_body_is_not_returned(client, monkeypatch):
         )
 
     assert response.status_code == 502
-    assert response.json()["error"]["message"] == "AI service unavailable"
+    assert response.json()["error"]["message"] == "The QI Stat Advisor could not answer. Try again, or continue without it."
     assert "MRN 123456" not in response.text
     assert "secret@example.com" not in response.text
     rows = _ai_usage_rows()
@@ -827,3 +827,18 @@ def test_recommend_plan_returns_rules_draft_when_llm_stays_empty_after_retry(cli
         assert len(plan["analyses"]) >= 1
 
 
+
+
+def test_a_busy_provider_gets_a_wait_and_retry_message_not_a_generic_failure(client, monkeypatch):
+    class RateLimitError(Exception):
+        pass
+
+    _set_openrouter_provider()
+    project_id = _project_id(client)
+    monkeypatch.setattr("api.routers.ai.settings.openrouter_api_key", "fake-key")
+    with patch("api.routers.ai.litellm.completion", side_effect=RateLimitError("quota for key sk-secret exceeded")):
+        response = client.post("/ai/chat", json={"project_id": project_id, "messages": [{"role": "user", "content": "hello"}]})
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "advisor_busy" and "Wait a minute" in error["message"]
+    assert "sk-secret" not in response.text

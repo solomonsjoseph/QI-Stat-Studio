@@ -123,12 +123,12 @@ describe('App resume hydration', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Screen review' })).toBeInTheDocument()
-    for (const label of ['Project Intake', 'AI Clarification', /Review/]) {
+    for (const label of ['Project Intake', 'Clarification', /Review/]) {
       expect(screen.getByRole('button', { name: label })).toBeEnabled()
     }
     expect(screen.getByRole('button', { name: /Results/ })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: 'AI Clarification' }))
+    await user.click(screen.getByRole('button', { name: 'Clarification' }))
 
     expect(await screen.findByRole('heading', { name: 'Screen clarify' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/app/77/clarify')

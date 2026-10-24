@@ -117,7 +117,7 @@ loading.
 ## 11. Edit the report
 
 Adjust the **Report Title**, **Figure Caption**, and **Interpretation** to
-match your own voice. The AI text is a draft, not a final answer. Only the
+match your own voice. The QI Stat Advisor's text is a draft, not a final answer. Only the
 fields you actually change are saved as edits, and the report keeps both the
 original and edited text in its audit trail. Click **Save & Continue**.
 

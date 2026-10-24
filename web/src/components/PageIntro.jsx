@@ -8,7 +8,7 @@ const FALLBACK_SCREENS = [
 
 const FALLBACK_STEP_LABELS = {
   description: 'Project Intake',
-  clarify: 'AI Clarification',
+  clarify: 'Clarification',
   review: 'Review',
   analysis: 'Analysis Plan',
   results: 'Results',

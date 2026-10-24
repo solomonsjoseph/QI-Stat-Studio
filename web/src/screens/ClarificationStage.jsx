@@ -36,7 +36,7 @@ function StatusChip({ status }) {
   const labels = {
     'user-confirmed': 'Confirmed',
     'user-corrected': 'Corrected',
-    inferred: 'Inferred by AI',
+    inferred: 'Inferred by the QI Stat Advisor',
     unknown: 'Unknown',
   }
   return (
@@ -127,6 +127,7 @@ export default function ClarificationStage() {
   const [savingDesign, setSavingDesign] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const [error, setError] = useState('')
+  const [manualFallback, setManualFallback] = useState(false)
   const colNames = Object.keys(ctx.colTypes || {})
   const aiTurnCount = turns.filter(t => t.role === 'ai').length
   const lastAiTurn = [...turns].reverse().find(t => t.role === 'ai')
@@ -173,7 +174,7 @@ export default function ClarificationStage() {
       const body = await api.clarify(ctx.projectId, null)
       applyClarifyResult(body)
     } catch (err) {
-      setError(err.message || 'AI service error. Please try again.')
+      setError(err.message || 'The QI Stat Advisor could not answer. Try again, or continue without it.')
     } finally {
       setLoading(false)
     }
@@ -228,7 +229,7 @@ export default function ClarificationStage() {
       applyClarifyResult(body)
       setPendingRedacted(null)
     } catch (err) {
-      setError(err.message || 'AI service error. Please try again.')
+      setError(err.message || 'The QI Stat Advisor could not answer. Try again, or continue without it.')
     } finally {
       setLoading(false)
     }
@@ -294,7 +295,7 @@ export default function ClarificationStage() {
     }
   }
 
-  if (advisorOff) {
+  if (advisorOff || manualFallback) {
     return (
       <div className="screen max-w-2xl space-y-6">
         <PageIntro
@@ -302,7 +303,14 @@ export default function ClarificationStage() {
           title="Project Clarification"
           lead="Describe the project yourself. The QI Stat Advisor is off, so there is no conversation."
         />
-        <AdvisorOffBanner />
+        {advisorOff ? <AdvisorOffBanner /> : (
+          <div className="alert-warn flex flex-wrap items-center justify-between gap-2" role="status">
+            <span>You are describing the project yourself. The QI Stat Advisor is not answering right now.</span>
+            <button type="button" onClick={() => { setManualFallback(false); setError(''); if (turns.length === 0) startOpeningTurn() }} className="btn-secondary text-xs">
+              Try the QI Stat Advisor again
+            </button>
+          </div>
+        )}
         {error && <div className="alert-error" role="alert">{error}</div>}
         <ManualDesignForm colNames={colNames} initial={design} busy={savingDesign || loading} onSubmit={saveManualDesign} />
       </div>
@@ -329,6 +337,9 @@ export default function ClarificationStage() {
           <button type="button" onClick={() => (turns.length === 0 ? startOpeningTurn() : sendResponse())} className="btn-secondary self-start text-xs">
             Try again
           </button>
+          <button type="button" onClick={() => setManualFallback(true)} className="btn-secondary self-start text-xs">
+            Continue without the QI Stat Advisor
+          </button>
         </div>
       )}
 
@@ -336,7 +347,7 @@ export default function ClarificationStage() {
       {suggestion && (
         <div className="card alert-info">
           <h3 className="font-semibold text-ink mb-1">Suggested Project Refinement</h3>
-          <p className="text-xs text-ink-soft mb-3">The AI suggested more specific titles and descriptions based on your data:</p>
+          <p className="text-xs text-ink-soft mb-3">The QI Stat Advisor suggested more specific titles and descriptions based on your data:</p>
           <div className="space-y-3 mb-4">
             <div>
               <label className="text-xs font-medium text-ink">Title</label>

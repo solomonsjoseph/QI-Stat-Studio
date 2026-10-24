@@ -67,7 +67,7 @@ function ResultCard({ run, single, aiOff }) {
 
       {interpretation && (
         <div className="alert-info mb-4">
-          <h2 className="mb-1 font-medium">{aiOff ? 'Draft interpretation' : 'AI Interpretation'}</h2>
+          <h2 className="mb-1 font-medium">{aiOff ? 'Draft interpretation' : 'QI Stat Advisor interpretation'}</h2>
           <p>{interpretation}</p>
         </div>
       )}
@@ -75,6 +75,21 @@ function ResultCard({ run, single, aiOff }) {
       <div className="text-sm text-ink-soft"><p>{run.methods}</p></div>
     </div>
   )
+}
+
+// One run-and-interpret job per project, upload and attempt. React dev mode runs effects twice and a
+// resident can double-click; without sharing, the backend runs the plan twice and the interpretation
+// request can land while the first run's results are being replaced.
+const jobs = new Map()
+function sharedJob(key, ctx) {
+  if (!jobs.has(key)) {
+    const analyses = (ctx.analysisPlan || []).map(a => ({ template: a.template, parameters: a.parameters }))
+    const run = api.runPlan(ctx.projectId, ctx.uploadId, analyses)
+    const interp = run.then(() => api.interpretResults(ctx.projectId))
+    interp.catch(() => {}).finally(() => jobs.delete(key))
+    jobs.set(key, { run, interp })
+  }
+  return jobs.get(key)
 }
 
 export default function Results() {
@@ -103,8 +118,8 @@ export default function Results() {
 
     async function runAndInterpret() {
       try {
-        const analyses = (ctx.analysisPlan || []).map(a => ({ template: a.template, parameters: a.parameters }))
-        const runResp = await api.runPlan(ctx.projectId, ctx.uploadId, analyses)
+        const job = sharedJob(`${ctx.projectId}:${ctx.uploadId}:${attempt}`, ctx)
+        const runResp = await job.run
         if (cancelled) return
         setFailures(runResp.failures || [])
 
@@ -116,7 +131,7 @@ export default function Results() {
         setInterpretationLoading(true)
         setInterpretationError('')
         try {
-          const interpResp = await api.interpretResults(ctx.projectId)
+          const interpResp = await job.interp
           if (cancelled) return
           const interpretations = Object.fromEntries((interpResp.interpretations || []).map(i => [i.run_id, i.text]))
           const narrativeData = { limitations: interpResp.limitations || [], abstract_draft: interpResp.abstract_draft || '' }
@@ -127,7 +142,7 @@ export default function Results() {
         } catch (err) {
           if (cancelled) return
           if (err.code === 'advisor_unavailable') setInterpretationOff(true)
-          else setInterpretationError(errorMessage(err, 'Could not generate AI interpretation'))
+          else setInterpretationError(errorMessage(err, 'The QI Stat Advisor could not write an interpretation'))
         } finally {
           if (!cancelled) setInterpretationLoading(false)
         }
@@ -196,19 +211,19 @@ export default function Results() {
         </div>
       )}
 
-      {runs.map(r => <ResultCard key={r.run_id} run={r} single={runs.length === 1} aiOff={interpretationOff} />)}
+      {runs.map(r => <ResultCard key={r.run_id} run={r} single={runs.length === 1} aiOff={interpretationOff || !!interpretationError} />)}
 
       {interpretationLoading && (
-        <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />Preparing AI interpretation…</p>
+        <p className="mb-4 flex items-center gap-2 text-sm text-ink-soft" aria-live="polite"><Spinner />The QI Stat Advisor is preparing an interpretation…</p>
       )}
 
       {interpretationOff && (
-        <p role="status" className="alert-warn mb-4">AI interpretation is off. You can write your own on the next screen.</p>
+        <p role="status" className="alert-warn mb-4">The QI Stat Advisor is off. You can write your own interpretation on the next screen.</p>
       )}
 
       {interpretationError && (
         <p role="alert" className="alert-error mb-4">
-          Could not generate AI interpretation: {interpretationError}
+          {interpretationError.startsWith('The QI Stat Advisor') ? '' : 'The QI Stat Advisor could not write the interpretation. '}{interpretationError}
         </p>
       )}
 

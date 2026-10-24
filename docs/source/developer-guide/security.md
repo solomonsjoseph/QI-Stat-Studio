@@ -81,6 +81,12 @@ each call site:
   returned to the client, only the request id, route, action, and this
   fixed sentence. That's enough for `GET /admin/failures` to be useful for
   triage without becoming a second place PHI could leak into.
+- **`advisor_failed`** (`api/ai_key.py`): when a provider call raises, the
+  response is picked from the exception *class* only. Rate limits, timeouts and
+  connection errors give `503 advisor_busy` ("busy right now, wait a minute");
+  anything else gives `502 advisor_error`. Both sentences tell the resident they
+  can continue without the QI Stat Advisor. The provider's own text can echo
+  request content and is never returned.
 
 ## The mentor-share trust boundary
 

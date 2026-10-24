@@ -283,4 +283,17 @@ describe('AnalysisPlanStage with the advisor off', () => {
     expect(await screen.findByRole('option', { name: 'Run Chart' })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'run chart' })).not.toBeInTheDocument()
   })
+
+  it('puts a visible Remove button next to an analysis that cannot run', async () => {
+    apiMock.recommendPlan.mockResolvedValue({
+      message: 'Plan', confirmed: false, turns: [],
+      analyses: [makeItem(), makeItem({ id: 'before_after_mean-2', template: 'before_after_mean', display_name: 'Before/after mean', executable: false, errors: ["Pre group 'x' is not present in column 'unit'"] })],
+    })
+    const user = userEvent.setup()
+    renderScreen()
+    const remove = await screen.findByRole('button', { name: /cannot run on your data. Remove it/ })
+    await user.click(remove)
+    expect(screen.queryByText('Before/after mean')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  })
 })

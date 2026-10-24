@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import re
 from datetime import datetime, timedelta
 from typing import Any
@@ -54,7 +55,7 @@ from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.audit import log_action, safe_diagnostic_message
 from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
-from api.ai_key import advisor_unavailable, resolve_key
+from api.ai_key import advisor_failed, advisor_unavailable, resolve_key
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -353,7 +354,7 @@ def _enforce_ai_rate_limit(db: Session, user: User) -> None:
     since = datetime.utcnow() - timedelta(hours=1)
     used = db.query(AIUsageEvent).filter(AIUsageEvent.user_id == user.id, AIUsageEvent.created_at >= since).count()
     if used >= int(limit):
-        raise HTTPException(status_code=429, detail="AI rate limit exceeded")
+        raise HTTPException(status_code=429, detail="You have used your QI Stat Advisor requests for now. Try again later.")
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -366,7 +367,7 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
 
     total_user_content_chars = sum(len(str(msg.get("content", ""))) for msg in req.messages if msg.get("role") == "user")
     if total_user_content_chars > 4000:
-        raise HTTPException(status_code=400, detail="AI user content exceeds 4000 characters")
+        raise HTTPException(status_code=400, detail="That message is too long for the QI Stat Advisor (4000 characters at most).")
 
     scrubbed_messages = []
     total_redactions = 0
@@ -398,7 +399,7 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
         content = resp.choices[0].message.content
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+        raise advisor_failed(sys.exc_info()[1])
 
     _record_ai_usage(db, user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
     return ChatResponse(content=content, phi_redacted=total_redactions > 0, redaction_count=total_redactions)
@@ -515,7 +516,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
         raise
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+        raise advisor_failed(sys.exc_info()[1])
 
     cleaned_message = _drop_irrelevant_questions(resp_model.message, resp_model.design)
     if not cleaned_message:
@@ -879,7 +880,7 @@ def ai_override_plan(
         raise
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+        raise advisor_failed(sys.exc_info()[1])
 
     from api.cleaning_runtime import StepsApplyError
     from api.upload_utils import load_upload_dataframe
@@ -993,7 +994,7 @@ def ai_interpret_results(
         raise
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_service_unavailable"))
+        raise advisor_failed(sys.exc_info()[1])
 
     p_values = [rd.get("p_value") for rd in results_payload if isinstance(rd.get("p_value"), (int, float))]
     flags: list[str] = []

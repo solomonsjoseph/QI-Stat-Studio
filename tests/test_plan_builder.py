@@ -269,3 +269,34 @@ def test_sparse_daily_dates_are_grouped_by_month_for_a_yes_no_outcome():
     p_chart = next(i for i in propose_analyses(design, profile, df) if i.template == "p_chart")
     assert p_chart.parameters["freq"] == "ME"
     assert any("grouped by month instead of day" in text for text in p_chart.limitations)
+
+
+def test_before_after_is_not_proposed_for_a_three_level_group_column():
+    df = pd.DataFrame({"unit": ["3 West", "4 East", "ICU"] * 4, "falls": [1, 2, 3] * 4})
+    profile = _profile(("unit", "Category", "grouping"), ("falls", "Number", "outcome"))
+    design = _design(
+        comparison="pre-post",
+        primary_outcome={"label": "Falls", "column": "falls", "kind": "count"},
+        time_structure={"has_dates": False},
+        group_column="unit",
+        pre_label="Before July 2024 (Jan 2023 to Jun 2024)",
+        post_label="After July 2024",
+    )
+    templates = [i.template for i in propose_analyses(design, profile, df)]
+    assert "descriptive_summary" in templates
+    assert not any(t.startswith("before_after") for t in templates)
+
+
+def test_invented_pre_post_labels_are_replaced_by_the_columns_real_levels():
+    df = pd.DataFrame({"period": ["pre", "post"] * 6, "score": [1.0, 2.0] * 6})
+    profile = _profile(("period", "Category", "grouping"), ("score", "Number", "outcome"))
+    design = _design(
+        comparison="pre-post",
+        primary_outcome={"label": "Score", "column": "score", "kind": "continuous"},
+        time_structure={"has_dates": False},
+        group_column="period",
+        pre_label="Before the bundle",
+        post_label="After the bundle",
+    )
+    mean = next(i for i in propose_analyses(design, profile, df) if i.template == "before_after_mean")
+    assert (mean.parameters["pre_val"], mean.parameters["post_val"]) == ("pre", "post")

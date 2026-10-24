@@ -262,3 +262,17 @@ def test_consistently_capitalized_values_are_not_mixed_case():
     df = pd.DataFrame({"sex": ["F", "M"] * 10, "race": ["White", "Black", "Asian", "Other"] * 5})
     flags = run_data_quality(df, {"sex": "Category", "race": "Category"})
     assert "case_inconsistent" not in {f["rule"] for f in flags}
+
+
+def test_first_of_month_dates_are_not_flagged_as_uneven():
+    dates = pd.date_range("2023-01-01", periods=36, freq="MS").strftime("%Y-%m-%d")
+    df = pd.DataFrame({"report_month": dates, "falls": range(36)})
+    rules = {f["rule"] for f in run_data_quality(df, {"report_month": "Date", "falls": "Number"})}
+    assert "uneven_time_intervals" not in rules
+
+
+def test_genuinely_irregular_dates_are_still_flagged_as_uneven():
+    days = [1, 2, 5, 9, 10, 17, 18, 30]
+    df = pd.DataFrame({"visit": [f"2024-01-{d:02d}" for d in days], "x": range(len(days))})
+    rules = {f["rule"] for f in run_data_quality(df, {"visit": "Date", "x": "Number"})}
+    assert "uneven_time_intervals" in rules

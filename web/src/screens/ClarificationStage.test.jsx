@@ -70,7 +70,7 @@ describe('ClarificationStage with design editor', () => {
     expect(await screen.findByText(/Here is my understanding of your project/)).toBeInTheDocument()
     expect(await screen.findByText('Reduce falls by 30%')).toBeInTheDocument()
     expect(screen.getByText('Tracking monthly falls on 3W over time.')).toBeInTheDocument()
-    expect(screen.getAllByText('Inferred by AI').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Inferred by the QI Stat Advisor').length).toBeGreaterThanOrEqual(1)
 
     // Numbered questions rendered as form inputs
     expect(screen.getByLabelText(/What is your intervention\?/)).toBeInTheDocument()
@@ -222,5 +222,20 @@ describe('ClarificationStage with the advisor off', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid column names/)
     expect(value.next).not.toHaveBeenCalled()
     expect(apiMock.confirmClarification).not.toHaveBeenCalled()
+  })
+
+  it('lets the resident carry on without the QI Stat Advisor when it cannot answer, and switch back', async () => {
+    apiMock.clarify.mockRejectedValueOnce(new Error('The QI Stat Advisor is busy right now. Wait a minute and try again, or continue without it.'))
+    const user = userEvent.setup()
+    renderScreen()
+
+    expect(await screen.findByText(/QI Stat Advisor is busy right now/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue without the QI Stat Advisor' }))
+    expect(await screen.findByLabelText('Primary outcome column')).toBeInTheDocument()
+
+    apiMock.clarify.mockResolvedValue({ message: 'Hello', confirmed: false, design: {}, turns: [{ role: 'ai', content: 'Hello' }] })
+    await user.click(screen.getByRole('button', { name: 'Try the QI Stat Advisor again' }))
+    await waitFor(() => expect(apiMock.clarify).toHaveBeenCalledTimes(2))
+    expect(screen.queryByLabelText('Primary outcome column')).not.toBeInTheDocument()
   })
 })

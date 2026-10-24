@@ -1,3 +1,4 @@
+import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -79,7 +80,7 @@ describe('Results multi-run rendering', () => {
     expect(screen.getByText('Single site, no randomization')).toBeInTheDocument()
   })
 
-  it('matches main layout for a single run: Summary card, AI Interpretation heading, methods, Edit & Review', async () => {
+  it('matches main layout for a single run: Summary card, QI Stat Advisor interpretation heading, methods, Edit & Review', async () => {
     useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
     apiMock.runPlan.mockResolvedValue({
       runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', methods: 'Methods text', table: [{ mean: 2.5 }] }],
@@ -90,7 +91,7 @@ describe('Results multi-run rendering', () => {
     render(<Results />)
 
     expect(await screen.findByRole('heading', { name: 'Summary' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: 'AI Interpretation' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'QI Stat Advisor interpretation' })).toBeInTheDocument()
     expect(screen.getByText('Falls were stable.')).toBeInTheDocument()
     expect(screen.getByText('Methods text')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit & Review' })).toBeInTheDocument()
@@ -134,7 +135,7 @@ describe('Results multi-run rendering', () => {
     render(<Results />)
 
     expect(await screen.findByText('Average falls: 2.5')).toBeInTheDocument()
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not generate AI interpretation: no key')
+    expect(await screen.findByRole('alert')).toHaveTextContent('The QI Stat Advisor could not write the interpretation. no key')
   })
 
   it('renders failures with a back-to-plan link naming the errors, without blocking successful runs', async () => {
@@ -213,7 +214,7 @@ describe('Results regressions', () => {
     apiMock.interpretResults.mockReturnValue(new Promise((_, reject) => { rejectInterp = reject }))
     render(<Results />)
     const btn = await screen.findByRole('button', { name: 'Edit & Review' })
-    expect(await screen.findByText('Preparing AI interpretation…')).toBeInTheDocument()
+    expect(await screen.findByText('The QI Stat Advisor is preparing an interpretation…')).toBeInTheDocument()
     expect(btn).not.toBeDisabled()
     await userEvent.click(btn)
     expect(next).toHaveBeenCalled()
@@ -231,7 +232,7 @@ describe('Results with the advisor off', () => {
     })
     apiMock.interpretResults.mockRejectedValue(Object.assign(new Error('off'), { code: 'advisor_unavailable' }))
     render(<Results />)
-    expect(await screen.findByText('AI interpretation is off. You can write your own on the next screen.')).toBeInTheDocument()
+    expect(await screen.findByText('The QI Stat Advisor is off. You can write your own interpretation on the next screen.')).toBeInTheDocument()
     expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -245,6 +246,41 @@ describe('Results with the advisor off', () => {
     apiMock.interpretResults.mockRejectedValue(Object.assign(new Error('off'), { code: 'advisor_unavailable' }))
     render(<Results />)
     expect(await screen.findByRole('heading', { name: 'Draft interpretation' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'AI Interpretation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'QI Stat Advisor interpretation' })).not.toBeInTheDocument()
+  })
+
+  it('runs the plan once even when the effect fires twice (strict mode, double click)', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [{ run_id: 1, text: 'Falls averaged 2.5.' }], limitations: [], abstract_draft: '' })
+    render(<React.StrictMode><Results /></React.StrictMode>)
+    expect(await screen.findByText('Falls averaged 2.5.')).toBeInTheDocument()
+    expect(apiMock.runPlan).toHaveBeenCalledTimes(1)
+    expect(apiMock.interpretResults).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls the text a draft when the QI Stat Advisor failed to write it', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [], interpretation: 'Falls averaged 2.5.' }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockRejectedValue(new Error('The QI Stat Advisor is busy right now.'))
+    render(<Results />)
+    expect(await screen.findByRole('heading', { name: 'Draft interpretation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'QI Stat Advisor interpretation' })).not.toBeInTheDocument()
+  })
+
+  it('does not repeat the advisor name when the error already says it', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({ runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 's', table: [] }], failures: [] })
+    apiMock.interpretResults.mockRejectedValue(new Error('The QI Stat Advisor could not answer. Try again, or continue without it.'))
+    render(<Results />)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('The QI Stat Advisor could not answer. Try again, or continue without it.')
+    expect(alert.textContent.match(/The QI Stat Advisor/g)).toHaveLength(1)
   })
 })

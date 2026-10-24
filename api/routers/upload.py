@@ -438,7 +438,10 @@ def run_data_quality(
         # uneven_time_intervals: consecutive parsed dates have >2 distinct gap lengths
         sorted_dates = parsed_dates.drop_duplicates().sort_values()
         if len(sorted_dates) >= 4:
-            diffs = sorted_dates.diff().dropna().dt.days
+            if sorted_dates.dt.day.nunique() == 1:  # month-start style dates: 28 to 31 days apart is still monthly
+                diffs = (sorted_dates.dt.year * 12 + sorted_dates.dt.month).diff().dropna()
+            else:
+                diffs = sorted_dates.diff().dropna().dt.days
             if diffs.nunique() > 2:
                 add_flag(
                     col=col,
