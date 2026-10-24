@@ -38,10 +38,10 @@ def _load_nlp() -> None:
 def _get_nlp(wait: bool = False):
     """Return the NER model if ready, without making a request wait for it.
 
-    Regex redaction runs first and is always active.  The model is an additional
-    safeguard, but loading it synchronously made the first resident AI request
-    appear frozen for many seconds on normal development and container hosts.
-    Upload PHI gates pass wait=True: a skipped name scan must not read as clean.
+    Regex redaction runs first and is always active.  The model finds names.
+    scrub_text and the upload PHI gate pass wait=True: a skipped name scan must not read as clean,
+    so the first call after a restart waits for the model to load. Only a missing model (logged at
+    load time) leaves regex-only redaction.
     """
     global _nlp_loading
     if _nlp_loaded:
@@ -115,7 +115,8 @@ def scrub_text(text: str, redact_dates: bool = True) -> Tuple[str, int]:
         matches = re.findall(pattern, text, flags=re.IGNORECASE)
         count += len(matches)
         text = re.sub(pattern, "[REDACTED]", text, flags=re.IGNORECASE)
-    nlp = _get_nlp()
+    # Wait for the model: returning regex-only output while it loads would send names to the AI provider.
+    nlp = _get_nlp(wait=True)
     if nlp is None:
         return text, count
     doc = nlp(text)

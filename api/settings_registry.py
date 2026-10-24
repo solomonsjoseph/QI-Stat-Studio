@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Callable
 
@@ -60,6 +61,11 @@ def _validate_value(spec: SettingSpec, value: str) -> str:
         if normalized == "stub" and settings.environment == "production":
             raise HTTPException(status_code=400, detail="ai_provider 'stub' is test-only and cannot be enabled when environment=production")
         return normalized
+    if spec.key == "local_api_base":
+        text = value.strip()
+        if text and not re.match(r"^https?://[^\s/]+", text):
+            raise HTTPException(status_code=400, detail="local_api_base must be an http:// or https:// URL")
+        return text
     if spec.key == "cors_origins":
         text = value.strip()
         if text.startswith("["):

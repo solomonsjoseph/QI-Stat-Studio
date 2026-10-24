@@ -45,7 +45,10 @@ First beta. It runs from a git clone on each tester's own machine. Hosting and H
 
 - Passwords use PBKDF2-HMAC-SHA256 with 600,000 iterations.
 - A mentor comment can be edited only by its author. Other link holders never see an email address.
-- Uploads are encrypted at rest. Patient identifiers are scrubbed before any AI call leaves the server.
+- Uploads are encrypted at rest. Patient identifiers are scrubbed before any AI call leaves the server, and scrubbing now waits for the name model instead of sending pattern-only text while it loads.
+- Mentor comment secrets cannot be forged on an install that kept the default `SECRET_KEY`. Control characters are removed from comments, oversized requests are refused with 413, and `/dev/quit` needs an admin.
+- Responses carry `X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy` headers, and share links are masked in the access log.
+- The beta security audit and what was accepted for beta 1 are in `docs/source/developer-guide/security.md`.
 
 ### Known limitations
 

@@ -293,11 +293,13 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
 def _edit_token(share_id: int, comment_id: int) -> str:
     """Stateless per-comment secret: only the response to the create call carries it."""
     message = f"mentor-comment:{share_id}:{comment_id}".encode()
-    return hmac.new(settings.secret_key.encode(), message, hashlib.sha256).hexdigest()[:32]
+    # The Fernet key is unique to each install, so the token stays unforgeable even on the default SECRET_KEY.
+    key = f"{settings.secret_key}:{settings.fernet_key}".encode()
+    return hmac.new(key, message, hashlib.sha256).hexdigest()[:32]
 
 
 def _require_edit_token(share: MentorShare, comment: MentorComment, token: str) -> None:
-    if not hmac.compare_digest(token or "", _edit_token(share.id, comment.id)):
+    if not hmac.compare_digest((token or "").encode(), _edit_token(share.id, comment.id).encode()):
         raise HTTPException(status_code=403, detail="Only the person who wrote this comment can change it")
 
 

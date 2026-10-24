@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 import pandas as pd
 
+from api.dataset_profile import _DENOM_RE
 from api.models_api import AnalysisPlanItem, ProjectDesign
 
 Confidence = Literal["high", "medium", "low"]
@@ -310,9 +311,11 @@ def _bind_time_chart(
     denom = None
     if design.primary_outcome and design.primary_outcome.denominator_column:
         denom = design.primary_outcome.denominator_column
-        # The QI Stat Advisor can name any column here (it once picked the A1c value). Only a column the
-        # profile recognises as a denominator is used; otherwise the rules decide below.
-        if denom not in ((profile.get("candidate_roles") or {}).get("denominator") or []):
+        # The QI Stat Advisor can name any column here (it once picked the A1c value). Use it only when the
+        # profile calls it a denominator or its name reads like one (a monthly patient_days column can be
+        # profiled as an identifier); otherwise the rules decide below.
+        recognised = denom in ((profile.get("candidate_roles") or {}).get("denominator") or [])
+        if not recognised and not (isinstance(denom, str) and _DENOM_RE.search(denom)):
             denom = None
     binary = bool(design.primary_outcome) and design.primary_outcome.kind in ("proportion", "binary")
     if not _column_exists(df, denom) and not binary:

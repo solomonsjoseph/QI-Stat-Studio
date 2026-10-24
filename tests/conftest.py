@@ -6,6 +6,7 @@ _db_file = f"/tmp/test_qi_stat_studio_{_pid}.db"
 os.environ.setdefault("DB_URL", f"sqlite:///{_db_file}")
 # Tests that mock the LLM still pass the key check; do not depend on a local .env.
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key-not-real")
+os.environ.setdefault("WARM_PHI_NER", "0")  # tests load the model only when they need it
 os.environ.setdefault("PASSWORD_ITERATIONS", "1000")  # production default is 600000 (OWASP)
 _db_path = Path(_db_file)
 

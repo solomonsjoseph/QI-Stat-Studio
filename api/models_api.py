@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import re
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -366,10 +367,20 @@ class EditIn(BaseModel):
     original_text: str = ""
     edited_text: str
 
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _strip_control_chars(value):
+    """Control characters make python-docx fail, which would break every later Word export."""
+    return _CONTROL_CHARS.sub("", value) if isinstance(value, str) else value
+
+
 class MentorCommentIn(BaseModel):
     author_name: str = Field(min_length=1, max_length=255)
     author_email: Optional[str] = Field(default=None, max_length=255)
     text: str = Field(min_length=1, max_length=4000)
+
+    _clean = field_validator("author_name", "author_email", "text", mode="before")(_strip_control_chars)
 
 
 class MentorCommentOut(BaseModel):
@@ -406,9 +417,13 @@ class MentorCommentEditIn(BaseModel):
     edit_token: str
     text: str = Field(min_length=1, max_length=4000)
 
+    _clean = field_validator("text", mode="before")(_strip_control_chars)
+
 
 class MentorCommentOwnerEditIn(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
+
+    _clean = field_validator("text", mode="before")(_strip_control_chars)
 
 
 class MentorCommentAuthorIn(BaseModel):
@@ -444,8 +459,8 @@ class UserOut(BaseModel):
 
 
 class AuthCredentials(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=255)
+    password: str = Field(max_length=256)  # PBKDF2 runs on every length, so cap it
 
 
 class ErrorDetail(BaseModel):

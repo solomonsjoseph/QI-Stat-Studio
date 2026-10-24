@@ -1,4 +1,4 @@
-"""Local-dev process control. Disabled when environment=production."""
+"""Local-dev process control. Admin only, and disabled when environment=production."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.auth import get_current_user
+from api.auth import require_admin
 from api.config import settings
 from api.models_db import User
 
@@ -30,7 +30,7 @@ def _stop_process() -> None:
 
 
 @router.post("/dev/quit")
-def quit_local_servers(user: User = Depends(get_current_user)):
+def quit_local_servers(user: User = Depends(require_admin)):
     """Sign the resident out of the process by stopping the local backend.
 
     Only available outside production. The frontend clears its own session and

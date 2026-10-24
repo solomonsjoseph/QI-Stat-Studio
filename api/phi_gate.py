@@ -133,6 +133,6 @@ def scan_upload(df: pd.DataFrame, dictionary_text: str | None) -> PhiGateResult:
         if all_findings:
             return PhiGateResult(status="blocked", findings=all_findings)
         return PhiGateResult(status="passed", findings=[])
-    except Exception:
-        logger.exception("phi_scan_failed")
+    except Exception as exc:
+        logger.warning("phi_scan_failed error_type=%s", type(exc).__name__)
         return PhiGateResult(status="error", findings=[])

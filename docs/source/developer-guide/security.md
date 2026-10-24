@@ -132,6 +132,44 @@ share (`mentor_shares.revoked_at`) takes effect immediately;
 `_active_share_or_404` checks it on every request, so there's no caching or
 grace period to work around.
 
+## Beta 1 audit
+
+An independent security audit of the beta 1 branch found the items below. The first group is fixed in
+`1.0.0-beta.1`. The second group is known and accepted for a beta that runs from a git clone on each
+tester's own machine.
+
+Fixed:
+
+- Scrubbing waits for the spaCy name model before any text goes to an AI provider. Before, the first
+  call after a restart sent regex-only output. The model now also loads at startup (`WARM_PHI_NER`).
+- A mentor comment secret is computed from the install's own Fernet key as well as `SECRET_KEY`, so it
+  cannot be forged on an install that kept the default `SECRET_KEY`.
+- Control characters are removed from mentor comments, because one of them made every later Word
+  export fail. Passwords and emails have a length cap.
+- Requests with a body over the limit get 413 before the body is read (2 MB for JSON, 61 MB for an
+  upload and its dictionary).
+- `/dev/quit` needs an admin. The `local_api_base` setting must be an http or https address.
+- Every response carries `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: no-referrer`. Share links are masked in uvicorn's access log.
+- Provider failures and unreadable advisor answers log the error class only, never provider text.
+
+Accepted for beta 1, with the reason:
+
+- The first account registered on a copy becomes its admin, and an admin can point the `local`
+  provider at another address. This is the intended one-person install. A hosted beta 2 needs invited
+  accounts and a host allowlist.
+- Column names and column statistics in the dataset profile go to the AI provider unscrubbed, because
+  the QI Stat Advisor refers to columns by name. The upload gate rejects column names that look like
+  identifiers, and sample values are scrubbed.
+- A chunked upload with no `Content-Length` is capped while it is read, not before. Put a body limit
+  in the reverse proxy when the app is hosted.
+- Registering an address that already exists returns a clear error, so an email address can be
+  confirmed as registered. Sign-in itself does not reveal it.
+- No Content-Security-Policy yet. It needs testing against the Vite build and comes with HTTPS.
+- If the spaCy model is missing, scrubbing falls back to patterns only, and a warning is logged at
+  load time.
+- The Docker image runs as root and the Python requirements are pinned without hashes.
+
 ## Reporting a security concern
 
 There is no bundled vulnerability-disclosure process in this repository.

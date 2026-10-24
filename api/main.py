@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from api.config import settings
 from api.database import SessionLocal
 from api.audit import safe_diagnostic_message
 from api.models_db import FailureLog
+from api.upload_utils import MAX_DICTIONARY_BYTES, MAX_UPLOAD_BYTES
 from api.version import __version__
 
 class _RequestIdDefaultFilter(logging.Filter):
@@ -34,6 +36,22 @@ for _handler in logging.getLogger().handlers:
     _handler.addFilter(_RequestIdDefaultFilter())
 
 logger = logging.getLogger(__name__)
+
+# A share link is a bearer secret. Keep it out of uvicorn's access log lines.
+_SHARE_TOKEN_RE = re.compile(r"(/share/(?:view/)?)[A-Za-z0-9_-]{20,}")
+
+
+class _MaskShareTokens(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+            record.args = (*record.args[:2], _SHARE_TOKEN_RE.sub(r"\1[token]", record.args[2]), *record.args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_MaskShareTokens())
+
+_MAX_BODY_BYTES = MAX_UPLOAD_BYTES + MAX_DICTIONARY_BYTES + 1_000_000  # an upload plus its dictionary
+_MAX_JSON_BYTES = 2_000_000
 
 
 def _parse_cors_origins(value: str) -> list[str]:
@@ -68,11 +86,10 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("phi_ner_warm_failed")
 
-    # Loading spaCy can take long enough to make a healthy API look unavailable
-    # (and, on constrained hosts, can delay lifespan startup altogether).  Keep
-    # the liveness/readiness contract deterministic; operators who want to pay
-    # that cost in the background can opt in explicitly.
-    if os.environ.get("WARM_PHI_NER", "").strip().lower() in {"1", "true", "yes"}:
+    # Names are only found once the spaCy model is loaded, and scrubbing waits for it. Load it in the
+    # background at startup so the first AI call does not wait; /health stays fast. WARM_PHI_NER=0 turns
+    # this off (the tests do).
+    if os.environ.get("WARM_PHI_NER", "1").strip().lower() in {"1", "true", "yes"}:
         threading.Thread(target=_warm_phi_ner, daemon=True, name="phi-ner-warm").start()
     yield
 
@@ -121,8 +138,16 @@ app.add_middleware(ApiPrefixMiddleware)
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
     request.state.request_id = request_id
-    if "application/json" in request.headers.get("content-type", ""):
+    is_json = "application/json" in request.headers.get("content-type", "")
+    declared = request.headers.get("content-length", "")
+    # Refuse an oversized body before it is read or spooled. A chunked body with no length is only
+    # capped for JSON (below); uploads are capped while reading in api/upload_utils.py.
+    if declared.isdigit() and int(declared) > (_MAX_JSON_BYTES if is_json else _MAX_BODY_BYTES):
+        return _error_response(413, "payload_too_large", "The request is too large.", request_id)
+    if is_json:
         raw_body = await request.body()
+        if len(raw_body) > _MAX_JSON_BYTES:
+            return _error_response(413, "payload_too_large", "The request is too large.", request_id)
         request.state.sanitized_body_ids = _ids_from_json_body(raw_body)
 
         async def receive():
@@ -131,6 +156,10 @@ async def request_id_middleware(request: Request, call_next):
         request._receive = receive
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    # No framing (clickjacking), no MIME sniffing, and no Referer, so a share link in the address bar is not leaked.
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
     return response
 
 
