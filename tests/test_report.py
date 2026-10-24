@@ -668,3 +668,17 @@ def test_wide_result_table_and_long_cells_stay_inside_the_pdf_page_without_overp
     _assert_pdf_layout_is_clean(response.content)
     text = _pdf_text(response.content)
     assert "Run Chart" in text and "Before/After: Proportion" in text  # each section is headed by its own analysis
+
+
+def test_audit_action_names_are_not_broken_across_lines():
+    from reportlab.platypus import Paragraph
+
+    from api.routers.report import _pdf_table
+
+    rows = [["Timestamp", "Action", "Metadata"], ["2026-10-24 04:25 UTC", "mentor_comment_created", "{}"], ["2026-10-24 04:25 UTC", "analysis_plan_executed", "{}"]]
+    table = _pdf_table(rows, widths=[116, 134, 218])
+    for row in table._cellvalues[1:]:
+        action = row[1]
+        assert isinstance(action, Paragraph)
+        width = table._colWidths[1] - 6  # minus the cell padding
+        assert action.wrap(width, 1000)[1] <= action.style.leading + 0.5, "an action name wrapped onto a second line"

@@ -599,7 +599,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
             ]
             for entry in audit_entries
         ]
-        at = _pdf_table(audit_rows, widths=[120, 100, 248])
+        at = _pdf_table(audit_rows, widths=[116, 134, 218])
         story.append(at)
 
     edits = (
@@ -873,7 +873,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
             ]
             for entry in audit_entries
         ]
-        at = _pdf_table(audit_rows, widths=[120, 100, 248])
+        at = _pdf_table(audit_rows, widths=[116, 134, 218])
         story.append(at)
 
     edits = list(context["edits"].values())
