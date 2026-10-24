@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
 import pandas as pd
 
 from api.models_api import ProjectDesign
+
+logger = logging.getLogger(__name__)
 
 
 def deterministic_recommendations(
@@ -90,8 +93,8 @@ def deterministic_recommendations(
                         "necessity": "required",
                         "source": "rule",
                     })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("collection_rule_failed rule=post-only error_type=%s", type(exc).__name__)
 
     # 6. too-few-baseline-periods: comparison == "pre-post" and < 2 aggregated periods before intervention.start_date
     if (
@@ -117,8 +120,8 @@ def deterministic_recommendations(
                     "necessity": "recommended",
                     "source": "rule",
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("collection_rule_failed rule=too-few-baseline-periods error_type=%s", type(exc).__name__)
 
     # 7. too-few-time-points: time_structure.has_dates and aggregating the date column at granularity yields < 12 periods
     if design.time_structure.has_dates and date_col and date_col in df.columns:
@@ -136,8 +139,8 @@ def deterministic_recommendations(
                     "necessity": "recommended",
                     "source": "rule",
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("collection_rule_failed rule=too-few-time-points error_type=%s", type(exc).__name__)
 
     # 8. no-grouping-column: design names a subgroup comparison (group_column set) but it is absent from df.columns
     if design.group_column and design.group_column not in df.columns:

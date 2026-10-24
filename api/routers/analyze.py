@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import json
 import math
 import threading
@@ -28,6 +30,8 @@ from api.upload_utils import load_upload_dataframe
 from api.routers.projects import _gating, advance_phase, require_phase
 from api.routers.warning_groups import gating_block_message
 from api.templates.registry import TEMPLATE_REGISTRY
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
@@ -379,8 +383,8 @@ def _run_plan(project_id: int, body: RunPlanRequest, request: Request, db: Sessi
     if project.ai_analysis_plan:
         try:
             plan_dict = json.loads(project.ai_analysis_plan)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("analysis_plan_unreadable project_id=%s error_type=%s", project.id, type(exc).__name__)
     if not plan_dict.get("confirmed"):
         raise HTTPException(status_code=409, detail={"message": "Analysis plan must be explicitly confirmed before running.", "required_phase": "plan"})
 
@@ -468,8 +472,8 @@ def _run_plan(project_id: int, body: RunPlanRequest, request: Request, db: Sessi
     if project.ai_analysis_plan:
         try:
             plan_dict = json.loads(project.ai_analysis_plan)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("analysis_plan_unreadable project_id=%s error_type=%s", project.id, type(exc).__name__)
     plan_dict["confirmed"] = True
     plan_dict["stale"] = False
     plan_dict["executed_at"] = datetime.utcnow().isoformat()

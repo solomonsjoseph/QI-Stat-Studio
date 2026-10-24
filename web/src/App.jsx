@@ -363,9 +363,12 @@ export default function App() {
       <div className="min-h-screen bg-canvas">
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
+            <div className="flex items-center">
             <button type="button" onClick={() => goTo('landing')} className="text-sm font-semibold tracking-tight text-ink">
               QI Stat Studio
             </button>
+            <span className="ml-2 rounded border border-line px-1.5 py-0.5 text-xs text-ink-soft" title="Beta release. Report problems to the project owner.">Beta {__APP_VERSION__}</span>
+            </div>
             <div className="flex items-center gap-3 text-sm text-ink-soft">
               <span className="hidden sm:inline">{user.email}</span>
               <button type="button" onClick={() => goTo('history')} disabled={hydrating} aria-current={screen === 'history' ? 'page' : undefined} className="btn-secondary px-3 py-2">

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import base64
 import io
 import json
@@ -27,6 +29,8 @@ from api.data_changes import build_data_changes, data_change_lines
 from api.database import get_db
 from api.models_api import ProjectDesign
 from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, Project, Upload, User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/report", tags=["report"])
 _REPORT_EDIT_FIELDS = {"title", "caption", "interpretation"}
@@ -191,8 +195,8 @@ def _build_context(run: AnalysisRun, db: Session) -> dict[str, Any]:
                 desc = design.intervention.description or "Intervention"
                 intervention_note = f"Intervention: {desc} ({design.intervention.start_date})"
                 caption = f"{caption} {intervention_note}".strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("intervention_note_failed run_id=%s error_type=%s", run.id, type(exc).__name__)
     interpretation = (
         interpretation_edit.edited_text
         if interpretation_edit and interpretation_edit.edited_text
@@ -374,8 +378,9 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
             try:
                 img_data = base64.b64decode(fig_b64)
                 doc.add_picture(io.BytesIO(img_data), width=Inches(5.5))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("figure_not_rendered format=docx error_type=%s", type(exc).__name__)
+                doc.add_paragraph("[The figure could not be placed in this report.]")
             if run_ctx.get("caption"):
                 doc.add_paragraph(run_ctx["caption"])
 
@@ -524,8 +529,9 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
                 img_data = base64.b64decode(fig_b64)
                 story.append(_pdf_image(img_data))
                 story.append(Spacer(1, 4))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("figure_not_rendered format=pdf error_type=%s", type(exc).__name__)
+                story.append(Paragraph("[The figure could not be placed in this report.]", styles["Normal"]))
             if run_ctx.get("caption"):
                 story.append(Paragraph(_esc(run_ctx["caption"]), styles["Normal"]))
                 story.append(Spacer(1, 8))

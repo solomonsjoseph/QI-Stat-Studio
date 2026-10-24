@@ -7,6 +7,7 @@ from api.database import SessionLocal
 from api.main import app
 from api.models_db import AnalysisRun, FailureLog, Upload
 from api.config import settings
+from api.version import __version__
 
 
 def _test_failure(project_id: int):
@@ -58,7 +59,7 @@ def test_health_is_public_and_sets_request_id(client):
     response = client.get("/health", headers={"X-Request-ID": "req-health"})
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "version": __version__}
     assert response.headers["X-Request-ID"] == "req-health"
 
 

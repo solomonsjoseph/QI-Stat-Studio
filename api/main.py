@@ -19,6 +19,7 @@ from api.config import settings
 from api.database import SessionLocal
 from api.audit import safe_diagnostic_message
 from api.models_db import FailureLog
+from api.version import __version__
 
 class _RequestIdDefaultFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -104,7 +105,7 @@ class SPAStaticFiles(StaticFiles):
             response = await super().get_response("index.html", scope)
         return response
 
-app = FastAPI(title="QI Stat Studio", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="QI Stat Studio", version=__version__, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

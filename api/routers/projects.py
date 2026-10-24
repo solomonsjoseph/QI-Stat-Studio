@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import hashlib
 import json
 from datetime import datetime
@@ -38,6 +40,8 @@ from api.models_db import (
 from api.routers.share import _active_filter
 from api.routers.upload import _enforce_phi_gate, _read_dictionary_file, _read_validated_upload_file, _store_upload
 from api.staleness import check_and_apply_inputs_fingerprint, compute_inputs_fingerprint
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -285,8 +289,8 @@ def resume_project(project: Project = Depends(require_project_owner), db: Sessio
     try:
         from api.routers.settings_router import _ai_key_status
         gating.advisor_available = _ai_key_status(db).advisor_available
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("advisor_status_unavailable project_id=%s error_type=%s", project.id, type(exc).__name__)
     return ProjectResumeOut(
         project=project,
         latest_upload=_upload_out(latest_upload),

@@ -14,7 +14,7 @@ import datetime
 project = "QI Stat Studio"
 author = "QI Stat Studio contributors"
 copyright = f"{datetime.date.today().year}, {author}"
-release = "1.0.0"
+release = "1.0.0-beta.1"
 
 extensions = [
     "myst_parser",

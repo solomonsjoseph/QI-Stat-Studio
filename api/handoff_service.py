@@ -61,7 +61,8 @@ def flag_examples(df: pd.DataFrame, flags: List[dict]) -> Dict[str, List[Any]]:
             vals = list(dict.fromkeys(str(v) for v in _offending(df, f)))[:MAX_EXAMPLES]
             if vals:
                 out[flag_id(f)] = vals
-        except Exception:
+        except Exception as exc:
+            log.warning("handoff_examples_failed flag=%s error_type=%s", flag_id(f), type(exc).__name__)
             continue
     return out
 
@@ -110,8 +111,8 @@ def _ai_summary(db: Session, project: Any, skeleton: str) -> str:
             if chars:
                 ai_router._record_ai_usage(db, user_id=None, project_id=project.id, model=model,
                                            prompt_chars=chars, status="error")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("handoff_usage_record_failed error_type=%s", type(exc).__name__)
         return ""
 
 

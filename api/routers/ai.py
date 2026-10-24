@@ -468,8 +468,8 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
                         if status_map.get(path) != "user-corrected":
                             status_map[path] = "user-confirmed"
                 project.ai_project_design = json.dumps(d_dict)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("design_status_update_failed project_id=%s error_type=%s", project_id, type(exc).__name__)
         db.commit()
         last_ai_turn = next((t for t in reversed(turns) if t["role"] == "ai"), {})
         return ClarifyResponse(
@@ -609,8 +609,8 @@ def ai_collection_guidance(
                     item["source"] = "ai"
                     ai_recs.append(item)
             _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, completion_chars=len(content), status="ok")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("advisor_recommendations_failed project_id=%s error_type=%s", project_id, type(exc).__name__)
 
     combined = rules_recs + ai_recs
     now_iso = datetime.utcnow().isoformat()

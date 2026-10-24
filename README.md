@@ -13,6 +13,9 @@ built with Sphinx. See **Documentation** below to build and browse it.
 
 ## Beta quick start (git clone)
 
+Current release: 1.0.0-beta.1 (a pre-release). See [`CHANGELOG.md`](CHANGELOG.md) and
+[`docs/release-notes/`](docs/release-notes/). The version also shows in the page header and at `/health`.
+
 Each tester runs their own copy and brings their own AI key.
 
 1. Install Python 3.9+ and Node.js 20.19+ (see below), then `git clone <repo-url> && cd qi_stat_studio`.
