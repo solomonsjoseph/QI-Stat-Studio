@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import sys
 import re
 from datetime import datetime, timedelta
@@ -58,6 +59,8 @@ from api.settings_registry import get_runtime_setting
 from api.ai_key import advisor_failed, advisor_unavailable, resolve_key
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+logger = logging.getLogger(__name__)
 
 
 class _LiteLLMProxy:
@@ -297,7 +300,7 @@ def _validated_completion(
     """Wrap _llm_completion_nonempty, parse JSON via _extract_json_object, validate into model_cls.
 
     On ValidationError or unparseable JSON, retries ONCE with an appended corrective user message
-    quoting the validation error. On second failure raises HTTPException(502, safe_diagnostic_message('ai_invalid_response')).
+    quoting the validation error. On second failure raises HTTPException(502, code advisor_error) and logs the error classes.
     """
     content = _llm_completion_nonempty(
         provider, api_key, api_base, model, messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort
@@ -309,6 +312,9 @@ def _validated_completion(
         err_msg = "Output was not valid JSON"
     except Exception as exc:
         err_msg = str(exc)
+        first_error = type(exc).__name__
+    else:
+        first_error = "NotValidJson"
 
     corrective_msg = (
         f"Your previous response did not match the required JSON schema:\n{err_msg}\n"
@@ -324,8 +330,13 @@ def _validated_completion(
         if not retry_data:
             raise ValueError("Retry response was not valid JSON")
         return model_cls.model_validate(retry_data)
-    except Exception:
-        raise HTTPException(status_code=502, detail=safe_diagnostic_message("ai_invalid_response"))
+    except Exception as exc:
+        # Class names only: the model's text can carry request content, so it is never logged.
+        logger.warning("advisor_invalid_response model=%s first_error=%s retry_error=%s", model, first_error, type(exc).__name__)
+        raise HTTPException(status_code=502, detail={
+            "code": "advisor_error",
+            "message": "The QI Stat Advisor's answer could not be read. Try again, or continue without it.",
+        })
 
 def _record_ai_usage(
     db: Session,

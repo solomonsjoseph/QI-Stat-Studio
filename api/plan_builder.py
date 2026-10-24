@@ -310,6 +310,10 @@ def _bind_time_chart(
     denom = None
     if design.primary_outcome and design.primary_outcome.denominator_column:
         denom = design.primary_outcome.denominator_column
+        # The QI Stat Advisor can name any column here (it once picked the A1c value). Only a column the
+        # profile recognises as a denominator is used; otherwise the rules decide below.
+        if denom not in ((profile.get("candidate_roles") or {}).get("denominator") or []):
+            denom = None
     binary = bool(design.primary_outcome) and design.primary_outcome.kind in ("proportion", "binary")
     if not _column_exists(df, denom) and not binary:
         denom = _first_role(profile, "denominator")

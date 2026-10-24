@@ -4,12 +4,16 @@ Each resident brings their own key. The env key is an operator default for a sin
 (a git clone run by one tester); leave it unset on a shared host so nobody uses a key that is not theirs."""
 from __future__ import annotations
 
+import logging
+
 from cryptography.fernet import InvalidToken
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from api.config import settings
 from api.models_db import AppSetting
+
+logger = logging.getLogger(__name__)
 
 KEYED_PROVIDERS = ("openrouter", "openai", "gemini", "local")
 
@@ -85,6 +89,7 @@ _BUSY_ERRORS = {"RateLimitError", "Timeout", "APITimeoutError", "APIConnectionEr
 def advisor_failed(exc: BaseException | None) -> HTTPException:
     """Resident-safe error for a provider call that raised. Only the exception class is used to pick
     the sentence; the provider's own text can carry request content and is never returned."""
+    logger.warning("advisor_call_failed error_type=%s status_code=%s", type(exc).__name__ if exc else "unknown", getattr(exc, "status_code", None))
     busy = exc is not None and any(c.__name__ in _BUSY_ERRORS for c in type(exc).__mro__)
     if busy:
         return HTTPException(status_code=503, detail={

@@ -8,10 +8,12 @@ from typing import Any
 from xml.sax.saxutils import escape as _xml_escape
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.utils import ImageReader
@@ -64,9 +66,15 @@ def _template_title(template: str | None) -> str:
 def _pdf_styles():
     """Default styles, with headings kept on the same page as what follows them."""
     styles = getSampleStyleSheet()
+    styles["Heading1"].alignment = TA_CENTER  # the report title is the only Heading1 in the PDF
     for name in ("Heading1", "Heading2", "Heading3"):
         styles[name].keepWithNext = 1
     return styles
+
+
+def _center(paragraph):
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    return paragraph
 
 
 _PDF_WIDTH = letter[0] - 2 * 72  # SimpleDocTemplate default margins: the usable width in points
@@ -326,8 +334,8 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
     upload = ctx["upload"]
 
     doc = Document()
-    doc.add_heading("QI Stat Studio Report", 0)
-    doc.add_heading(ctx["report_title"], 1)
+    _center(doc.add_heading("QI Stat Studio Report", 0))
+    _center(doc.add_heading(ctx["report_title"], 1))
 
     if ctx["abstract_draft"]:
         doc.add_heading("Abstract", 1)
@@ -678,8 +686,8 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
     flags = context["flags"]
 
     doc = Document()
-    doc.add_heading("QI Stat Studio Report", 0)
-    doc.add_heading(context["report_title"], 1)
+    _center(doc.add_heading("QI Stat Studio Report", 0))
+    _center(doc.add_heading(context["report_title"], 1))
 
     doc.add_heading("Methods", 1)
     doc.add_paragraph(result.get("methods", "No methods description available."))

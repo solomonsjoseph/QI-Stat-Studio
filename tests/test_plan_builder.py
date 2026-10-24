@@ -300,3 +300,16 @@ def test_invented_pre_post_labels_are_replaced_by_the_columns_real_levels():
     )
     mean = next(i for i in propose_analyses(design, profile, df) if i.template == "before_after_mean")
     assert (mean.parameters["pre_val"], mean.parameters["post_val"]) == ("pre", "post")
+
+
+def test_advisor_named_denominator_is_ignored_when_the_profile_does_not_recognise_it():
+    df = pd.DataFrame({"month": ["2024-01", "2024-02"], "falls": [1, 2], "patient_days": [100, 110], "a1c": [7.1, None]})
+    profile = _profile(
+        ("month", "Date", "date"),
+        ("falls", "Number", "numerator"),
+        ("patient_days", "Number", "denominator"),
+        ("a1c", "Number", None),
+    )
+    design = _design(primary_outcome={"label": "Fall rate", "column": "falls", "kind": "rate", "denominator_column": "a1c"})
+    u = next(i for i in propose_analyses(design, profile, df) if i.template == "u_c_chart")
+    assert u.parameters["denominator_col"] == "patient_days"

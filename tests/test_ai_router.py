@@ -842,3 +842,31 @@ def test_a_busy_provider_gets_a_wait_and_retry_message_not_a_generic_failure(cli
     error = response.json()["error"]
     assert error["code"] == "advisor_busy" and "Wait a minute" in error["message"]
     assert "sk-secret" not in response.text
+
+
+def test_unreadable_advisor_answer_is_named_and_logged(caplog):
+    import logging
+
+    from fastapi import HTTPException
+
+    from api.routers import ai as ai_router
+
+    class _Model(ai_router.BaseModel):
+        needed: str
+
+    original = ai_router._llm_completion_nonempty
+    ai_router._llm_completion_nonempty = lambda *a, **k: "not json at all"
+    try:
+        with caplog.at_level(logging.WARNING):
+            try:
+                ai_router._validated_completion("openrouter", "k", None, "m", [{"role": "user", "content": "x"}], _Model)
+            except HTTPException as exc:
+                assert exc.status_code == 502
+                assert exc.detail["code"] == "advisor_error"
+                assert "could not be read" in exc.detail["message"]
+            else:
+                raise AssertionError("expected HTTPException")
+    finally:
+        ai_router._llm_completion_nonempty = original
+    assert "advisor_invalid_response" in caplog.text
+    assert "not json at all" not in caplog.text

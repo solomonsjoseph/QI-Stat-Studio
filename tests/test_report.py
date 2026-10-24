@@ -682,3 +682,17 @@ def test_audit_action_names_are_not_broken_across_lines():
         assert isinstance(action, Paragraph)
         width = table._colWidths[1] - 6  # minus the cell padding
         assert action.wrap(width, 1000)[1] <= action.style.leading + 0.5, "an action name wrapped onto a second line"
+
+
+def test_report_titles_are_centered_in_word_and_pdf(client):
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    from api.routers.report import _pdf_styles
+
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(with_edits=True, with_audit_and_comments=True)
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
+    paras = Document(io.BytesIO(response.content)).paragraphs
+    titles = [p for p in paras if p.style.name in ("Title", "Heading 1")][:2]
+    assert [p.alignment for p in titles] == [WD_ALIGN_PARAGRAPH.CENTER] * 2
+    assert _pdf_styles()["Heading1"].alignment == 1
