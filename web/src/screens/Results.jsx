@@ -43,7 +43,7 @@ function ResultCard({ run, single, aiOff }) {
           {run.table.map((row, i) => (
             <tr key={i}>
               {Object.values(row).map((v, j) => (
-                <td key={j}>{v == null ? '—' : String(v)}</td>
+                <td key={j}>{v == null ? 'n/a' : String(v)}</td>
               ))}
             </tr>
           ))}
@@ -186,7 +186,7 @@ export default function Results() {
     return (
       <div className="screen flex items-center justify-center gap-2 text-sm text-ink-soft" aria-live="polite">
         <Spinner />
-        Running your analysis — this usually takes 5–30 seconds.
+        Running your analysis. This usually takes 5 to 30 seconds.
       </div>
     )
   }

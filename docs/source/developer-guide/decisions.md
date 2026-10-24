@@ -345,3 +345,26 @@ memory before any size check.
 **Consequences:** In-memory throttle state needs the database or Redis before more than one
 worker runs (beta 2, with HTTPS). Comments posted before this change cannot be edited by
 their authors because nobody holds a secret for them; the project owner still can.
+
+
+## ADR-016: Text the app writes follows a plain house style
+
+**Context:** The QI Stat Advisor's replies showed raw Markdown (asterisks around words, numbered
+lists run together), em dashes, and stock phrases that make text read as machine-written. The
+reports and the mentor page repeat that text, so a resident would paste it into a poster.
+
+**Decision:**
+
+- Every system prompt carries the same style directive (`STYLE_DIRECTIVE` in `api/ai_prompts.py`):
+  plain text, no Markdown, no dash punctuation, straight quotes, ordinary words, and a list of
+  words and habits to avoid. The list follows the published signs of AI writing (Wikipedia's field
+  guide and the humanizer ruleset).
+- `api/ai_text.py` enforces it on what comes back, because a model follows an instruction most of
+  the time and not every time. It strips Markdown markers, turns dash punctuation into commas,
+  periods or "to", straightens quotes, removes emoji and arrows, and replaces a short list of stock
+  phrases. It changes form only. Every parsed model reply and every chat reply goes through it.
+- `tests/test_house_style.py` fails if a dash, curly quote or stock word appears in the source of
+  the app or its interface.
+
+**Consequences:** Replacing a dash with a comma can read slightly less smoothly than a rewrite.
+A model reply that needs a real rewrite to lose its machine tone is only caught by the prompt.

@@ -191,7 +191,7 @@ describe('Results multi-run rendering', () => {
 })
 
 describe('Results regressions', () => {
-  it('renders an em dash instead of literal null for a CI cell', async () => {
+  it('renders n/a instead of literal null for a CI cell', async () => {
     useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
     apiMock.runPlan.mockResolvedValue({
       runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 's',
@@ -203,7 +203,7 @@ describe('Results regressions', () => {
     const table = await screen.findByRole('table')
     expect(table).toHaveTextContent('Median CI low')
     expect(table.textContent).not.toMatch(/\bnull\b/i)
-    expect(table.textContent).toContain('\u2014')
+    expect(table.textContent).toContain('n/a')
   })
 
   it('never blocks Edit & Review while the interpretation loads', async () => {

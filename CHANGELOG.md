@@ -20,6 +20,7 @@ First beta. It runs from a git clone on each tester's own machine. Hosting and H
 - Batch review of data-quality warnings, with acknowledge and clarify choices and a handoff document.
 - A rules-first analysis plan, so the plan exists before any AI is asked.
 - Per-user AI keys, stored encrypted and used only by their owner.
+- Plain-text house style for everything the QI Stat Advisor writes: no Markdown asterisks, no dash punctuation, straight quotes, and no stock AI phrases. The prompts ask for it and the app enforces it on every reply (see ADR-016). The interface and report wording follow the same rules.
 - Model selection in Settings. The list of models is fetched from the provider with the user's own key each time the page opens (OpenRouter, OpenAI, Gemini and local servers), so no model list is built into the app. Each user's choice applies to their account only, and the app says so when the provider no longer lists the current model.
 - A mentor review link that needs no account. A mentor can comment, edit and delete their own comments, and approve the work with "Approve: good work" and an optional note.
 - A review cycle. The resident sees each mentor comment on the Download screen, replies and marks it addressed, and can go back and change the report. The mentor sees the reply on the same link and marks the comment resolved.

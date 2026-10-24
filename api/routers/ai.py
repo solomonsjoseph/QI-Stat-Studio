@@ -51,6 +51,7 @@ from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.audit import log_action
 from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
+from api.ai_text import clean_ai_data, clean_ai_text
 from api.ai_key import advisor_failed, advisor_unavailable, resolve_key, stored_model
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -96,7 +97,7 @@ def _extract_json_object(content: str) -> dict[str, Any]:
             parsed = json.loads(content[start : end + 1])
         except json.JSONDecodeError:
             return {}
-    return parsed if isinstance(parsed, dict) else {}
+    return clean_ai_data(parsed) if isinstance(parsed, dict) else {}
 
 
 
@@ -405,7 +406,7 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
 
     try:
         resp = _llm_completion(provider, api_key, api_base, selected_model, scrubbed_messages)
-        content = resp.choices[0].message.content
+        content = clean_ai_text(resp.choices[0].message.content or "")
     except Exception:
         _record_ai_usage(db, user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=prompt_chars, status="error")
         raise advisor_failed(sys.exc_info()[1])

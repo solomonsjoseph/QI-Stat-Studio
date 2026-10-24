@@ -126,7 +126,7 @@ def _cell_text(value: Any) -> str:
     """Render a result-table cell value for DOCX/PDF export. Statistics such as
     confidence intervals are legitimately omitted (None) for small groups; show an
     em dash instead of the literal string 'None' in the resident's report."""
-    return "-" if value is None else str(value)
+    return "n/a" if value is None else str(value)
 
 
 def _safe_json(raw: str | None, fallback: Any):
