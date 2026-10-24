@@ -88,6 +88,34 @@ each call site:
   can continue without the QI Stat Advisor. The provider's own text can echo
   request content and is never returned.
 
+## Sign-in, passwords and uploads (OWASP)
+
+These follow the OWASP Password Storage, Authentication and File Upload cheat sheets.
+
+- **Passwords:** PBKDF2-HMAC-SHA256, 600,000 iterations (`PASSWORD_ITERATIONS`). Older
+  hashes still verify and are upgraded at the next sign-in. Argon2id is the other
+  OWASP-recommended choice; PBKDF2 needs no extra dependency.
+- **Brute force:** `api/throttle.py` counts failed sign-ins per account identifier, 5 failures in
+  15 minutes lock it for 15 minutes (HTTP 429 with `Retry-After`). Unknown emails are counted
+  the same way, so a lockout does not reveal which accounts exist. A per-IP limit covers
+  attempts spread across accounts (60 per 15 minutes) and bulk registration (10 per hour).
+  Failures and lockouts go to the audit log, with a short hash of the email, never the address.
+  A dummy password check runs for unknown emails so response time does not reveal them.
+- **Limitations:** the counters live in process memory. They reset on restart and are not
+  shared between workers, which is fine for a git-clone install or one worker; use the database
+  or Redis before running several. Registration still answers "Email already registered",
+  because the app sends no confirmation email. There is no multi-factor sign-in and no
+  breached-password check. The per-IP limit sees the proxy's address behind a reverse proxy.
+- **Per-user AI keys:** a saved key is a Fernet-encrypted row per user. Another account never
+  uses it, and the status endpoint returns only the last four characters.
+- **Mentor comments:** public share views show no author email. Editing or deleting a comment
+  needs a secret returned once to the person who posted it and kept in that browser. The
+  project owner can still edit and delete comments from their own view.
+- **Uploads:** read in chunks and stopped at 50 MB (10 MB for a dictionary). xlsx and docx are
+  zip files, so their expanded size is capped at 250 MB and any entry that expands more than
+  100 times is refused. Datasets are capped at 200,000 rows and 500 columns, dictionaries at 200
+  PDF pages and 500,000 characters.
+
 ## The mentor-share trust boundary
 
 `/share/view/{token}` and its comment endpoints are the app's only

@@ -71,8 +71,8 @@ def _load_group(db: Session, group_id: int, user: User) -> Tuple[WarningGroup, U
     return group, _require_upload_access(group.upload_id, db, user)
 
 
-def _available(db: Session) -> bool:
-    provider, key, _, _ = ai_router._provider_settings(db)
+def _available(db: Session, user_id: int) -> bool:
+    provider, key, _, _ = ai_router._provider_settings(db, user_id)
     return bool(key) or provider == "local"
 
 
@@ -236,7 +236,7 @@ def get_thread(group_id: int, db: Session = Depends(get_db), user: User = Depend
         group=_group_out(group),
         turns=[AdvisorTurnOut(**t) for t in _loads(group.advisor_turns, [])],
         pending=AdvisorReply(**pending) if pending else None,
-        advisor_available=_available(db),
+        advisor_available=_available(db, user.id),
     )
 
 
@@ -251,9 +251,9 @@ def post_message(group_id: int, body: AdvisorMessageIn, db: Session = Depends(ge
         raise _err(422, "unknown_flag_id", "That warning is not part of this group.")
 
     ai_router._enforce_ai_rate_limit(db, user)
-    provider, api_key, api_base, model = ai_router._provider_settings(db)
+    provider, api_key, api_base, model = ai_router._provider_settings(db, user.id)
     if not api_key and provider != "local":
-        raise advisor_unavailable(db, provider)
+        raise advisor_unavailable(db, provider, user.id)
 
     project = db.get(Project, upload.project_id)
     ensure_handoff(db, project, upload)

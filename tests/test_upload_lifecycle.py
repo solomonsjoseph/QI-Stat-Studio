@@ -102,7 +102,7 @@ def test_upload_rejects_bad_project_type_size_parser_and_shape(auth_client, monk
     monkeypatch.setattr(upload_router, "MAX_BYTES", 5)
     too_large = _upload_csv(auth_client, project_id, b"a\n123456\n")
     assert too_large.status_code == 400
-    assert too_large.json()["error"]["message"] == "File exceeds 50 MB limit"
+    assert too_large.json()["error"]["message"].startswith("The file is larger than the")
     monkeypatch.setattr(upload_router, "MAX_BYTES", original_max_bytes)
 
     header_only = _upload_csv(auth_client, project_id, b"a,b\n")

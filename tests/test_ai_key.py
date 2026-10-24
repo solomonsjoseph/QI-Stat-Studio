@@ -40,8 +40,9 @@ def test_settings_key_overrides_env_masked_and_encrypted(client, monkeypatch):
     assert SECRET not in client.get("/settings").text
 
     from api.routers.ai import _provider_settings
+    uid = client.get("/auth/me").json()["id"]
     with SessionLocal() as db:
-        assert _provider_settings(db)[1] == SECRET
+        assert _provider_settings(db, uid)[1] == SECRET
         raw = " ".join(row.value for row in db.query(AppSetting).all() if row.value)
         assert SECRET not in raw
         assert SECRET not in " ".join(str(a.meta) for a in db.query(AuditLog).all() if hasattr(a, "meta"))
@@ -98,3 +99,25 @@ def test_no_key_manual_path_reaches_results(client, monkeypatch):
     assert r.status_code == 503 and r.json()["error"]["code"] == "advisor_unavailable"
     assert client.get(f"/report/project/{pid}/docx").status_code == 200
     assert client.get(f"/report/project/{pid}/pdf").status_code == 200
+
+
+def test_one_users_key_is_never_used_for_another_user(client, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api.main import app
+
+    _set_openrouter_provider()
+    monkeypatch.setattr("api.config.settings.openrouter_api_key", "")
+    _project_id(client)  # registers the first user
+    assert client.put("/settings/ai-key", json={"key": SECRET}).status_code == 200
+    assert _status(client)["advisor_available"] is True
+
+    with TestClient(app) as other:
+        assert other.post("/auth/register", json={"email": "second@example.com", "password": "password123"}).status_code == 200
+        status = other.get("/settings/ai-key").json()
+        assert (status["configured"], status["source"], status["advisor_available"]) == (False, "none", False)
+        pid = other.post("/projects", json={"title": "Second", "description": "Second user project"}).json()["id"]
+        resp = other.post("/ai/chat", json={"project_id": pid, "messages": [{"role": "user", "content": "hi"}]})
+        assert resp.status_code == 503 and resp.json()["error"]["code"] == "advisor_unavailable"
+        assert other.put("/settings/ai-key", json={"key": "sk-second-user-9999"}).status_code == 200
+        assert other.get("/settings/ai-key").json()["last4"] == "9999"
+    assert _status(client)["last4"] == "1234"  # the first user's key is untouched

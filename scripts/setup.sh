@@ -29,10 +29,17 @@ fi
 [[ -f .env ]] || { echo "setup: creating .env from .env.example"; cp .env.example .env; }
 python - <<'PY'
 import re
+import secrets
 from pathlib import Path
 from cryptography.fernet import Fernet
 p = Path(".env")
 t = p.read_text()
+# Every clone gets its own session-signing secret instead of the shared placeholder from .env.example.
+if not re.search(r"^SECRET_KEY=\s*(?!change-me)[^\s#]{16,}", t, re.M):
+    line = "SECRET_KEY=" + secrets.token_urlsafe(48)
+    t = re.sub(r"^SECRET_KEY=.*$", line, t, count=1, flags=re.M) if re.search(r"^SECRET_KEY=", t, re.M) else t + "\n" + line + "\n"
+    p.write_text(t)
+    print("setup: generated SECRET_KEY in .env")
 if not re.search(r"^FERNET_KEY=\s*[^\s#]", t, re.M):
     line = "FERNET_KEY=" + Fernet.generate_key().decode()
     if re.search(r"^FERNET_KEY=", t, re.M):

@@ -319,3 +319,29 @@ key was configured.
 **Consequences:** A resident can finish a project with a dead provider. Draft
 text is rule-generated and still carries the bracketed prompts described in the
 owner questions.
+
+
+## ADR-015: Each resident brings their own AI key, and sign-in is throttled
+
+**Context:** The first beta runs from a git clone on each tester's machine and later as one
+hosted app. A single app-wide key would let every user spend one person's quota and would
+let any account clear everyone's key. The security review also found no sign-in throttling,
+a password hash below the current OWASP minimum, mentor comment authors' emails shown to
+every link holder (and used as the only check to edit or delete), and uploads read fully into
+memory before any size check.
+
+**Decision:**
+
+- The AI key is stored per user (`ai_key_enc:<provider>:<user_id>` in `app_settings`, Fernet
+  encrypted). The `.env` key stays as an operator default for a one-person install and is not
+  set on a shared host.
+- Passwords use PBKDF2-HMAC-SHA256 at 600,000 iterations and old hashes are upgraded on
+  sign-in. Failed sign-ins are throttled per account and per IP with in-memory counters.
+- Mentor comments carry a per-comment secret issued once to their author. Public views show no
+  author email.
+- Uploads are read in chunks with a hard stop, zip-based files are checked for expansion, and
+  datasets and dictionaries have row, column and page caps.
+
+**Consequences:** In-memory throttle state needs the database or Redis before more than one
+worker runs (beta 2, with HTTPS). Comments posted before this change cannot be edited by
+their authors because nobody holds a secret for them; the project owner still can.

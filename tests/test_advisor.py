@@ -23,12 +23,12 @@ def _flag(fid, sev="WARNING"):
 
 @pytest.fixture
 def provider(monkeypatch):
-    monkeypatch.setattr(ai_router, "_provider_settings", lambda db: ("openrouter", "k", None, "m"))
+    monkeypatch.setattr(ai_router, "_provider_settings", lambda db, user_id: ("openrouter", "k", None, "m"))
 
 
 @pytest.fixture
 def stub(monkeypatch):
-    monkeypatch.setattr(ai_router, "_provider_settings", lambda db: ("stub", "stub", None, "stub"))
+    monkeypatch.setattr(ai_router, "_provider_settings", lambda db, user_id: ("stub", "stub", None, "stub"))
 
 
 def _group(client, flag_ids=(W_UNIT, W_AGE)):
@@ -217,7 +217,7 @@ def test_user_text_and_document_are_scrubbed_before_the_llm(auth_client, provide
 
 
 def test_no_key_returns_advisor_unavailable(auth_client, monkeypatch):
-    monkeypatch.setattr(ai_router, "_provider_settings", lambda db: ("openrouter", None, None, "m"))
+    monkeypatch.setattr(ai_router, "_provider_settings", lambda db, user_id: ("openrouter", None, None, "m"))
     _, gid = _group(auth_client)
     r = auth_client.post(MSG % gid, json={"message": "start"})
     assert r.status_code == 503 and r.json()["error"]["code"] == "advisor_unavailable"

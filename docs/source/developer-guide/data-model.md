@@ -118,7 +118,7 @@ dropped in favor of the normalized `mentor_comments` table (migration
 | `share_id` | Integer FK → `mentor_shares.id` | `ondelete=CASCADE`, not nullable |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE`, not nullable |
 | `author_name` | String(255) | not nullable |
-| `author_email` | String(255) | nullable; required only if the mentor wants to edit/delete their comment later |
+| `author_email` | String(255) | nullable; shown only to the project owner, never in the public mentor view |
 | `text` | Text | not nullable |
 | `created_at`, `updated_at`, `deleted_at` | DateTime | comments are soft-deleted (`deleted_at` set, row kept) |
 

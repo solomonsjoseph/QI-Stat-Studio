@@ -367,9 +367,9 @@ class EditIn(BaseModel):
     edited_text: str
 
 class MentorCommentIn(BaseModel):
-    author_name: str
-    author_email: Optional[str] = None
-    text: str
+    author_name: str = Field(min_length=1, max_length=255)
+    author_email: Optional[str] = Field(default=None, max_length=255)
+    text: str = Field(min_length=1, max_length=4000)
 
 
 class MentorCommentOut(BaseModel):
@@ -383,17 +383,36 @@ class MentorCommentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MentorCommentPublicOut(BaseModel):
+    """What anyone holding a share link sees: no author email."""
+    id: int
+    author_name: str
+    text: str
+    created_at: datetime
+    updated_at: Optional[datetime]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MentorCommentCreatedOut(MentorCommentPublicOut):
+    edit_token: str  # shown once, to the person who wrote the comment; needed to edit or delete it
+
+
 class CommentPayload(MentorCommentIn):
     pass
 
 
 class MentorCommentEditIn(BaseModel):
-    author_email: Optional[str] = None
-    text: str
+    edit_token: str
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class MentorCommentOwnerEditIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
 
 
 class MentorCommentAuthorIn(BaseModel):
-    author_email: Optional[str] = None
+    edit_token: str
 
 
 class SettingOut(BaseModel):

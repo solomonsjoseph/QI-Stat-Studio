@@ -47,7 +47,7 @@ def test_mentor_comment_uses_normalized_public_contract(client):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["author_name"] == "Dr. Smith"
-    assert data["author_email"] == "smith@example.edu"
+    assert "author_email" not in data and data["edit_token"]
     assert data["text"] == "Great work!"
 
     with SessionLocal() as db:

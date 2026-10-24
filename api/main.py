@@ -225,7 +225,7 @@ def _record_failure(request: Request, exc: Exception, request_id: str, ids: dict
         db.close()
 
 
-def _error_response(status_code: int, code: str, message: str, request_id: str, field_errors=None, extra=None):
+def _error_response(status_code: int, code: str, message: str, request_id: str, field_errors=None, extra=None, headers=None):
     return JSONResponse(
         status_code=status_code,
         content={
@@ -237,7 +237,7 @@ def _error_response(status_code: int, code: str, message: str, request_id: str, 
                 **(extra or {}),
             }
         },
-        headers={"X-Request-ID": request_id},
+        headers={**(headers or {}), "X-Request-ID": request_id},
     )
 
 
@@ -251,9 +251,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         field_errors = detail.get("field_errors") if isinstance(detail.get("field_errors"), dict) else {}
         code = detail["code"] if isinstance(detail.get("code"), str) else f"HTTP_{exc.status_code}"
         extra = {"key_source": detail["key_source"]} if code == "advisor_unavailable" else None
-        return _error_response(exc.status_code, code, message, request_id, field_errors, extra)
+        return _error_response(exc.status_code, code, message, request_id, field_errors, extra, exc.headers)
     message = detail if isinstance(detail, str) else "HTTP error"
-    return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id)
+    return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id, headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)

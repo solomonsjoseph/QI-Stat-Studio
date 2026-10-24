@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -10,12 +12,16 @@ from sqlalchemy.orm import Session
 
 from api.audit import log_action, safe_notification_error
 from api.auth import require_project_owner
+from api.config import settings
 from api.database import get_db
 from api.models_api import (
     CommentPayload,
     MentorCommentAuthorIn,
     MentorCommentEditIn,
+    MentorCommentOwnerEditIn,
+    MentorCommentCreatedOut,
     MentorCommentOut,
+    MentorCommentPublicOut,
     ShareCreateIn,
     ShareMutationIn,
 )
@@ -260,7 +266,7 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
         .order_by(MentorComment.created_at.asc(), MentorComment.id.asc())
         .all()
     )
-    normalized_comments = [MentorCommentOut.model_validate(comment).model_dump(mode="json") for comment in comments]
+    normalized_comments = [MentorCommentPublicOut.model_validate(comment).model_dump(mode="json") for comment in comments]
     return {
         "project": {
             "id": project.id,
@@ -284,7 +290,18 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
         "comments": normalized_comments,
     }
 
-@router.post("/view/{token}/comment", response_model=MentorCommentOut)
+def _edit_token(share_id: int, comment_id: int) -> str:
+    """Stateless per-comment secret: only the response to the create call carries it."""
+    message = f"mentor-comment:{share_id}:{comment_id}".encode()
+    return hmac.new(settings.secret_key.encode(), message, hashlib.sha256).hexdigest()[:32]
+
+
+def _require_edit_token(share: MentorShare, comment: MentorComment, token: str) -> None:
+    if not hmac.compare_digest(token or "", _edit_token(share.id, comment.id)):
+        raise HTTPException(status_code=403, detail="Only the person who wrote this comment can change it")
+
+
+@router.post("/view/{token}/comment", response_model=MentorCommentCreatedOut)
 def add_comment(token: str, payload: CommentPayload, db: Session = Depends(get_db)):
     share = _active_share_or_404(token, db)
     comment = MentorComment(
@@ -299,18 +316,16 @@ def add_comment(token: str, payload: CommentPayload, db: Session = Depends(get_d
     db.commit()
     db.refresh(comment)
     log_action(db, share.project_id, "mentor_comment_created", {"share_id": share.id, "comment_id": comment.id, "public": True})
-    return comment
+    return MentorCommentCreatedOut(**MentorCommentPublicOut.model_validate(comment).model_dump(), edit_token=_edit_token(share.id, comment.id))
 
 
-@router.patch("/view/{token}/comment/{comment_id}", response_model=MentorCommentOut)
+@router.patch("/view/{token}/comment/{comment_id}", response_model=MentorCommentPublicOut)
 def edit_public_comment(token: str, comment_id: int, payload: MentorCommentEditIn, db: Session = Depends(get_db)):
     share = _active_share_or_404(token, db)
     comment = db.get(MentorComment, comment_id)
     if not comment or comment.share_id != share.id or comment.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Comment not found")
-    author_email = payload.author_email.strip().lower() if payload.author_email else None
-    if not comment.author_email or comment.author_email != author_email:
-        raise HTTPException(status_code=403, detail="Comment author email required")
+    _require_edit_token(share, comment, payload.edit_token)
     comment.text = payload.text
     comment.updated_at = datetime.utcnow()
     db.commit()
@@ -330,9 +345,7 @@ def delete_public_comment(
     comment = db.get(MentorComment, comment_id)
     if not comment or comment.share_id != share.id or comment.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Comment not found")
-    author_email = payload.author_email.strip().lower() if payload.author_email else None
-    if not comment.author_email or comment.author_email != author_email:
-        raise HTTPException(status_code=403, detail="Comment author email required")
+    _require_edit_token(share, comment, payload.edit_token)
     comment.deleted_at = datetime.utcnow()
     db.commit()
     log_action(db, share.project_id, "mentor_comment_deleted", {"share_id": share.id, "comment_id": comment.id, "public": True})
@@ -343,7 +356,7 @@ def delete_public_comment(
 def owner_edit_comment(
     project_id: int,
     comment_id: int,
-    payload: MentorCommentEditIn,
+    payload: MentorCommentOwnerEditIn,
     db: Session = Depends(get_db),
     project: Project = Depends(require_project_owner),
 ):

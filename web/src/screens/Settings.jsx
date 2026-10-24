@@ -105,7 +105,7 @@ export default function Settings() {
         {keyError && <p role="alert" className="alert-error">{keyError}</p>}
         <AiKeyField onSaved={keySaved} label="New key" />
         <p className="text-xs leading-5 text-ink-soft">
-          A saved key is app-wide. It replaces the key for everyone using this build, and overrides the key in .env.
+          Your saved key belongs to your account only. Nobody else can use it. It overrides the key in .env for you.
         </p>
         {keyStatus?.source === 'settings' && (
           <button type="button" onClick={removeKey} disabled={removing} className="btn-secondary self-start">

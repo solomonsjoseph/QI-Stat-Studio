@@ -5,7 +5,13 @@ import HandoffViewer from '../components/HandoffViewer'
 import { api } from '../api'
 import { TEMPLATE_LABELS } from '../templateLabels'
 
-function CommentCard({ comment, token, authorEmail, load, setError }) {
+// The secret that lets a mentor change their own comment is returned once, when they post it, and kept
+// in this browser only. Other people with the link never receive it.
+const tokenKey = (token, id) => `qiss:comment:${token}:${id}`
+const myEditToken = (token, id) => window.localStorage.getItem(tokenKey(token, id))
+
+function CommentCard({ comment, token, load, setError }) {
+  const editToken = myEditToken(token, comment.id)
   const author = comment.author_name || comment.author || 'Mentor'
   const timestamp = comment.created_at ? new Date(comment.created_at).toLocaleString() : ''
   const [editing, setEditing] = useState(false)
@@ -21,7 +27,7 @@ function CommentCard({ comment, token, authorEmail, load, setError }) {
     setBusy(true)
     setError('')
     try {
-      await api.editComment(token, comment.id, authorEmail || undefined, text)
+      await api.editComment(token, comment.id, editToken, text)
       setEditing(false)
       setBusy(false)
       await load()
@@ -36,7 +42,8 @@ function CommentCard({ comment, token, authorEmail, load, setError }) {
     setBusy(true)
     setError('')
     try {
-      await api.deleteComment(token, comment.id, authorEmail || undefined)
+      await api.deleteComment(token, comment.id, editToken)
+      window.localStorage.removeItem(tokenKey(token, comment.id))
       setBusy(false)
       await load()
     } catch (err) {
@@ -52,7 +59,7 @@ function CommentCard({ comment, token, authorEmail, load, setError }) {
 
   return (
     <article className="card p-4 text-sm">
-      <div className="font-medium text-ink">{author}{comment.author_email ? ` (${comment.author_email})` : ''}</div>
+      <div className="font-medium text-ink">{author}</div>
       {timestamp && <div className="mb-2 text-xs text-ink-faint">{timestamp}</div>}
       {editing ? (
         <form onSubmit={saveEdit} className="flex flex-col gap-2">
@@ -66,10 +73,12 @@ function CommentCard({ comment, token, authorEmail, load, setError }) {
       ) : (
         <>
           <p className="leading-6 text-ink-soft">{comment.text}</p>
-          <div className="mt-3 flex gap-3">
-            <button type="button" onClick={() => setEditing(true)} disabled={busy || !comment.id} className="text-sm font-medium text-brand hover:text-brand-deep disabled:opacity-50">Edit</button>
-            <button type="button" onClick={deleteComment} disabled={busy || !comment.id} className="text-sm font-medium text-error-ink disabled:opacity-50">Delete</button>
-          </div>
+          {editToken && (
+            <div className="mt-3 flex gap-3">
+              <button type="button" onClick={() => setEditing(true)} disabled={busy || !comment.id} className="text-sm font-medium text-brand hover:text-brand-deep disabled:opacity-50">Edit</button>
+              <button type="button" onClick={deleteComment} disabled={busy || !comment.id} className="text-sm font-medium text-error-ink disabled:opacity-50">Delete</button>
+            </div>
+          )}
         </>
       )}
     </article>
@@ -112,7 +121,8 @@ export default function MentorView({ token }) {
     setError('')
     setSubmitted(false)
     try {
-      await api.addComment(token, authorName, comment, authorEmail || undefined)
+      const created = await api.addComment(token, authorName, comment, authorEmail || undefined)
+      if (created?.id && created?.edit_token) window.localStorage.setItem(tokenKey(token, created.id), created.edit_token)
       setComment('')
       setSubmitted(true)
       setData(await api.getMentorView(token))
@@ -200,11 +210,11 @@ export default function MentorView({ token }) {
 
       <section className="border-t border-line pt-6">
         <h2 className="mb-3 font-semibold text-ink">Mentor Comments</h2>
-        {data.comments?.length > 0 ? <div className="mb-4 flex flex-col gap-2">{data.comments.map((c, i) => <CommentCard key={c.id || i} comment={c} token={token} authorEmail={authorEmail} load={load} setError={setError} />)}</div> : <p className="mb-4 text-sm text-ink-soft">No comments yet.</p>}
+        {data.comments?.length > 0 ? <div className="mb-4 flex flex-col gap-2">{data.comments.map((c, i) => <CommentCard key={c.id || i} comment={c} token={token} load={load} setError={setError} />)}</div> : <p className="mb-4 text-sm text-ink-soft">No comments yet.</p>}
 
         <form onSubmit={addComment} className="flex flex-col gap-3">
           <label className="flex flex-col gap-1" htmlFor="mentor-name"><span className="label">Your name</span><input id="mentor-name" className="input" value={authorName} onChange={e => setAuthorName(e.target.value)} required disabled={saving} /></label>
-          <label className="flex flex-col gap-1" htmlFor="mentor-email"><span className="label">Email (optional, used if you edit your comment later)</span><input id="mentor-email" className="input" type="email" value={authorEmail} onChange={e => setAuthorEmail(e.target.value)} disabled={saving} /></label>
+          <label className="flex flex-col gap-1" htmlFor="mentor-email"><span className="label">Email (optional, shown only to the project owner)</span><input id="mentor-email" className="input" type="email" value={authorEmail} onChange={e => setAuthorEmail(e.target.value)} disabled={saving} /></label>
           <label className="flex flex-col gap-1" htmlFor="mentor-comment"><span className="label">Comment</span><textarea id="mentor-comment" className="input min-h-24" value={comment} onChange={e => setComment(e.target.value)} placeholder="Add a comment…" required disabled={saving} /></label>
           <button type="submit" disabled={saving} className="btn-primary self-start">
             {saving && <Spinner />}

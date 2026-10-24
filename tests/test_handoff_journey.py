@@ -51,7 +51,7 @@ def make_csv(dup: bool = False) -> bytes:
 
 
 def _use(monkeypatch, provider, key):
-    monkeypatch.setattr(ai_router, "_provider_settings", lambda db: (provider, key, None, "m"))
+    monkeypatch.setattr(ai_router, "_provider_settings", lambda db, user_id: (provider, key, None, "m"))
 
 
 @pytest.fixture

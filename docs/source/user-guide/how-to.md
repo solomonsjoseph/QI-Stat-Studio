@@ -101,9 +101,9 @@ admin:
 
 The QI Stat Advisor needs an AI key. Open **Settings**, paste the key under
 **AI key** and click **Save key**. The screen shows only the last four
-characters afterwards. A saved key is app-wide: it replaces the key for
-everyone using this build and overrides the one in `.env`. **Remove saved key**
-falls back to `.env`. Any signed-in user can do this; the other settings on the
+characters afterwards. A saved key belongs to your account only: nobody else
+can use it, and you cannot use anyone else's. It overrides the one in `.env`
+for you. **Remove saved key** falls back to `.env`. The other settings on the
 page are for admins.
 
 ## Work without the QI Stat Advisor

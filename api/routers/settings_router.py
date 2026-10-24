@@ -24,11 +24,11 @@ def upsert_setting(payload: SettingPayload, db: Session = Depends(get_db), user:
     return setting
 
 
-def _ai_key_status(db: Session) -> AIKeyStatus:
+def _ai_key_status(db: Session, user_id: int) -> AIKeyStatus:
     from api.routers.ai import _provider_settings
 
-    provider, key, _, _ = _provider_settings(db)
-    _, source = ai_key.resolve_key(db, provider)
+    provider, key, _, _ = _provider_settings(db, user_id)
+    _, source = ai_key.resolve_key(db, provider, user_id)
     return AIKeyStatus(
         configured=source != "none",
         source=source,
@@ -38,32 +38,32 @@ def _ai_key_status(db: Session) -> AIKeyStatus:
     )
 
 
-def _active_keyed_provider(db: Session) -> str:
+def _active_keyed_provider(db: Session, user_id: int) -> str:
     from api.routers.ai import _provider_settings
 
-    provider = _provider_settings(db)[0]
+    provider = _provider_settings(db, user_id)[0]
     if provider not in ai_key.KEYED_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"Provider '{provider}' does not use an API key")
     return provider
 
 
-# Any signed-in user may manage the app-wide key during the test phase; restrict to require_admin later.
+# Each signed-in user manages only their own key.
 @router.get("/ai-key", response_model=AIKeyStatus)
 def get_ai_key_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return _ai_key_status(db)
+    return _ai_key_status(db, user.id)
 
 
 @router.put("/ai-key", response_model=AIKeyStatus)
 def put_ai_key(payload: AIKeyPayload, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    provider = _active_keyed_provider(db)
-    ai_key.save_key(db, provider, payload.key.strip())
+    provider = _active_keyed_provider(db, user.id)
+    ai_key.save_key(db, provider, user.id, payload.key.strip())
     log_action(db, None, "ai_key_set", {"provider": provider})
-    return _ai_key_status(db)
+    return _ai_key_status(db, user.id)
 
 
 @router.delete("/ai-key", response_model=AIKeyStatus)
 def delete_ai_key(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    provider = _active_keyed_provider(db)
-    ai_key.clear_key(db, provider)
+    provider = _active_keyed_provider(db, user.id)
+    ai_key.clear_key(db, provider, user.id)
     log_action(db, None, "ai_key_cleared", {"provider": provider})
-    return _ai_key_status(db)
+    return _ai_key_status(db, user.id)

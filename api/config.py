@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     smtp_pass: str = ""
     from_email: str = "qi-stat-studio@example.com"
     cookie_secure: bool = False
+    # OWASP Password Storage Cheat Sheet: PBKDF2-HMAC-SHA256 needs 600,000 iterations. Tests may lower it.
+    password_iterations: int = 600_000
     cors_origins: str = "http://localhost:5173"
     environment: str = "development"
 

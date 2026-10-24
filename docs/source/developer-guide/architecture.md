@@ -88,7 +88,7 @@ There is no JWT and no third-party identity provider. Rutgers SSO is a
 deferred v1 decision (see {doc}`decisions`). Instead:
 
 - Passwords are hashed with PBKDF2-HMAC-SHA256, a random 16-byte salt per
-  user, and 260,000 iterations, stored as
+  user, and 600,000 iterations (OWASP; `PASSWORD_ITERATIONS`), stored as
   `pbkdf2_sha256${iterations}${salt}${digest}` (`api/auth.py:hash_password`).
   Verification re-derives the digest with `hashlib.pbkdf2_hmac` and compares
   with `secrets.compare_digest` (constant-time).

@@ -146,10 +146,10 @@ export const api = {
   getMentorView: (token) => req('GET', `/share/view/${token}`),
   addComment: (token, authorName, text, authorEmail) =>
     req('POST', `/share/view/${token}/comment`, { author_name: authorName, author_email: authorEmail || null, text }),
-  editComment: (token, commentId, authorEmail, text) =>
-    req('PATCH', `/share/view/${token}/comment/${commentId}`, { author_email: authorEmail || null, text }),
-  deleteComment: (token, commentId, authorEmail) =>
-    req('DELETE', `/share/view/${token}/comment/${commentId}`, { author_email: authorEmail || null }),
+  editComment: (token, commentId, editToken, text) =>
+    req('PATCH', `/share/view/${token}/comment/${commentId}`, { edit_token: editToken, text }),
+  deleteComment: (token, commentId, editToken) =>
+    req('DELETE', `/share/view/${token}/comment/${commentId}`, { edit_token: editToken }),
 
   // Settings
   getSettings: () => req('GET', '/settings'),

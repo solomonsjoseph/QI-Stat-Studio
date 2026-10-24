@@ -61,7 +61,7 @@ describe('Settings', () => {
     expect(await screen.findByText(/ending in wxyz/)).toBeInTheDocument()
     expect(input).toHaveValue('')
     expect(screen.queryByText(/secretwxyz/)).not.toBeInTheDocument()
-    expect(screen.getByText(/replaces the key for everyone/)).toBeInTheDocument()
+    expect(screen.getByText(/belongs to your account only/)).toBeInTheDocument()
   })
 
   it('removes a saved key', async () => {

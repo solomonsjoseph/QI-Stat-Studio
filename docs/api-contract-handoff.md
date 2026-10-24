@@ -83,7 +83,7 @@ API key (15 to 17)
 - The value is write-only. No response ever contains it. `last4` is null when `source` is `none`, and for `env` it is the last four characters of the env key.
 - `source` is `settings` when a stored key exists (it overrides env), `env` when only the environment variable is set, otherwise `none`.
 - `advisor_available` on `AIKeyStatus` is true when a key is configured or the stub provider is active. There is no separate provider-status endpoint. The no-key prompt reads `GET /settings/ai-key`.
-- The key is app-wide. The UI text says a saved key replaces it for everyone.
+- A saved key belongs to the signed-in user (row `ai_key_enc:<provider>:<user_id>`). Another user never uses it. The env key is an operator default.
 
 Gating (20)
 - `ProjectResumeOut.gating` is a `GatingOut`. `current_screen` derivation uses `can_continue`. Backend `_has_unacknowledged_flags` and the analyze gate use the same computation as `can_continue` so the screen and the server agree.

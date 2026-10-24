@@ -26,13 +26,16 @@ from api.upload_utils import (
     _read_dataframe,
     _safe_storage_key,
     _validate_dataset_shape,
+    MAX_DICTIONARY_BYTES,
+    MAX_UPLOAD_BYTES,
     extract_dictionary_text,
+    read_capped,
 )
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 UPLOAD_DIR = Path("uploads_enc")
 UPLOAD_DIR.mkdir(exist_ok=True)
-MAX_BYTES = 50 * 1024 * 1024
+MAX_BYTES = MAX_UPLOAD_BYTES
 
 
 def _require_upload_access(upload_id: int, db: Session, user: User) -> Upload:
@@ -575,11 +578,7 @@ def _store_upload(
 async def _read_validated_upload_file(file: UploadFile) -> tuple[str, str, bytes, pd.DataFrame, set[str]]:
     original_filename = file.filename or "upload"
     file_type = _allowed_suffix(original_filename)
-    if file.size and file.size > MAX_BYTES:
-        raise HTTPException(400, "File exceeds 50 MB limit")
-    raw = await file.read()
-    if len(raw) > MAX_BYTES:
-        raise HTTPException(400, "File exceeds 50 MB limit")
+    raw = await read_capped(file, MAX_BYTES, "The file")
     df, restored_cols = _read_dataframe(raw, file_type)
     _validate_dataset_shape(df)
     return original_filename, file_type, raw, df, restored_cols
@@ -589,11 +588,9 @@ async def _read_dictionary_file(file: UploadFile | None) -> tuple[str | None, st
     if file is None:
         return None, None
     original_filename = file.filename or "dictionary"
-    raw = await file.read()
+    raw = await read_capped(file, MAX_DICTIONARY_BYTES, "The data dictionary")
     if not raw:
         return None, None
-    if len(raw) > MAX_BYTES:
-        raise HTTPException(400, "Data dictionary file exceeds 50 MB limit")
     return original_filename, extract_dictionary_text(original_filename, raw)
 
 

@@ -198,7 +198,7 @@ def _scrub_design_text(db: Session, project_id: int, design: dict, source: str) 
     return out
 
 
-def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
+def _provider_settings(db: Session, user_id: int | None) -> tuple[str, str | None, str | None, str]:
     """Resolve (provider, api_key, api_base, default_model) for the configured AI provider."""
     env_provider = (settings.ai_provider or "").strip().lower()
     runtime_provider = None if env_provider == "stub" else get_runtime_setting(db, "ai_provider")
@@ -207,16 +207,16 @@ def _provider_settings(db: Session) -> tuple[str, str | None, str | None, str]:
         return "stub", "stub", None, "stub"
     if provider == "openai":
         model = get_runtime_setting(db, "openai_model") or settings.openai_model
-        return provider, resolve_key(db, provider)[0], None, model
+        return provider, resolve_key(db, provider, user_id)[0], None, model
     if provider == "gemini":
         model = get_runtime_setting(db, "gemini_model") or settings.gemini_model
-        return provider, resolve_key(db, provider)[0], None, model
+        return provider, resolve_key(db, provider, user_id)[0], None, model
     if provider == "local":
         model = get_runtime_setting(db, "local_model") or settings.local_model
         base = get_runtime_setting(db, "local_api_base") or settings.local_api_base or "http://localhost:11434"
-        return provider, resolve_key(db, provider)[0], base, model
+        return provider, resolve_key(db, provider, user_id)[0], base, model
     model = get_runtime_setting(db, "openrouter_model") or settings.openrouter_model
-    return "openrouter", resolve_key(db, "openrouter")[0], None, model
+    return "openrouter", resolve_key(db, "openrouter", user_id)[0], None, model
 
 
 def _llm_completion(
@@ -361,7 +361,7 @@ def _enforce_ai_rate_limit(db: Session, user: User) -> None:
 def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     _require_project_access(db, req.project_id, user)
 
-    provider, api_key, api_base, default_model = _provider_settings(db)
+    provider, api_key, api_base, default_model = _provider_settings(db, user.id)
     selected_model = req.model or default_model
     _enforce_ai_rate_limit(db, user)
 
@@ -392,7 +392,7 @@ def ai_chat(req: ChatRequest, db: Session = Depends(get_db), user: User = Depend
         log_action(db, req.project_id, "phi_redacted", {"redaction_count": total_redactions, "source": "ai_chat"})
     if not api_key and provider != "local":
         _record_ai_usage(db, user_id=user.id, project_id=req.project_id, model=selected_model, prompt_chars=prompt_chars, status="not_configured")
-        raise advisor_unavailable(db, provider)
+        raise advisor_unavailable(db, provider, user.id)
 
     try:
         resp = _llm_completion(provider, api_key, api_base, selected_model, scrubbed_messages)
@@ -471,9 +471,9 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
 
     _enforce_ai_rate_limit(db, user)
 
-    provider, api_key, api_base, default_model = _provider_settings(db)
+    provider, api_key, api_base, default_model = _provider_settings(db, user.id)
     if not api_key and provider != "local":
-        raise advisor_unavailable(db, provider)
+        raise advisor_unavailable(db, provider, user.id)
 
     clean_message = None
     redaction_count = 0
@@ -573,7 +573,7 @@ def ai_collection_guidance(
     rules_recs = deterministic_recommendations(design, df, profile)
 
     ai_recs: list[dict[str, Any]] = []
-    provider, api_key, api_base, default_model = _provider_settings(db)
+    provider, api_key, api_base, default_model = _provider_settings(db, user.id)
     if api_key or provider == "local":
         try:
             _enforce_ai_rate_limit(db, user)
@@ -669,7 +669,7 @@ def ai_recommend_plan(project_id: int, req: AnalysisPlanRequest, db: Session = D
 
     _enforce_ai_rate_limit(db, user)
 
-    provider, api_key, api_base, default_model = _provider_settings(db)
+    provider, api_key, api_base, default_model = _provider_settings(db, user.id)
 
     state = json.loads(project.ai_analysis_plan) if project.ai_analysis_plan else {}
     turns = state.get("turns", [])
@@ -844,9 +844,9 @@ def ai_override_plan(
     require_phase(db, project, "plan")
     _enforce_ai_rate_limit(db, user)
 
-    provider, api_key, api_base, default_model = _provider_settings(db)
+    provider, api_key, api_base, default_model = _provider_settings(db, user.id)
     if not api_key and provider != "local":
-        raise advisor_unavailable(db, provider)
+        raise advisor_unavailable(db, provider, user.id)
 
     clean_instruction, redaction_count = scrub_text(body.instruction)
     if redaction_count > 0:
@@ -942,9 +942,9 @@ def ai_interpret_results(
     require_phase(db, project, "results")
     _enforce_ai_rate_limit(db, user)
 
-    provider, api_key, api_base, default_model = _provider_settings(db)
+    provider, api_key, api_base, default_model = _provider_settings(db, user.id)
     if not api_key and provider != "local":
-        raise advisor_unavailable(db, provider)
+        raise advisor_unavailable(db, provider, user.id)
 
     upload = _latest_active_upload(db, project_id)
     if not upload:

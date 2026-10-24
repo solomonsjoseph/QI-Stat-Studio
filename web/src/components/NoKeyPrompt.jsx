@@ -13,7 +13,7 @@ export default function NoKeyPrompt({ onSaved, onSkip }) {
         <h2 id="nokey-enter" className="mb-2 text-sm font-semibold text-ink">Enter a key here</h2>
         <AiKeyField onSaved={onSaved} />
         <p className="mt-3 text-xs leading-5 text-ink-soft">
-          A saved key is app-wide. It replaces the key for everyone using this build.
+          Your saved key belongs to your account only. Nobody else can use it, and you cannot use anyone else's.
         </p>
       </section>
 

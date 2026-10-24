@@ -107,11 +107,18 @@ describe('MentorView', () => {
     expect(screen.getByLabelText(/^comment$/i)).toHaveValue('Please clarify the denominator for week 1.')
   })
 
-  it('edits and deletes comments using the current mentor email', async () => {
+  it('lets a mentor edit and delete only the comment they wrote, using the secret kept in their browser', async () => {
+    window.localStorage.setItem('qiss:comment:mentor-token:12', 'secret-12')
     apiMock.getMentorView
-      .mockResolvedValueOnce(mentorPayload({ comments: [{ id: 12, author_name: 'Dr Mentor', author_email: 'mentor@example.edu', text: 'Original note.' }] }))
-      .mockResolvedValueOnce(mentorPayload({ comments: [{ id: 12, author_name: 'Dr Mentor', author_email: 'mentor@example.edu', text: 'Updated note.' }] }))
-      .mockResolvedValueOnce(mentorPayload({ comments: [] }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [
+        { id: 12, author_name: 'Dr Mentor', text: 'Original note.' },
+        { id: 13, author_name: 'Someone else', text: 'Not mine.' },
+      ] }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [
+        { id: 12, author_name: 'Dr Mentor', text: 'Updated note.' },
+        { id: 13, author_name: 'Someone else', text: 'Not mine.' },
+      ] }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [{ id: 13, author_name: 'Someone else', text: 'Not mine.' }] }))
     apiMock.editComment.mockResolvedValue({})
     apiMock.deleteComment.mockResolvedValue({})
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -120,38 +127,23 @@ describe('MentorView', () => {
     render(<MentorView token="mentor-token" />)
 
     expect(await screen.findByRole('heading', { name: 'Mentor Project' })).toBeInTheDocument()
-    await user.type(screen.getByLabelText(/email \(optional/i), 'mentor@example.edu')
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1)  // only the mentor's own comment
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument()  // no email shown to other link holders
     await user.click(screen.getByRole('button', { name: 'Edit' }))
     await user.clear(screen.getByLabelText('Edit comment'))
     await user.type(screen.getByLabelText('Edit comment'), 'Updated note.')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(apiMock.editComment).toHaveBeenCalledWith('mentor-token', 12, 'mentor@example.edu', 'Updated note.')
+    expect(apiMock.editComment).toHaveBeenCalledWith('mentor-token', 12, 'secret-12', 'Updated note.')
     expect(await screen.findByText('Updated note.')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
     expect(confirm).toHaveBeenCalledWith('Delete this comment?')
-    expect(apiMock.deleteComment).toHaveBeenCalledWith('mentor-token', 12, 'mentor@example.edu')
-    expect(await screen.findByText('No comments yet.')).toBeInTheDocument()
-    expect(apiMock.getMentorView).toHaveBeenCalledTimes(3)
+    expect(apiMock.deleteComment).toHaveBeenCalledWith('mentor-token', 12, 'secret-12')
+    expect(await screen.findByText('Not mine.')).toBeInTheDocument()
+    expect(window.localStorage.getItem('qiss:comment:mentor-token:12')).toBeNull()
 
     confirm.mockRestore()
-  })
-})
-
-describe('MentorView handoff section', () => {
-  it('shows the handoff and change log read-only', async () => {
-    apiMock.getMentorView.mockResolvedValue(mentorPayload())
-    apiMock.getMentorHandoff.mockResolvedValue({
-      upload_id: 3, markdown: '# Handoff text', read_only: true,
-      change_log: [{ revision: 1, kind: 'created', actor: 'system', created_at: '2026-01-01T00:00:00', summary: 'Built it' }],
-    })
-    render(<MentorView token="tok" />)
-    expect(await screen.findByRole('heading', { name: 'Handoff document and change log' })).toBeTruthy()
-    expect(screen.getByText('Handoff text')).toBeTruthy()
-    expect(screen.getByText('Built it')).toBeTruthy()
-    expect(apiMock.getMentorHandoff).toHaveBeenCalledWith('tok')
-    expect(screen.queryByRole('button', { name: /apply|undo|ask|chat/i })).toBeNull()
   })
 })

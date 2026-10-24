@@ -120,9 +120,9 @@ Router: `api/routers/handoff.py`. The handoff document lists the agreed changes.
 | POST | `/share/{project_id}/revoke` | Owner | Requires an explicit `token` or `mentor_email` target; sets `revoked_at`. |
 | POST | `/share/{project_id}/regenerate` | Owner | Revokes the matched share and issues a new one, linked via `regenerated_from_id`. |
 | GET | `/share/view/{token}` | Public | The mentor's read-only view: report content plus comments. No download link is present anywhere in this response. |
-| POST | `/share/view/{token}/comment` | Public (token-gated) | Mentor adds a comment; no account needed. |
-| PATCH | `/share/view/{token}/comment/{id}` | Public (token + matching `author_email` required) | Mentor edits their own comment. The email they originally commented with is the only proof of authorship. |
-| DELETE | `/share/view/{token}/comment/{id}` | Public (token + matching `author_email` required) | Soft-deletes (`deleted_at`). |
+| POST | `/share/view/{token}/comment` | Public (token-gated) | Mentor adds a comment; no account needed. The response includes a one-time `edit_token`. |
+| PATCH | `/share/view/{token}/comment/{id}` | Public (token + the `edit_token` returned when the comment was created) | Mentor edits their own comment. The `edit_token` from creation is the proof of authorship; the public view never shows author emails. |
+| DELETE | `/share/view/{token}/comment/{id}` | Public (token + the `edit_token` returned when the comment was created) | Soft-deletes (`deleted_at`). |
 | PATCH | `/share/{project_id}/comment/{id}` | Owner | Resident-side edit of any comment on their project. |
 | DELETE | `/share/{project_id}/comment/{id}` | Owner | Resident-side delete of any comment on their project. |
 | GET | `/share/view/{token}/report/{fmt}` | (none) | Always returns **HTTP 404** (`api/main.py`). Mentor report downloads were removed; this route answers old bookmarked or emailed links with a clean 404. |
@@ -136,7 +136,7 @@ The AI key routes work for any signed-in user for now (admin-only later). The ge
 | GET | `/settings` | Admin | Lists all non-secret runtime settings from `settings_registry.REGISTRY`, falling back to each spec's default when unset. |
 | PUT | `/settings` | Admin | Validates and upserts one setting; rejects keys in `REJECTED_DB_KEYS` (API keys, `secret_key`, `fernet_key`, `db_url`) with `400`. |
 | GET | `/settings/ai-key` | Session | `{configured, source: settings|env|none, last4, provider, advisor_available}`. The key itself is never returned. |
-| PUT | `/settings/ai-key` | Session | Body `{key}` (8 to 512 characters). Saves an app-wide key that overrides `.env`. Returns the same status shape. |
+| PUT | `/settings/ai-key` | Session | Body `{key}` (8 to 512 characters). Saves the signed-in user's own key, which overrides `.env` for that user. Returns the same status shape. |
 | DELETE | `/settings/ai-key` | Session | Removes the saved key; falls back to the `.env` key if one is set. |
 
 ## `notifications` (`/notifications`)

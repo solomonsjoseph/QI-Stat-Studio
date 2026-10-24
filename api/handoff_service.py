@@ -86,7 +86,7 @@ def _ai_summary(db: Session, project: Any, skeleton: str) -> str:
     model = ""
     chars = 0
     try:
-        provider, api_key, api_base, model = ai_router._provider_settings(db)
+        provider, api_key, api_base, model = ai_router._provider_settings(db, getattr(project, "owner_user_id", None))
         if not (api_key or provider == "local"):
             return ""
         clean, count = scrub_text(skeleton)

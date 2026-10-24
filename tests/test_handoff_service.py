@@ -13,7 +13,7 @@ CSV = b"encounter_id,value,status\n1,10,Yes \n2,20,No\n3,30,yes\n4,500,No\n5,12,
 
 
 def _provider(monkeypatch, provider, key):
-    monkeypatch.setattr(ai_router, "_provider_settings", lambda db: (provider, key, None, "m"))
+    monkeypatch.setattr(ai_router, "_provider_settings", lambda db, user_id: (provider, key, None, "m"))
 
 
 def _create(client, content=CSV):

@@ -168,12 +168,14 @@ itself is still created. See the `notification_status` field returned by
 ## AI key: `.env` or Settings
 
 The active provider key can come from two places. A key saved on the
-Settings screen (`PUT /settings/ai-key`) is stored encrypted, applies app-wide,
-and overrides the `.env` value. Without a saved key the `.env` variable for the
-active provider is used. `GET /settings/ai-key` reports `configured`, the
+Settings screen (`PUT /settings/ai-key`) is stored encrypted, belongs to the
+signed-in user only, and overrides the `.env` value for that user. Without a
+saved key the `.env` variable for the active provider is used. That `.env` key is
+an operator default for a one-person install (a git clone run by one tester): on
+a shared host leave it unset so every resident has to bring their own key. `GET /settings/ai-key` reports `configured`, the
 `source` (`settings`, `env` or `none`), the last four characters and
 `advisor_available`. The key value is never returned. Deleting the saved key
-falls back to `.env`. Any signed-in user can use these routes for now.
+falls back to `.env`. Every signed-in user manages only their own key.
 
 ## No-AI mode
 

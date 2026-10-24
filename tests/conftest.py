@@ -6,6 +6,7 @@ _db_file = f"/tmp/test_qi_stat_studio_{_pid}.db"
 os.environ.setdefault("DB_URL", f"sqlite:///{_db_file}")
 # Tests that mock the LLM still pass the key check; do not depend on a local .env.
 os.environ.setdefault("OPENROUTER_API_KEY", "test-key-not-real")
+os.environ.setdefault("PASSWORD_ITERATIONS", "1000")  # production default is 600000 (OWASP)
 _db_path = Path(_db_file)
 
 import api.models_db  # noqa: E402,F401 - register models
@@ -29,6 +30,9 @@ def clean_database():
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(table.delete())
+    from api import throttle
+    throttle.reset()
+    throttle.IP_REGISTER_LIMIT = throttle.IP_LOGIN_LIMIT = 10_000  # throttle tests set their own limits
     yield
 
 

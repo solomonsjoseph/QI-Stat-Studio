@@ -11,6 +11,22 @@ Full documentation (user guide, architecture, API reference, data model,
 security design, testing, and deployment) lives in [`docs/`](docs/) and is
 built with Sphinx. See **Documentation** below to build and browse it.
 
+## Beta quick start (git clone)
+
+Each tester runs their own copy and brings their own AI key.
+
+1. Install Python 3.9+ and Node.js 20.19+ (see below), then `git clone <repo-url> && cd qi_stat_studio`.
+2. `make real`. The first run builds everything and creates `.env` with its own `FERNET_KEY`
+   and `SECRET_KEY`. Back up `.env`: uploads cannot be decrypted without the `FERNET_KEY`.
+3. Open `http://127.0.0.1:5173` and register. The first account on a copy is its admin.
+4. Open **Settings**, paste your own AI key (an OpenRouter key looks like `sk-or-v1-...`) and
+   click **Save key**. The key belongs to your account only. Without a key the app still
+   works, and the QI Stat Advisor stays off.
+5. Use synthetic or de-identified data only. This prototype is not HIPAA compliant.
+
+Do not put a shared key in `.env` on a machine several people use: an `.env` key is used by
+everyone who signs in to that copy. A key saved in Settings is used only by its owner.
+
 ## Quick start
 
 **Prerequisites:** Python 3.9+ (3.11 recommended; 3.9 needs `eval_type_backport`, which requirements.txt installs), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).

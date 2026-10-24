@@ -142,9 +142,9 @@ def test_stub_env_provider_ignores_runtime_override(monkeypatch):
     with SessionLocal() as db:
         db.add(AppSetting(key="ai_provider", value="openrouter"))
         db.commit()
-        assert ai_router._provider_settings(db)[0] == "stub"
+        assert ai_router._provider_settings(db, None)[0] == "stub"
         monkeypatch.setattr(ai_router.settings, "ai_provider", "openrouter")
-        assert ai_router._provider_settings(db)[0] == "openrouter"
+        assert ai_router._provider_settings(db, None)[0] == "openrouter"
 
 
 # 5
