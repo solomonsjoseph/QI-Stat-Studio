@@ -138,6 +138,9 @@ class MentorShare(Base):
     expires_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     regenerated_from_id = Column(Integer, ForeignKey("mentor_shares.id", ondelete="SET NULL"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)  # the mentor's final sign-off ("good work")
+    approved_by_name = Column(String(255), nullable=True)
+    approved_note = Column(Text, nullable=True)
 
 
 class MentorComment(Base):
@@ -151,6 +154,9 @@ class MentorComment(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
+    resident_reply = Column(Text, nullable=True)  # what the resident did about this comment
+    addressed_at = Column(DateTime, nullable=True)  # the resident says it is handled
+    resolved_at = Column(DateTime, nullable=True)  # the mentor agrees it is handled
 
 
 class AIUsageEvent(Base):

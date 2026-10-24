@@ -16,8 +16,13 @@ from api.config import settings
 from api.database import get_db
 from api.models_api import (
     CommentPayload,
+    MentorApprovalIn,
+    MentorApprovalOut,
     MentorCommentAuthorIn,
     MentorCommentEditIn,
+    MentorCommentResolveIn,
+    MentorReviewOut,
+    ResidentReplyIn,
     MentorCommentOwnerEditIn,
     MentorCommentCreatedOut,
     MentorCommentOut,
@@ -288,6 +293,7 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
         "code_spss": runs[-1].code_spss if runs else "",
         "code_sas": runs[-1].code_sas if runs else "",
         "comments": normalized_comments,
+        "approval": MentorApprovalOut.model_validate(share).model_dump(mode="json") if share.approved_at else None,
     }
 
 def _edit_token(share_id: int, comment_id: int) -> str:
@@ -352,6 +358,74 @@ def delete_public_comment(
     db.commit()
     log_action(db, share.project_id, "mentor_comment_deleted", {"share_id": share.id, "comment_id": comment.id, "public": True})
     return {"ok": True}
+
+
+@router.patch("/view/{token}/comment/{comment_id}/resolve", response_model=MentorCommentPublicOut)
+def resolve_public_comment(token: str, comment_id: int, payload: MentorCommentResolveIn, db: Session = Depends(get_db)):
+    """The mentor who wrote a comment says whether the resident's fix settles it."""
+    share = _active_share_or_404(token, db)
+    comment = db.get(MentorComment, comment_id)
+    if not comment or comment.share_id != share.id or comment.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    _require_edit_token(share, comment, payload.edit_token)
+    comment.resolved_at = datetime.utcnow() if payload.resolved else None
+    db.commit()
+    db.refresh(comment)
+    log_action(db, share.project_id, "mentor_comment_resolved" if payload.resolved else "mentor_comment_reopened",
+               {"share_id": share.id, "comment_id": comment.id})
+    return comment
+
+
+@router.post("/view/{token}/approve", response_model=MentorApprovalOut)
+def approve_review(token: str, payload: MentorApprovalIn, db: Session = Depends(get_db)):
+    """The mentor's final sign-off. Anyone holding the link can give it, like a comment. Giving it again replaces it."""
+    share = _active_share_or_404(token, db)
+    share.approved_at = datetime.utcnow()
+    share.approved_by_name = payload.author_name.strip()
+    share.approved_note = payload.note.strip() or None
+    db.commit()
+    db.refresh(share)
+    log_action(db, share.project_id, "mentor_approved", {"share_id": share.id})
+    return share
+
+
+@router.get("/{project_id}/review", response_model=MentorReviewOut)
+def resident_review(project_id: int, db: Session = Depends(get_db), project: Project = Depends(require_project_owner)):
+    """What the resident needs to act on: every mentor comment with its status, and the approval if given."""
+    comments = (
+        db.query(MentorComment)
+        .filter(MentorComment.project_id == project_id, MentorComment.deleted_at.is_(None))
+        .order_by(MentorComment.created_at.asc(), MentorComment.id.asc())
+        .all()
+    )
+    approved = (
+        db.query(MentorShare)
+        .filter(MentorShare.project_id == project_id, MentorShare.revoked_at.is_(None), MentorShare.approved_at.isnot(None))
+        .order_by(MentorShare.approved_at.desc())
+        .first()
+    )
+    return {"comments": comments, "approval": approved}
+
+
+@router.post("/{project_id}/comment/{comment_id}/reply", response_model=MentorCommentOut)
+def resident_reply(
+    project_id: int,
+    comment_id: int,
+    payload: ResidentReplyIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+):
+    """The resident says what they did about a comment. It goes back to the mentor to resolve."""
+    comment = db.get(MentorComment, comment_id)
+    if not comment or comment.project_id != project_id or comment.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    comment.resident_reply = payload.reply.strip() or None
+    comment.addressed_at = datetime.utcnow()
+    comment.resolved_at = None  # a new reply asks the mentor to look again
+    db.commit()
+    db.refresh(comment)
+    log_action(db, project_id, "mentor_comment_addressed", {"comment_id": comment.id})
+    return comment
 
 
 @router.patch("/{project_id}/comment/{comment_id}", response_model=MentorCommentOut)

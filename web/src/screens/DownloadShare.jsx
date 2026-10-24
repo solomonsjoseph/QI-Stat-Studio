@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useApp } from '../App'
 import BackButton from '../components/BackButton'
+import MentorReviewPanel from '../components/MentorReviewPanel'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
@@ -187,6 +188,10 @@ export default function DownloadShare() {
               </>
             )}
           </section>
+
+          <div className="mt-8">
+            <MentorReviewPanel projectId={ctx.projectId} refreshKey={shareToken} />
+          </div>
         </>
       )}
     </div>

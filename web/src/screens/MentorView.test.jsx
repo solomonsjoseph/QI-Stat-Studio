@@ -10,6 +10,8 @@ const { apiMock } = vi.hoisted(() => ({
     addComment: vi.fn(),
     editComment: vi.fn(),
     deleteComment: vi.fn(),
+    resolveComment: vi.fn(),
+    approveReview: vi.fn(),
   },
 }))
 
@@ -145,5 +147,30 @@ describe('MentorView', () => {
     expect(window.localStorage.getItem('qiss:comment:mentor-token:12')).toBeNull()
 
     confirm.mockRestore()
+  })
+
+  it('shows the resident reply and status, lets the author resolve their comment, and records the sign-off', async () => {
+    window.localStorage.setItem('qiss:comment:mentor-token:21', 'secret-21')
+    const answered = { id: 21, author_name: 'Dr Mentor', text: 'Please add the date.', resident_reply: 'Added January 2025 to the caption.', addressed_at: '2026-10-24T10:00:00', resolved_at: null }
+    apiMock.getMentorView
+      .mockResolvedValueOnce(mentorPayload({ comments: [answered], approval: null }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [{ ...answered, resolved_at: '2026-10-24T11:00:00' }], approval: null }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [{ ...answered, resolved_at: '2026-10-24T11:00:00' }], approval: { approved_at: '2026-10-24T12:00:00', approved_by_name: 'Dr Mentor', approved_note: 'Good work.' } }))
+    apiMock.resolveComment.mockResolvedValue({})
+    apiMock.approveReview.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<MentorView token="mentor-token" />)
+
+    expect(await screen.findByText('Added January 2025 to the caption.')).toBeInTheDocument()
+    expect(screen.getByTestId('comment-status')).toHaveTextContent('Addressed by the resident')
+    await user.click(screen.getByRole('button', { name: 'Mark resolved' }))
+    expect(apiMock.resolveComment).toHaveBeenCalledWith('mentor-token', 21, 'secret-21', true)
+    expect(await screen.findByRole('button', { name: 'Reopen' })).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Name for the sign-off'), 'Dr Mentor')
+    await user.type(screen.getByLabelText('Note (optional)'), 'Good work.')
+    await user.click(screen.getByRole('button', { name: 'Approve: good work' }))
+    expect(apiMock.approveReview).toHaveBeenCalledWith('mentor-token', 'Dr Mentor', 'Good work.')
+    expect(await screen.findByText(/Approved by Dr Mentor/)).toBeInTheDocument()
   })
 })

@@ -6,6 +6,8 @@ import DownloadShare from './DownloadShare'
 const { apiMock, useAppMock } = vi.hoisted(() => ({
   apiMock: {
     createShare: vi.fn(),
+    getMentorReview: vi.fn(),
+    replyToComment: vi.fn(),
     projectDocxUrl: vi.fn((projectId) => `/api/report/project/${projectId}/docx`),
     projectPdfUrl: vi.fn((projectId) => `/api/report/project/${projectId}/pdf`),
   },
@@ -17,6 +19,7 @@ vi.mock('../App', () => ({ useApp: useAppMock }))
 
 beforeEach(() => {
   apiMock.createShare.mockReset()
+  apiMock.getMentorReview.mockReset().mockResolvedValue({ comments: [], approval: null })
   apiMock.projectDocxUrl.mockClear()
   apiMock.projectPdfUrl.mockClear()
   useAppMock.mockReset()

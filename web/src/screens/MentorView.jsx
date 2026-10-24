@@ -57,9 +57,27 @@ function CommentCard({ comment, token, load, setError }) {
     setEditing(false)
   }
 
+  async function setResolved(resolved) {
+    setBusy(true)
+    setError('')
+    try {
+      await api.resolveComment(token, comment.id, editToken, resolved)
+      setBusy(false)
+      await load()
+    } catch (err) {
+      setError(errorMessage(err, 'Could not update the comment status'))
+      setBusy(false)
+    }
+  }
+
+  const status = comment.resolved_at ? 'Resolved' : comment.addressed_at ? 'Addressed by the resident' : 'Open'
+
   return (
     <article className="card p-4 text-sm">
-      <div className="font-medium text-ink">{author}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-medium text-ink">{author}</div>
+        <span className="rounded border border-line px-2 py-0.5 text-xs text-ink-soft" data-testid="comment-status">{status}</span>
+      </div>
       {timestamp && <div className="mb-2 text-xs text-ink-faint">{timestamp}</div>}
       {editing ? (
         <form onSubmit={saveEdit} className="flex flex-col gap-2">
@@ -73,8 +91,17 @@ function CommentCard({ comment, token, load, setError }) {
       ) : (
         <>
           <p className="leading-6 text-ink-soft">{comment.text}</p>
+          {comment.resident_reply && (
+            <div className="mt-3 rounded border border-line bg-canvas p-3">
+              <div className="text-xs font-medium text-ink-faint">Resident reply{comment.addressed_at ? `, ${new Date(comment.addressed_at).toLocaleString()}` : ''}</div>
+              <p className="mt-1 leading-6 text-ink-soft">{comment.resident_reply}</p>
+            </div>
+          )}
           {editToken && (
             <div className="mt-3 flex gap-3">
+              {comment.resolved_at
+                ? <button type="button" onClick={() => setResolved(false)} disabled={busy} className="text-sm font-medium text-brand hover:text-brand-deep disabled:opacity-50">Reopen</button>
+                : <button type="button" onClick={() => setResolved(true)} disabled={busy} className="text-sm font-medium text-brand hover:text-brand-deep disabled:opacity-50">Mark resolved</button>}
               <button type="button" onClick={() => setEditing(true)} disabled={busy || !comment.id} className="text-sm font-medium text-brand hover:text-brand-deep disabled:opacity-50">Edit</button>
               <button type="button" onClick={deleteComment} disabled={busy || !comment.id} className="text-sm font-medium text-error-ink disabled:opacity-50">Delete</button>
             </div>
@@ -99,6 +126,9 @@ export default function MentorView({ token }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [handoff, setHandoff] = useState(null)
+  const [approvalName, setApprovalName] = useState('')
+  const [approvalNote, setApprovalNote] = useState('')
+  const [approving, setApproving] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -130,6 +160,21 @@ export default function MentorView({ token }) {
       setError(errorMessage(err, 'Could not save comment'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function approve(e) {
+    e.preventDefault()
+    setApproving(true)
+    setError('')
+    try {
+      await api.approveReview(token, approvalName || authorName, approvalNote)
+      setApprovalNote('')
+      setData(await api.getMentorView(token))
+    } catch (err) {
+      setError(errorMessage(err, 'Could not save the approval'))
+    } finally {
+      setApproving(false)
     }
   }
 
@@ -219,6 +264,24 @@ export default function MentorView({ token }) {
           <button type="submit" disabled={saving} className="btn-primary self-start">
             {saving && <Spinner />}
             {saving ? 'Sending…' : 'Send Comment'}
+          </button>
+        </form>
+      </section>
+
+      <section className="mt-8 border-t border-line pt-6" aria-labelledby="approval-heading">
+        <h2 id="approval-heading" className="mb-3 font-semibold text-ink">Sign-off</h2>
+        {data.approval && (
+          <p className="alert-ok mb-4" aria-live="polite">
+            Approved by {data.approval.approved_by_name} on {new Date(data.approval.approved_at).toLocaleString()}.
+            {data.approval.approved_note ? ` ${data.approval.approved_note}` : ''}
+          </p>
+        )}
+        <form onSubmit={approve} className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1" htmlFor="approval-name"><span className="label">Name for the sign-off</span><input id="approval-name" className="input" value={approvalName || authorName} onChange={e => setApprovalName(e.target.value)} required disabled={approving} /></label>
+          <label className="flex flex-col gap-1" htmlFor="approval-note"><span className="label">Note (optional)</span><input id="approval-note" className="input" value={approvalNote} onChange={e => setApprovalNote(e.target.value)} placeholder="Good work." disabled={approving} /></label>
+          <button type="submit" disabled={approving} className="btn-primary self-start">
+            {approving && <Spinner />}
+            {approving ? 'Saving…' : data.approval ? 'Approve again: good work' : 'Approve: good work'}
           </button>
         </form>
       </section>

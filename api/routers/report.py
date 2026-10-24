@@ -28,7 +28,7 @@ from api.auth import get_current_user
 from api.data_changes import build_data_changes, data_change_lines
 from api.database import get_db
 from api.models_api import ProjectDesign
-from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, Project, Upload, User
+from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, MentorShare, Project, Upload, User
 
 logger = logging.getLogger(__name__)
 
@@ -425,15 +425,6 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
         doc.add_heading("Statistical Code Supplement (SAS)", 1)
         doc.add_paragraph("\n\n".join(code_sas_list), style="No Spacing")
 
-    comments = _mentor_comments(project_id, db, share_id=share_id)
-    if comments:
-        doc.add_heading("Mentor Feedback", 1)
-        for comment in comments:
-            when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
-            author = comment.author_name or "Mentor"
-            email = f" <{comment.author_email}>" if comment.author_email else ""
-            doc.add_paragraph(f"{when}, {author}{email}: {comment.text}")
-
     doc.add_heading("Audit Trail", 1)
     for run, run_ctx in zip(ctx["raw_runs"], ctx["runs"]):
         audit_rows = _base_audit_rows(run, run_ctx)
@@ -470,6 +461,8 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
             edit_tbl.rows[i].cells[0].text = edit.field or ""
             edit_tbl.rows[i].cells[1].text = edit.original_text or ""
             edit_tbl.rows[i].cells[2].text = edit.edited_text or ""
+
+    _add_mentor_review_docx(doc, _mentor_review_blocks(project_id, db, share_id))
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -584,16 +577,6 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
                     story.append(Paragraph(_esc(line), code_style))
                 story.append(Spacer(1, 4))
 
-    comments = _mentor_comments(project_id, db, share_id=share_id)
-    if comments:
-        story.append(Paragraph("Mentor Feedback", styles["Heading2"]))
-        for comment in comments:
-            when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
-            author = comment.author_name or "Mentor"
-            email = f" <{comment.author_email}>" if comment.author_email else ""
-            story.append(Paragraph(_esc(f"{when}, {author}{email}: {comment.text}"), styles["Normal"]))
-        story.append(Spacer(1, 8))
-
     story.append(Paragraph("Audit Trail", styles["Heading2"]))
     for run, run_ctx in zip(ctx["raw_runs"], ctx["runs"]):
         audit_data = _base_audit_rows(run, run_ctx)
@@ -630,6 +613,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
         et = _pdf_table(edit_data, widths=[70, 199, 199])
         story.append(et)
 
+    _add_mentor_review_pdf(story, styles, _mentor_review_blocks(project_id, db, share_id))
     doc.build(story)
     return buf.getvalue()
 
@@ -670,6 +654,63 @@ def _mentor_comments(project_id: int, db: Session, share_id: int | None = None) 
     if share_id is not None:
         query = query.filter(MentorComment.share_id == share_id)
     return query.order_by(MentorComment.created_at.asc(), MentorComment.id.asc()).all()
+
+
+def _stamp(value: datetime | None) -> str:
+    return value.strftime("%Y-%m-%d %H:%M UTC") if value else ""
+
+
+def _mentor_review_blocks(project_id: int, db: Session, share_id: int | None = None) -> list[tuple[str, str]]:
+    """The mentor review as (kind, text) lines for the last section of a report: each comment, what the
+    resident did about it, where it stands, then the mentor's approval."""
+    blocks: list[tuple[str, str]] = []
+    for comment in _mentor_comments(project_id, db, share_id=share_id):
+        author = comment.author_name or "Mentor"
+        email = f" <{comment.author_email}>" if comment.author_email else ""
+        blocks.append(("comment", f"{_stamp(comment.created_at)}, {author}{email}: {comment.text}"))
+        if comment.resident_reply:
+            blocks.append(("detail", f"Resident reply ({_stamp(comment.addressed_at)}): {comment.resident_reply}"))
+        if comment.resolved_at:
+            status = f"Resolved by the mentor on {_stamp(comment.resolved_at)}"
+        elif comment.addressed_at:
+            status = f"Addressed by the resident on {_stamp(comment.addressed_at)}, waiting for the mentor"
+        else:
+            status = "Open"
+        blocks.append(("detail", f"Status: {status}"))
+    query = db.query(MentorShare).filter(
+        MentorShare.project_id == project_id, MentorShare.revoked_at.is_(None), MentorShare.approved_at.isnot(None)
+    )
+    if share_id is not None:
+        query = query.filter(MentorShare.id == share_id)
+    approved = query.order_by(MentorShare.approved_at.desc()).first()
+    if approved:
+        note = f" {approved.approved_note}" if approved.approved_note else ""
+        blocks.append(("approval", f"Mentor approval: approved by {approved.approved_by_name or 'the mentor'} on {_stamp(approved.approved_at)}.{note}"))
+    return blocks
+
+
+def _add_mentor_review_docx(doc: Document, blocks: list[tuple[str, str]]) -> None:
+    if not blocks:
+        return
+    doc.add_heading("Mentor Feedback", 1)
+    for kind, text in blocks:
+        paragraph = doc.add_paragraph(text)
+        if kind == "detail":
+            paragraph.paragraph_format.left_indent = Inches(0.3)
+        elif kind == "approval":
+            for run in paragraph.runs:
+                run.bold = True
+
+
+def _add_mentor_review_pdf(story: list, styles: Any, blocks: list[tuple[str, str]]) -> None:
+    if not blocks:
+        return
+    story.append(Paragraph("Mentor Feedback", styles["Heading2"]))
+    detail = ParagraphStyle("mentor_detail", parent=styles["Normal"], leftIndent=18)
+    for kind, text in blocks:
+        style = detail if kind == "detail" else styles["Normal"]
+        story.append(Paragraph(f"<b>{_esc(text)}</b>" if kind == "approval" else _esc(text), style))
+    story.append(Spacer(1, 8))
 
 
 def _base_audit_rows(run: AnalysisRun, context: dict[str, Any]) -> list[list[str]]:
@@ -743,15 +784,6 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
         doc.add_heading("Statistical Code Supplement (SAS)", 1)
         doc.add_paragraph(run.code_sas, style="No Spacing")
 
-    comments = _mentor_comments(run.project_id, db, share_id=share_id)
-    if comments:
-        doc.add_heading("Mentor Feedback", 1)
-        for comment in comments:
-            when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
-            author = comment.author_name or "Mentor"
-            email = f" <{comment.author_email}>" if comment.author_email else ""
-            doc.add_paragraph(f"{when}, {author}{email}: {comment.text}")
-
     doc.add_heading("Audit Trail", 1)
     audit_rows = _base_audit_rows(run, context)
     tbl = doc.add_table(rows=len(audit_rows), cols=2)
@@ -783,6 +815,8 @@ def _build_docx(run: AnalysisRun, db: Session, share_id: int | None = None) -> b
             edit_tbl.rows[i].cells[0].text = edit.field or ""
             edit_tbl.rows[i].cells[1].text = edit.original_text or ""
             edit_tbl.rows[i].cells[2].text = edit.edited_text or ""
+
+    _add_mentor_review_docx(doc, _mentor_review_blocks(run.project_id, db, share_id))
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -859,16 +893,6 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
         story.append(Paragraph(_esc(run.code_sas), code_style))
         story.append(Spacer(1, 8))
 
-    comments = _mentor_comments(run.project_id, db, share_id=share_id)
-    if comments:
-        story.append(Paragraph("Mentor Feedback", styles["Heading2"]))
-        for comment in comments:
-            when = comment.created_at.strftime("%Y-%m-%d %H:%M UTC") if comment.created_at else ""
-            author = comment.author_name or "Mentor"
-            email = f" <{comment.author_email}>" if comment.author_email else ""
-            story.append(Paragraph(_esc(f"{when}, {author}{email}: {comment.text}"), styles["Normal"]))
-        story.append(Spacer(1, 8))
-
     story.append(Paragraph("Audit Trail", styles["Heading2"]))
     audit_data = _base_audit_rows(run, context)
     t = _pdf_table(audit_data, header_bg=colors.grey, widths=[120, 348])
@@ -899,6 +923,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
         et = _pdf_table(edit_data, widths=[70, 199, 199])
         story.append(et)
 
+    _add_mentor_review_pdf(story, styles, _mentor_review_blocks(run.project_id, db, share_id))
     doc.build(story)
     return buf.getvalue()
 

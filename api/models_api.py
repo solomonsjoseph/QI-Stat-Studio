@@ -390,6 +390,9 @@ class MentorCommentOut(BaseModel):
     text: str
     created_at: datetime
     updated_at: Optional[datetime]
+    resident_reply: Optional[str] = None
+    addressed_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -401,6 +404,9 @@ class MentorCommentPublicOut(BaseModel):
     text: str
     created_at: datetime
     updated_at: Optional[datetime]
+    resident_reply: Optional[str] = None
+    addressed_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -428,6 +434,38 @@ class MentorCommentOwnerEditIn(BaseModel):
 
 class MentorCommentAuthorIn(BaseModel):
     edit_token: str
+
+
+class MentorCommentResolveIn(BaseModel):
+    edit_token: str
+    resolved: bool = True
+
+
+class ResidentReplyIn(BaseModel):
+    reply: str = Field(default="", max_length=2000)
+
+    _clean = field_validator("reply", mode="before")(_strip_control_chars)
+
+
+class MentorApprovalIn(BaseModel):
+    author_name: str = Field(min_length=1, max_length=255)
+    note: str = Field(default="", max_length=2000)
+
+    _clean = field_validator("author_name", "note", mode="before")(_strip_control_chars)
+
+
+class MentorApprovalOut(BaseModel):
+    approved_at: datetime
+    approved_by_name: str
+    approved_note: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MentorReviewOut(BaseModel):
+    """The resident's view of the mentor review: every comment with its status, and the approval."""
+    comments: list[MentorCommentOut]
+    approval: Optional[MentorApprovalOut] = None
 
 
 class ModelInfo(BaseModel):

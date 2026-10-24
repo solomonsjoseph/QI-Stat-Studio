@@ -21,7 +21,9 @@ First beta. It runs from a git clone on each tester's own machine. Hosting and H
 - A rules-first analysis plan, so the plan exists before any AI is asked.
 - Per-user AI keys, stored encrypted and used only by their owner.
 - Model selection in Settings. The list of models is fetched from the provider with the user's own key each time the page opens (OpenRouter, OpenAI, Gemini and local servers), so no model list is built into the app. Each user's choice applies to their account only, and the app says so when the provider no longer lists the current model.
-- A mentor review link that needs no account. A mentor can comment, edit and delete their own comments, and sign off with a comment. Mentor comments appear in the Word and PDF reports.
+- A mentor review link that needs no account. A mentor can comment, edit and delete their own comments, and approve the work with "Approve: good work" and an optional note.
+- A review cycle. The resident sees each mentor comment on the Download screen, replies and marks it addressed, and can go back and change the report. The mentor sees the reply on the same link and marks the comment resolved.
+- The mentor review is the last section of the Word and PDF reports: each comment, the resident's reply, its status, and the approval line.
 - Sign-in throttling, generic sign-in errors and an audit log of sign-in failures.
 - Upload limits on size, rows, columns, PDF pages and zip expansion.
 - The release version in the page header and in `/health`.

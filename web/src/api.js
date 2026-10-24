@@ -150,6 +150,13 @@ export const api = {
     req('PATCH', `/share/view/${token}/comment/${commentId}`, { edit_token: editToken, text }),
   deleteComment: (token, commentId, editToken) =>
     req('DELETE', `/share/view/${token}/comment/${commentId}`, { edit_token: editToken }),
+  resolveComment: (token, commentId, editToken, resolved) =>
+    req('PATCH', `/share/view/${token}/comment/${commentId}/resolve`, { edit_token: editToken, resolved }),
+  approveReview: (token, authorName, note) =>
+    req('POST', `/share/view/${token}/approve`, { author_name: authorName, note: note || '' }),
+  getMentorReview: (projectId) => req('GET', `/share/${projectId}/review`),
+  replyToComment: (projectId, commentId, reply) =>
+    req('POST', `/share/${projectId}/comment/${commentId}/reply`, { reply }),
 
   // Settings
   getSettings: () => req('GET', '/settings'),
