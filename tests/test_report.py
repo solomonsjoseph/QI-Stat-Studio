@@ -603,3 +603,68 @@ def test_table_headers_read_as_words():
     assert _header_text("mean_ci_low") == "Mean CI low"
     assert _header_text("group") == "Group"
     assert _header_text("pct") == "%"
+
+
+def _glyph_boxes(pdf_bytes: bytes):
+    """(page_index, page_width, [(l, b, r, t), ...]) for every visible character in the PDF."""
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    for index in range(len(pdf)):
+        page = pdf[index]
+        text = page.get_textpage()
+        boxes = []
+        for i in range(text.count_chars()):
+            if text.get_text_range(i, 1).strip():
+                boxes.append(text.get_charbox(i))
+        yield index, page.get_width(), boxes
+
+
+def _assert_pdf_layout_is_clean(pdf_bytes: bytes):
+    for index, width, boxes in _glyph_boxes(pdf_bytes):
+        outside = [b for b in boxes if b[0] < 71 or b[2] > width - 71]
+        assert not outside, f"page {index + 1}: {len(outside)} characters sit outside the page margins"
+        rows = {}
+        for b in boxes:
+            rows.setdefault(round((b[1] + b[3]) / 2 / 3), []).append(b)
+        for key, row in rows.items():
+            candidates = row + rows.get(key + 1, [])
+            for i, a in enumerate(row):
+                for c in candidates[i + 1:]:
+                    overlap_w = min(a[2], c[2]) - max(a[0], c[0])
+                    overlap_h = min(a[3], c[3]) - max(a[1], c[1])
+                    if overlap_w > 0.5 * min(a[2] - a[0], c[2] - c[0]) and overlap_h > 0.5 * min(a[3] - a[1], c[3] - c[1]):
+                        raise AssertionError(f"page {index + 1}: characters print over each other near x={a[0]:.0f}, y={a[1]:.0f}")
+
+
+def test_wide_result_table_and_long_cells_stay_inside_the_pdf_page_without_overprinting(client):
+    _register(client, "layout@example.com")
+    wide = {
+        "group": "post", "variable": "a1c_at_goal", "n": 276, "mean": 0.25, "sd": 0.44, "median": 0.0,
+        "mean_ci_low": 0.2, "mean_ci_high": 0.31, "median_ci_low": 0.0, "median_ci_high": 0.0,
+    }
+    long_cells = {f"column_number_{i}": "a_very_long_unbroken_identifier_value_" + "x" * 30 for i in range(3)}
+    seeded = _seed_report_run(
+        with_edits=True, with_audit_and_comments=True,
+        result={
+            "methods": "Descriptive statistics were calculated.",
+            "result_summary": "Descriptive summary of 1 variable(s) across 2 group(s).",
+            "table": [wide, {**wide, "group": "pre"}],
+            "figure_base64": TINY_PNG_BASE64,
+        },
+    )
+    db = SessionLocal()
+    first = db.query(AnalysisRun).filter_by(project_id=seeded["project_id"]).one()
+    db.add(AnalysisRun(
+        project_id=seeded["project_id"], upload_id=first.upload_id, template="before_after_pct", parameters="{}",
+        result_json=json.dumps({"methods": "m", "result_summary": "s", "table": [long_cells, {**long_cells}]}),
+        created_at=datetime.utcnow() + timedelta(seconds=1),
+    ))
+    db.commit()
+    db.close()
+
+    response = client.get(f"/report/project/{seeded['project_id']}/pdf")
+    assert response.status_code == 200, response.text
+    _assert_pdf_layout_is_clean(response.content)
+    text = _pdf_text(response.content)
+    assert "Run Chart" in text and "Before/After: Proportion" in text  # each section is headed by its own analysis

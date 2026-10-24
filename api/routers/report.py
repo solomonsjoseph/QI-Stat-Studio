@@ -13,7 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image as RLImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy.orm import Session
@@ -42,6 +43,71 @@ _HEADER_WORDS = {"ci": "CI", "sd": "SD", "n": "N", "pct": "%"}
 def _header_text(key: str) -> str:
     text = " ".join(_HEADER_WORDS.get(w.lower(), w) for w in str(key).split("_"))
     return text[:1].upper() + text[1:]
+
+
+# Same names the app shows (web/src/templateLabels.js), so the report reads like the screens.
+_TEMPLATE_TITLES = {
+    "descriptive_summary": "Descriptive Summary",
+    "before_after_mean": "Before/After: Mean",
+    "before_after_pct": "Before/After: Proportion",
+    "before_after_paired": "Before/After: Paired",
+    "run_chart": "Run Chart",
+    "p_chart": "p-Chart",
+    "u_c_chart": "u/c-Chart",
+}
+
+
+def _template_title(template: str | None) -> str:
+    return _TEMPLATE_TITLES.get(template or "", (template or "Analysis").replace("_", " ").title())
+
+
+def _pdf_styles():
+    """Default styles, with headings kept on the same page as what follows them."""
+    styles = getSampleStyleSheet()
+    for name in ("Heading1", "Heading2", "Heading3"):
+        styles[name].keepWithNext = 1
+    return styles
+
+
+_PDF_WIDTH = letter[0] - 2 * 72  # SimpleDocTemplate default margins: the usable width in points
+_PDF_MIN_COL = 34
+
+
+def _pdf_table(rows: list[list[Any]], header_bg: Any = colors.lightgrey, widths: list[float] | None = None) -> Table:
+    """A table that always fits the page. Every cell is a wrapping Paragraph, so long text and many
+    columns wrap instead of printing over the next cell, and column widths follow the content."""
+    ncols = max(len(r) for r in rows)
+    size = 9 if ncols <= 5 else 8 if ncols <= 8 else 7
+    cell = ParagraphStyle("cell", parent=getSampleStyleSheet()["Normal"], fontSize=size, leading=size + 2)
+    head = ParagraphStyle("head", parent=cell, fontName="Helvetica-Bold")
+    data = [[Paragraph(_esc(c), head if i == 0 else cell) for c in r] for i, r in enumerate(rows)]
+    if widths is None:
+        # Weight by the longest word and the typical length, so ids stay whole and prose gets the room.
+        weights = []
+        for j in range(ncols):
+            col = [str(r[j]) if j < len(r) else "" for r in rows]
+            longest_word = max((len(w) for c in col for w in c.split()), default=1)
+            typical = sum(len(c) for c in col) / len(col)
+            weights.append(max(longest_word, min(typical, 60), 4))
+        total = sum(weights)
+        widths = [max(_PDF_MIN_COL, _PDF_WIDTH * w / total) for w in weights]
+    scale = min(1.0, _PDF_WIDTH / sum(widths))
+    table = Table(data, colWidths=[w * scale for w in widths], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), header_bg),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
+
+
+def _pdf_image(png: bytes, max_w: float = _PDF_WIDTH, max_h: float = 320) -> RLImage:
+    """The figure at its own aspect ratio, never wider than the page."""
+    w, h = ImageReader(io.BytesIO(png)).getSize()
+    scale = min(max_w / w, max_h / h, 1.0)
+    return RLImage(io.BytesIO(png), width=w * scale, height=h * scale)
 
 
 def _cell_text(value: Any) -> str:
@@ -275,10 +341,8 @@ def _build_project_docx(project_id: int, db: Session, share_id: int | None = Non
     if not ctx["runs"]:
         doc.add_paragraph("No analysis runs available.")
 
-    for run_ctx in ctx["runs"]:
-        run_id_val = run_ctx["result"].get("run_id")
-        run = next((r for r in ctx["raw_runs"] if r.id == run_id_val), ctx["raw_runs"][0] if ctx["raw_runs"] else None)
-        template_name = (run.template if run else "Analysis").replace("_", " ").title()
+    for run, run_ctx in zip(ctx["raw_runs"], ctx["runs"]):  # same order; result_json has no run_id to look up
+        template_name = _template_title(run.template if run else None)
         doc.add_heading(template_name, 1)
 
         res = run_ctx["result"]
@@ -406,7 +470,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter)
-    styles = getSampleStyleSheet()
+    styles = _pdf_styles()
     code_style = styles["Code"] if "Code" in styles else styles["Normal"]
     story = []
 
@@ -429,10 +493,8 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
         story.append(Paragraph("No analysis methods available.", styles["Normal"]))
     story.append(Spacer(1, 8))
 
-    for run_ctx in ctx["runs"]:
-        run_id_val = run_ctx["result"].get("run_id")
-        run = next((r for r in ctx["raw_runs"] if r.id == run_id_val), ctx["raw_runs"][0] if ctx["raw_runs"] else None)
-        template_name = (run.template if run else "Analysis").replace("_", " ").title()
+    for run, run_ctx in zip(ctx["raw_runs"], ctx["runs"]):  # same order; result_json has no run_id to look up
+        template_name = _template_title(run.template if run else None)
         story.append(Paragraph(template_name, styles["Heading2"]))
 
         res = run_ctx["result"]
@@ -444,12 +506,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
         if tbl_data:
             headers = list(tbl_data[0].keys())
             rows = [[_header_text(h) for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
-            col_w = 470 / len(headers)
-            pt = Table(rows, colWidths=[col_w] * len(headers))
-            pt.setStyle(TableStyle([
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ]))
+            pt = _pdf_table(rows)
             story.append(pt)
             story.append(Spacer(1, 8))
 
@@ -457,7 +514,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
         if fig_b64:
             try:
                 img_data = base64.b64decode(fig_b64)
-                story.append(RLImage(io.BytesIO(img_data), width=400, height=200))
+                story.append(_pdf_image(img_data))
                 story.append(Spacer(1, 4))
             except Exception:
                 pass
@@ -527,11 +584,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
     story.append(Paragraph("Audit Trail", styles["Heading2"]))
     for run, run_ctx in zip(ctx["raw_runs"], ctx["runs"]):
         audit_data = _base_audit_rows(run, run_ctx)
-        t = Table(audit_data, colWidths=[120, 350])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-        ]))
+        t = _pdf_table(audit_data, header_bg=colors.grey, widths=[120, 348])
         story.append(t)
         story.append(Spacer(1, 4))
     audit_entries = _audit_entries(project_id, db)
@@ -546,11 +599,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
             ]
             for entry in audit_entries
         ]
-        at = Table(audit_rows, colWidths=[130, 120, 220])
-        at.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ]))
+        at = _pdf_table(audit_rows, widths=[120, 100, 248])
         story.append(at)
 
     edits = (
@@ -565,11 +614,7 @@ def _build_project_pdf(project_id: int, db: Session, share_id: int | None = None
         edit_data = [["Field", "Original Text", "Edited Text"]] + [
             [edit.field or "", edit.original_text or "", edit.edited_text or ""] for edit in edits
         ]
-        et = Table(edit_data, colWidths=[80, 220, 170])
-        et.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ]))
+        et = _pdf_table(edit_data, widths=[70, 199, 199])
         story.append(et)
 
     doc.build(story)
@@ -738,7 +783,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter)
-    styles = getSampleStyleSheet()
+    styles = _pdf_styles()
     code_style = styles["Code"] if "Code" in styles else styles["Normal"]
     story = []
 
@@ -758,19 +803,14 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
     if tbl_data:
         headers = list(tbl_data[0].keys())
         rows = [[_header_text(h) for h in headers]] + [[_cell_text(r.get(h, "")) for h in headers] for r in tbl_data]
-        col_w = 470 / len(headers)
-        pt = Table(rows, colWidths=[col_w] * len(headers))
-        pt.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ]))
+        pt = _pdf_table(rows)
         story.append(pt)
         story.append(Spacer(1, 8))
 
     fig_b64 = result.get("figure_base64")
     if fig_b64:
         img_data = base64.b64decode(fig_b64)
-        story.append(RLImage(io.BytesIO(img_data), width=400, height=200))
+        story.append(_pdf_image(img_data))
         story.append(Spacer(1, 4))
         if context["caption"]:
             story.append(Paragraph(_esc(context["caption"]), styles["Normal"]))
@@ -818,11 +858,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
 
     story.append(Paragraph("Audit Trail", styles["Heading2"]))
     audit_data = _base_audit_rows(run, context)
-    t = Table(audit_data, colWidths=[120, 350])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-    ]))
+    t = _pdf_table(audit_data, header_bg=colors.grey, widths=[120, 348])
     story.append(t)
 
     audit_entries = _audit_entries(run.project_id, db)
@@ -837,11 +873,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
             ]
             for entry in audit_entries
         ]
-        at = Table(audit_rows, colWidths=[130, 120, 220])
-        at.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ]))
+        at = _pdf_table(audit_rows, widths=[120, 100, 248])
         story.append(at)
 
     edits = list(context["edits"].values())
@@ -851,11 +883,7 @@ def _build_pdf(run: AnalysisRun, db: Session, share_id: int | None = None) -> by
         edit_data = [["Field", "Original Text", "Edited Text"]] + [
             [edit.field or "", edit.original_text or "", edit.edited_text or ""] for edit in edits
         ]
-        et = Table(edit_data, colWidths=[80, 220, 170])
-        et.setStyle(TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ]))
+        et = _pdf_table(edit_data, widths=[70, 199, 199])
         story.append(et)
 
     doc.build(story)
