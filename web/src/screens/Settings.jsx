@@ -3,6 +3,7 @@ import { useApp } from '../App'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import AiKeyField from '../components/AiKeyField'
+import ModelPicker from '../components/ModelPicker'
 import { api } from '../api'
 
 function errorMessage(err) {
@@ -23,6 +24,7 @@ export default function Settings() {
   const [keyStatus, setKeyStatus] = useState(null)
   const [keyError, setKeyError] = useState('')
   const [removing, setRemoving] = useState(false)
+  const [keyVersion, setKeyVersion] = useState(0)  // bumps when the key changes so the model list reloads with it
   const [settings, setSettings] = useState([])
   const [key, setKey] = useState('')
   const [val, setVal] = useState('')
@@ -51,6 +53,7 @@ export default function Settings() {
   function keySaved(status) {
     setKeyStatus(status)
     setKeyError('')
+    setKeyVersion(v => v + 1)
     setAdvisorStatus?.(status)
   }
 
@@ -113,6 +116,8 @@ export default function Settings() {
           </button>
         )}
       </section>
+
+      <ModelPicker refreshKey={keyVersion} />
 
       {isAdmin && <>
       <section className="mb-6" aria-labelledby="current-settings-heading">

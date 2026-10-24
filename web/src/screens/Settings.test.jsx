@@ -10,6 +10,9 @@ const { apiMock, useAppMock } = vi.hoisted(() => ({
     getAiKeyStatus: vi.fn(),
     saveAiKey: vi.fn(),
     clearAiKey: vi.fn(),
+    getAiModels: vi.fn(),
+    saveAiModel: vi.fn(),
+    clearAiModel: vi.fn(),
   },
   useAppMock: vi.fn(),
 }))
@@ -23,6 +26,7 @@ beforeEach(() => {
   apiMock.getSettings.mockResolvedValue({ items: [{ key: 'clinic_name', value: 'Ward A' }] })
   apiMock.saveSetting.mockReset()
   apiMock.getAiKeyStatus.mockReset().mockResolvedValue({ configured: true, source: 'settings', last4: '3456', provider: 'openrouter', advisor_available: true })
+  apiMock.getAiModels.mockReset().mockResolvedValue({ provider: 'openrouter', current_model: 'v/a', chosen_by: 'default', current_listed: true, source: 'live', models: [{ id: 'v/a', name: 'A' }] })
   useAppMock.mockReset()
 })
 

@@ -430,6 +430,34 @@ class MentorCommentAuthorIn(BaseModel):
     edit_token: str
 
 
+class ModelInfo(BaseModel):
+    id: str
+    name: str
+    context_length: Optional[int] = None
+    prompt_price_per_million: Optional[float] = None
+    completion_price_per_million: Optional[float] = None
+    reasoning: bool = False
+
+
+class AIModelsOut(BaseModel):
+    provider: str
+    current_model: str
+    chosen_by: Literal["you", "default"]
+    current_listed: bool  # false when the provider's list no longer includes the current model
+    source: Literal["live", "cache"]
+    models: list[ModelInfo]
+
+
+class AIModelPayload(BaseModel):
+    model: str = Field(min_length=1, max_length=128)
+
+
+class AIModelChoiceOut(BaseModel):
+    provider: str
+    current_model: str
+    chosen_by: Literal["you", "default"]
+
+
 class SettingOut(BaseModel):
     key: str
     value: str

@@ -61,6 +61,32 @@ def clear_key(db: Session, provider: str, user_id: int) -> None:
     db.commit()
 
 
+def _model_row_key(provider: str, user_id: int) -> str:
+    return f"ai_model:{provider}:{user_id}"
+
+
+def stored_model(db: Session, provider: str, user_id: int | None) -> str | None:
+    """The model this user picked in Settings for this provider, if any."""
+    if user_id is None:
+        return None
+    row = db.query(AppSetting).filter_by(key=_model_row_key(provider, user_id)).first()
+    return row.value if row and row.value else None
+
+
+def save_model(db: Session, provider: str, user_id: int, model: str) -> None:
+    row = db.query(AppSetting).filter_by(key=_model_row_key(provider, user_id)).first()
+    if row:
+        row.value = model
+    else:
+        db.add(AppSetting(key=_model_row_key(provider, user_id), value=model))
+    db.commit()
+
+
+def clear_model(db: Session, provider: str, user_id: int) -> None:
+    db.query(AppSetting).filter_by(key=_model_row_key(provider, user_id)).delete()
+    db.commit()
+
+
 def resolve_key(db: Session, provider: str, user_id: int | None) -> tuple[str | None, str]:
     """Return (key, source) where source is settings, env, or none. The user's own key wins over env."""
     saved = stored_key(db, provider, user_id)

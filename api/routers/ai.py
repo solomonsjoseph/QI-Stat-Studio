@@ -51,7 +51,7 @@ from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
 from api.audit import log_action
 from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
-from api.ai_key import advisor_failed, advisor_unavailable, resolve_key
+from api.ai_key import advisor_failed, advisor_unavailable, resolve_key, stored_model
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -203,17 +203,18 @@ def _provider_settings(db: Session, user_id: int | None) -> tuple[str, str | Non
     provider = (runtime_provider or settings.ai_provider or "openrouter").strip().lower()
     if provider == "stub":
         return "stub", "stub", None, "stub"
+    chosen = stored_model(db, provider, user_id)  # the model this user picked in Settings wins
     if provider == "openai":
-        model = get_runtime_setting(db, "openai_model") or settings.openai_model
+        model = chosen or get_runtime_setting(db, "openai_model") or settings.openai_model
         return provider, resolve_key(db, provider, user_id)[0], None, model
     if provider == "gemini":
-        model = get_runtime_setting(db, "gemini_model") or settings.gemini_model
+        model = chosen or get_runtime_setting(db, "gemini_model") or settings.gemini_model
         return provider, resolve_key(db, provider, user_id)[0], None, model
     if provider == "local":
-        model = get_runtime_setting(db, "local_model") or settings.local_model
+        model = chosen or get_runtime_setting(db, "local_model") or settings.local_model
         base = get_runtime_setting(db, "local_api_base") or settings.local_api_base or "http://localhost:11434"
         return provider, resolve_key(db, provider, user_id)[0], base, model
-    model = get_runtime_setting(db, "openrouter_model") or settings.openrouter_model
+    model = chosen or get_runtime_setting(db, "openrouter_model") or settings.openrouter_model
     return "openrouter", resolve_key(db, "openrouter", user_id)[0], None, model
 
 
@@ -291,7 +292,7 @@ def _validated_completion(
     model: str,
     messages: list[dict[str, str]],
     model_cls: type[Any],
-    max_tokens: int = 1500,
+    max_tokens: int = 3000,
     reasoning_effort: str | None = "low",
 ) -> Any:
     """Wrap _llm_completion_nonempty, parse JSON via _extract_json_object, validate into model_cls.
@@ -517,7 +518,7 @@ def ai_clarify(project_id: int, req: ClarifyRequest, db: Session = Depends(get_d
     prompt_chars = sum(len(m["content"]) for m in messages)
     try:
         resp_model: ClarifyResponseModel = _validated_completion(
-            provider, api_key, api_base, default_model, messages, ClarifyResponseModel, max_tokens=1500
+            provider, api_key, api_base, default_model, messages, ClarifyResponseModel, max_tokens=3000
         )
     except HTTPException:
         _record_ai_usage(db, user_id=user.id, project_id=project_id, model=default_model, prompt_chars=prompt_chars, status="error")
@@ -596,7 +597,7 @@ def ai_collection_guidance(
             ]
             prompt_chars = sum(len(m["content"]) for m in messages)
             content = _llm_completion_nonempty(
-                provider, api_key, api_base, default_model, messages, max_tokens=1000, reasoning_effort="low"
+                provider, api_key, api_base, default_model, messages, max_tokens=2000, reasoning_effort="low"
             )
             parsed = _extract_json_object(content)
             raw_ai_items = parsed.get("recommendations", [])

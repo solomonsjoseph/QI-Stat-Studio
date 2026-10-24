@@ -10,7 +10,7 @@ matching credentials:
 
 | `AI_PROVIDER` | Required | Optional |
 |---|---|---|
-| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `anthropic/claude-sonnet-4-6`) |
+| `openrouter` | `OPENROUTER_API_KEY` | `OPENROUTER_MODEL` (default `anthropic/claude-sonnet-4.6`). Each user can pick another model in Settings; the list is fetched from the provider with their key. |
 | `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL` (default `gpt-4o-mini`) |
 | `gemini` | `GEMINI_API_KEY` | `GEMINI_MODEL` (default `gemini-3.5-flash`) |
 | `local` (e.g. Ollama) | (none) | `LOCAL_API_BASE` (default `http://localhost:11434`), `LOCAL_API_KEY`, `LOCAL_MODEL` (default `llama3.1`) |
@@ -150,7 +150,7 @@ Docker/production build; in local dev, Vite serves the frontend itself.
 | `SECRET_KEY` | Production | `dev-secret-change-in-prod` | Session cookie signing key. The app refuses to start in production (`ENVIRONMENT=production`) with the default value (`api/main.py` lifespan check). |
 | `DB_URL` / `DATABASE_URL` | No | `sqlite:///./qi_stat_studio.db` | Both env var names are accepted aliases for the same setting (`AliasChoices` in `api/config.py`); `DB_URL` wins if both are set. |
 | `AI_PROVIDER` | No | `openrouter` | `openrouter` \| `openai` \| `gemini` \| `local`. |
-| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | No | model: `anthropic/claude-sonnet-4-6` | Used when `AI_PROVIDER=openrouter`. |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` | No | model: `anthropic/claude-sonnet-4.6` | Used when `AI_PROVIDER=openrouter`. |
 | `OPENAI_API_KEY` / `OPENAI_MODEL` | No | model: `gpt-4o-mini` | Used when `AI_PROVIDER=openai`. |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | No | model: `gemini-3.5-flash` | Used when `AI_PROVIDER=gemini`. |
 | `LOCAL_API_BASE` / `LOCAL_API_KEY` / `LOCAL_MODEL` | No | base: `http://localhost:11434`, model: `llama3.1` | Used when `AI_PROVIDER=local` (e.g. Ollama). |

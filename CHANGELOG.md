@@ -20,6 +20,7 @@ First beta. It runs from a git clone on each tester's own machine. Hosting and H
 - Batch review of data-quality warnings, with acknowledge and clarify choices and a handoff document.
 - A rules-first analysis plan, so the plan exists before any AI is asked.
 - Per-user AI keys, stored encrypted and used only by their owner.
+- Model selection in Settings. The list of models is fetched from the provider with the user's own key each time the page opens (OpenRouter, OpenAI, Gemini and local servers), so no model list is built into the app. Each user's choice applies to their account only, and the app says so when the provider no longer lists the current model.
 - A mentor review link that needs no account. A mentor can comment, edit and delete their own comments, and sign off with a comment. Mentor comments appear in the Word and PDF reports.
 - Sign-in throttling, generic sign-in errors and an audit log of sign-in failures.
 - Upload limits on size, rows, columns, PDF pages and zip expansion.

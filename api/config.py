@@ -6,7 +6,7 @@ from cryptography.fernet import Fernet as _Fernet
 class Settings(BaseSettings):
     ai_provider: str = "openrouter"
     openrouter_api_key: str = ""
-    openrouter_model: str = "anthropic/claude-sonnet-4-6"
+    openrouter_model: str = "anthropic/claude-sonnet-4.6"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     gemini_api_key: str = ""

@@ -159,6 +159,9 @@ export const api = {
   getAiKeyStatus: () => req('GET', '/settings/ai-key'),
   saveAiKey: (key) => req('PUT', '/settings/ai-key', { key }),
   clearAiKey: () => req('DELETE', '/settings/ai-key'),
+  getAiModels: (refresh = false) => req('GET', `/settings/ai-models${refresh ? '?refresh=true' : ''}`),
+  saveAiModel: (model) => req('PUT', '/settings/ai-model', { model }),
+  clearAiModel: () => req('DELETE', '/settings/ai-model'),
   // --- end AI key ---
 
   // --- Warning groups and flag states (T11; contract in docs/api-contract-handoff.md, backend not built yet) ---

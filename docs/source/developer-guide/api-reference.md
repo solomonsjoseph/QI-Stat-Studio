@@ -138,6 +138,9 @@ The AI key routes work for any signed-in user for now (admin-only later). The ge
 | GET | `/settings/ai-key` | Session | `{configured, source: settings|env|none, last4, provider, advisor_available}`. The key itself is never returned. |
 | PUT | `/settings/ai-key` | Session | Body `{key}` (8 to 512 characters). Saves the signed-in user's own key, which overrides `.env` for that user. Returns the same status shape. |
 | DELETE | `/settings/ai-key` | Session | Removes the saved key; falls back to the `.env` key if one is set. |
+| GET | `/settings/ai-models` | Session | The models the active provider offers, fetched with the signed-in user's key (`?refresh=true` skips the 10-minute cache). Returns `{provider, current_model, chosen_by: you|default, current_listed, source: live|cache, models: [{id, name, context_length, prompt_price_per_million, completion_price_per_million, reasoning}]}`. Errors have a code: `models_key_rejected`, `models_busy`, `models_unavailable`, `models_need_key`. |
+| PUT | `/settings/ai-model` | Session | Body `{model}`. Saves the signed-in user's own model for the active provider. |
+| DELETE | `/settings/ai-model` | Session | Goes back to the default model. |
 
 ## `notifications` (`/notifications`)
 
