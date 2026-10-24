@@ -1,11 +1,14 @@
 import os
 from pathlib import Path
 
-os.environ.setdefault("DB_URL", "sqlite:///./test_qi_stat_studio.db")
-
-_db_path = Path("test_qi_stat_studio.db")
-if _db_path.exists():
-    _db_path.unlink()
+_pid = os.getpid()
+_db_file = f"/tmp/test_qi_stat_studio_{_pid}.db"
+os.environ.setdefault("DB_URL", f"sqlite:///{_db_file}")
+# Tests that mock the LLM still pass the key check; do not depend on a local .env.
+os.environ.setdefault("OPENROUTER_API_KEY", "test-key-not-real")
+os.environ.setdefault("WARM_PHI_NER", "0")  # tests load the model only when they need it
+os.environ.setdefault("PASSWORD_ITERATIONS", "1000")  # production default is 600000 (OWASP)
+_db_path = Path(_db_file)
 
 import api.models_db  # noqa: E402,F401 - register models
 from api.database import Base, engine  # noqa: E402
@@ -28,6 +31,9 @@ def clean_database():
     with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             conn.execute(table.delete())
+    from api import throttle
+    throttle.reset()
+    throttle.IP_REGISTER_LIMIT = throttle.IP_LOGIN_LIMIT = 10_000  # throttle tests set their own limits
     yield
 
 
@@ -42,3 +48,27 @@ def auth_client(client):
     response = client.post("/auth/register", json={"email": "owner@example.com", "password": "password123"})
     assert response.status_code == 200, response.text
     return client
+
+@pytest.fixture
+def mock_llm():
+    import json
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    queue = []
+
+    def push(content):
+        if isinstance(content, dict):
+            content = json.dumps(content)
+        queue.append(content)
+
+    def side_effect(*args, **kwargs):
+        if queue:
+            resp_content = queue.pop(0)
+        else:
+            resp_content = "{}"
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=resp_content))])
+
+    with patch("api.routers.ai.litellm.completion", side_effect=side_effect) as mocked:
+        mocked.push = push
+        yield mocked

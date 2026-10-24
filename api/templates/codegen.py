@@ -62,7 +62,7 @@ def _sas_date_bucket(params: dict) -> str:
     return f"intnx('{bucket}', {dc}, 0, 'b') AS date_bucket FORMAT=date9."
 
 
-def generate_r_code(template: str, params: dict, result: dict | None = None) -> str:
+def _r_body(template: str, params: dict, result: dict | None = None) -> str:
     if template == "descriptive_summary":
         cols = ", ".join(f'"{c}"' for c in params.get("value_cols", [])) or '"var1"'
         grp = params.get("group_col")
@@ -118,6 +118,30 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             f"{test_line}"
         )
 
+
+    if template == "before_after_paired":
+        id_col = params.get("id_col", "patient_id")
+        gc = params.get("group_col", "period")
+        vc = params.get("value_col", "value")
+        pre = params.get("pre_val", "pre")
+        post = params.get("post_val", "post")
+        used = _test_used(result)
+        if used == "Paired t-test":
+            test_line = "t.test(paired$post, paired$pre, paired=TRUE)"
+            comment = "# Runtime decision: Paired t-test"
+        elif used == "Wilcoxon signed-rank test":
+            test_line = "wilcox.test(paired$post, paired$pre, paired=TRUE)"
+            comment = "# Runtime decision: Wilcoxon signed-rank test"
+        else:
+            test_line = "t.test(paired$post, paired$pre, paired=TRUE)  # or wilcox.test if differences not normal"
+            comment = "# Runtime decision unavailable; choose test after assumption checks"
+        return (
+            f"{comment}\n"
+            f"pre_df <- df[df${gc} == '{pre}', c('{id_col}', '{vc}')]\n"
+            f"post_df <- df[df${gc} == '{post}', c('{id_col}', '{vc}')]\n"
+            f"paired <- merge(pre_df, post_df, by='{id_col}', suffixes=c('.pre', '.post'))\n"
+            f"{test_line}"
+        )
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         fmt = _r_date_bucket_fmt(params.get("freq"))
@@ -128,13 +152,13 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
             denom = params.get("source_denominator_col")
             if denom:
                 aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
-                val_line = f"agg$val <- agg$num / agg$denom\n"
+                val_line = "agg$val <- agg$num / agg$denom\n"
             elif source_num:
                 aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n(), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
-                val_line = f"agg$val <- agg$num / agg$denom\n"
+                val_line = "agg$val <- agg$num / agg$denom\n"
             else:
                 aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
-                val_line = f"agg$val <- agg$num\n"
+                val_line = "agg$val <- agg$num\n"
             agg_setup = (
                 f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% {aggregate}\n"
                 f"{val_line}"
@@ -198,28 +222,28 @@ def generate_r_code(template: str, params: dict, result: dict | None = None) -> 
         if denom and runtime_chart_type != "c":
             return (
                 prefix
-                + f"agg$rate <- agg$cnt / agg$denom\n"
-                + f"ubar <- sum(agg$cnt, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
-                + f"agg$ucl <- ubar + 3*sqrt(ubar/agg$denom)\n"
-                + f"agg$lcl <- pmax(0, ubar - 3*sqrt(ubar/agg$denom))\n"
-                + f"ggplot(agg, aes(x=bucket_start, y=rate, group=1)) + geom_line() + geom_point() +\n"
-                + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+                + "agg$rate <- agg$cnt / agg$denom\n"
+                + "ubar <- sum(agg$cnt, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
+                + "agg$ucl <- ubar + 3*sqrt(ubar/agg$denom)\n"
+                + "agg$lcl <- pmax(0, ubar - 3*sqrt(ubar/agg$denom))\n"
+                + "ggplot(agg, aes(x=bucket_start, y=rate, group=1)) + geom_line() + geom_point() +\n"
+                + "  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
                 + _r_intervention_layer(params)
             )
         return (
             prefix
-            + f"cbar <- mean(agg$cnt, na.rm=TRUE)\n"
-            + f"agg$ucl <- cbar + 3*sqrt(cbar)\n"
-            + f"agg$lcl <- pmax(0, cbar - 3*sqrt(cbar))\n"
-            + f"ggplot(agg, aes(x=bucket_start, y=cnt, group=1)) + geom_line() + geom_point() +\n"
-            + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+            + "cbar <- mean(agg$cnt, na.rm=TRUE)\n"
+            + "agg$ucl <- cbar + 3*sqrt(cbar)\n"
+            + "agg$lcl <- pmax(0, cbar - 3*sqrt(cbar))\n"
+            + "ggplot(agg, aes(x=bucket_start, y=cnt, group=1)) + geom_line() + geom_point() +\n"
+            + "  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
             + _r_intervention_layer(params)
         )
 
     return f'# R code for template "{template}" not yet implemented.'
 
 
-def generate_spss_code(template: str, params: dict, result: dict | None = None) -> str:
+def _spss_body(template: str, params: dict, result: dict | None = None) -> str:
     if template == "descriptive_summary":
         cols = " ".join(params.get("value_cols", ["var1"]))
         grp = params.get("group_col")
@@ -241,6 +265,13 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
         exact = " /STATISTICS=CHISQ /METHOD=EXACT" if used == "Fisher's exact test" else " /STATISTICS=CHISQ"
         return f"* Runtime decision: {used}.\nCROSSTABS /TABLES={gc} BY {oc}{exact} /CELLS=COUNT ROW COLUMN."
 
+
+    if template == "before_after_paired":
+        vc = params.get("value_col", "value")
+        used = _test_used(result) or "Paired t-test"
+        if used == "Wilcoxon signed-rank test":
+            return f"* Runtime decision: {used}.\nNPAR TESTS /WILCOXON={vc}_post WITH {vc}_pre (PAIRED)."
+        return f"* Runtime decision: {used}.\nT-TEST PAIRS={vc}_post WITH {vc}_pre (PAIRED) /CRITERIA=CI(.95)."
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         source_num = params.get("source_numerator_col")
@@ -307,7 +338,7 @@ def generate_spss_code(template: str, params: dict, result: dict | None = None) 
     return f'* SPSS code for template "{template}" not yet implemented.'
 
 
-def generate_sas_code(template: str, params: dict, result: dict | None = None) -> str:
+def _sas_body(template: str, params: dict, result: dict | None = None) -> str:
     if template == "descriptive_summary":
         cols = " ".join(params.get("value_cols", ["var1"]))
         grp = params.get("group_col")
@@ -328,6 +359,13 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         option = " / FISHER" if used == "Fisher's exact test" else " / CHISQ"
         return f"/* Runtime decision: {used}. */\nPROC FREQ DATA=df;\nTABLES {gc}*{oc}{option};\nRUN;"
 
+
+    if template == "before_after_paired":
+        vc = params.get("value_col", "value")
+        used = _test_used(result) or "Paired t-test"
+        if used == "Wilcoxon signed-rank test":
+            return f"/* Runtime decision: {used}. */\nDATA diff_data; SET df; diff = {vc}_post - {vc}_pre; RUN;\nPROC UNIVARIATE DATA=diff_data;\nVAR diff;\nRUN;"
+        return f"/* Runtime decision: {used}. */\nPROC TTEST DATA=df;\nPAIRED {vc}_post*{vc}_pre;\nRUN;"
     if template == "run_chart":
         dc = params.get("date_col", "encounter_date")
         source_num = params.get("source_numerator_col")
@@ -365,6 +403,7 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         bucket = _sas_date_bucket(params)
         return (
             f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({nc}) AS num, {denom_expr} AS denom "
+
             f"FROM df GROUP BY date_bucket; "
             f"SELECT sum(num)/sum(denom) INTO :pbar FROM monthly; QUIT;\n"
             f"DATA monthly; SET monthly; p=num/denom; pbar=&pbar.; "
@@ -389,3 +428,21 @@ def generate_sas_code(template: str, params: dict, result: dict | None = None) -
         return f"{_sas_intervention_comment(params)}PROC SQL; CREATE TABLE monthly AS SELECT {bucket}, sum({cc}) AS cnt FROM df GROUP BY date_bucket; QUIT;\nDATA monthly; SET monthly; cbar=mean(cnt); /* c-chart */ RUN;"
 
     return f'/* SAS code for template "{template}" not yet implemented. */'
+
+
+def _with_header(body: str, data_changes: dict | None, language: str) -> str:
+    from api.data_changes import comment_block, data_change_lines
+
+    return comment_block(data_change_lines(data_changes), language) + body
+
+
+def generate_r_code(template: str, params: dict, result: dict | None = None, data_changes: dict | None = None) -> str:
+    return _with_header(_r_body(template, params, result), data_changes, "r")
+
+
+def generate_spss_code(template: str, params: dict, result: dict | None = None, data_changes: dict | None = None) -> str:
+    return _with_header(_spss_body(template, params, result), data_changes, "spss")
+
+
+def generate_sas_code(template: str, params: dict, result: dict | None = None, data_changes: dict | None = None) -> str:
+    return _with_header(_sas_body(template, params, result), data_changes, "sas")

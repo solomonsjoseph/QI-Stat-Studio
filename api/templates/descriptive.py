@@ -57,7 +57,7 @@ def run_descriptive(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
                f"Means are reported with a 95% t-based confidence interval and medians with a distribution-free "
                f"interval from order statistics; intervals are omitted where the group has too few values to "
                f"support one.")
-    n_groups = df[group_col].nunique() if group_col and group_col in df.columns else 1
+    n_groups = len({row["group"].strip().lower() for row in table}) if group_col and group_col in df.columns else 1
     interpretation = (
         f"The descriptive analysis summarized {len(value_cols)} variable(s) across {n_groups} group(s). "
         f"{'Missing data were observed in: ' + ', '.join(missing_notes) + '.' if missing_notes else 'No missing data were observed in the selected variables.'} "

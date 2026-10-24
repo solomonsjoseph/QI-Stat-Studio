@@ -16,7 +16,7 @@ zero external infrastructure to stand up.
 
 **Decision:** SQLite via SQLAlchemy, with Alembic as the sole source of
 truth for schema (the app never calls `Base.metadata.create_all()` outside
-tests — see {doc}`data-model`).
+tests; see {doc}`data-model`).
 
 **Consequences:** Deployment is a single file plus a migration step, with no
 database server to provision or operate. `PRAGMA foreign_keys=ON` has to be
@@ -84,7 +84,7 @@ request path at all, regardless of scrubbing. It's not a substitute for
 resident discipline about what gets typed into free-text fields; the UI
 says so directly (see the {doc}`../user-guide/concepts` privacy section).
 
-## ADR-005: Mentor shares are view-only — downloads were built, then removed
+## ADR-005: Mentor shares are view-only (downloads were built, then removed)
 
 **Status:** Accepted (supersedes an earlier download-enabled design)
 
@@ -150,7 +150,7 @@ a first-class option, not an afterthought.
 
 **Decision:** All AI calls go through `litellm.completion(...)`, with
 `AI_PROVIDER` selecting OpenRouter, OpenAI, or a local OpenAI-compatible
-endpoint at runtime (admin-editable without a restart — see {doc}`how-to`).
+endpoint at runtime (admin-editable without a restart; see {doc}`how-to`).
 
 **Consequences:** Swapping providers is a settings change, not a code
 change. Core analysis functionality (upload, run charts, control charts,
@@ -198,7 +198,7 @@ mentor-influenced code server-side. The tradeoff is that the generated code
 and the app's actual computed result can, in principle, drift if a template
 runner changes without its matching `codegen.py` branch being updated in the
 same change. `tests/test_codegen.py` exists specifically to catch that
-drift for the six shipped templates.
+drift for the shipped templates.
 
 ## ADR-011: Control charts downgrade to run charts instead of failing
 
@@ -252,3 +252,119 @@ reaches the Results screen, the DOCX/PDF report, and the mentor view with no
 `report.py` change. `before_after_pct`'s previously inverted odds ratio in
 the chi-square branch was corrected to match `fisher_exact`'s orientation in
 the same change.
+
+
+## ADR-013: Role detection and plan defaults are evidence-based, not size-based
+
+**Context:** A full resident test run with the diabetes clinic dataset showed
+that a column was guessed as a denominator because its values were larger than
+other integer columns (systolic blood pressure beat every 0/1 flag), which
+produced a blocking "numerator exceeds denominator" error between age and a
+visit count. The same run showed one chart point per day for a yes/no outcome,
+a t-test offered on a yes/no column, and pre and post labels left blank.
+
+**Decision:**
+
+- A denominator is a column whose name reads like one (`api/dataset_profile.py`
+  `_DENOM_RE`: total, denom, census, population, visits, patient days, and
+  similar). The pairwise size comparison only confirms numerators for such
+  columns, and a 0/1 column is never a numerator. `run_data_quality` uses the
+  same detector instead of its own.
+- A Yes/No outcome column with no stated kind is treated as binary. That gives
+  the percentage comparison and the P chart. The P chart needs no denominator,
+  and a guessed denominator is not attached to a binary outcome.
+- For binary and proportion outcomes the chart period is the finest of day,
+  week, month and quarter, no finer than the project's time unit, whose typical
+  period holds at least 20 records (`_MIN_RECORDS_PER_PERIOD` in
+  `api/plan_builder.py`). The plan states the grouping it chose. The number 20
+  is a placeholder pending the clinical owner's answer.
+- When the group column has exactly two levels that read like before and after
+  (case and padding ignored), those become `pre_val` and `post_val` at medium
+  confidence, so the resident still confirms them.
+- The "mixed case" warning fires only when one value appears in more than one
+  case. The small-group warning and group counts use the case-normalized values.
+- `POST /analyze/run-plan/{id}` is serialized by a process-wide lock, because
+  it deletes the prior runs and inserts new ones, and two overlapping requests
+  each kept a full set.
+
+**Consequences:** Unnamed denominators are no longer guessed, so a resident
+whose denominator column has an unusual name assigns it in the Data Review
+role table. A per-project lock replaces the process-wide one if runs ever
+become slow enough to queue.
+
+
+## ADR-014: The QI Stat Advisor is optional at every step
+
+**Context:** A provider rate limit made every advisor call fail with the same
+"AI service unavailable" text. The resident saw a dead end on the clarification
+screen, and the same screen had no way to describe the project by hand while a
+key was configured.
+
+**Decision:**
+
+- Residents see one name for the assistant everywhere: "QI Stat Advisor". "AI
+  key" stays, because it is the provider key. Every system prompt starts with
+  the same identity directive (`IDENTITY_DIRECTIVE` in `api/ai_prompts.py`).
+- Provider failures are classified by exception class into `advisor_busy` and
+  `advisor_error`, with fixed sentences (ADR-004 still holds: no provider text
+  reaches the resident).
+- The clarification screen offers "Continue without the QI Stat Advisor" next
+  to "Try again", which shows the manual project form, and a way back.
+- Plan recommendation already falls back to the rules-first draft when the
+  provider fails. Interpretation text is labelled "Draft interpretation" whenever
+  the QI Stat Advisor did not write it.
+- The Results screen shares one run-and-interpret job per project, upload and
+  attempt, so a double effect or double click cannot run the plan twice.
+
+**Consequences:** A resident can finish a project with a dead provider. Draft
+text is rule-generated and still carries the bracketed prompts described in the
+owner questions.
+
+
+## ADR-015: Each resident brings their own AI key, and sign-in is throttled
+
+**Context:** The first beta runs from a git clone on each tester's machine and later as one
+hosted app. A single app-wide key would let every user spend one person's quota and would
+let any account clear everyone's key. The security review also found no sign-in throttling,
+a password hash below the current OWASP minimum, mentor comment authors' emails shown to
+every link holder (and used as the only check to edit or delete), and uploads read fully into
+memory before any size check.
+
+**Decision:**
+
+- The AI key is stored per user (`ai_key_enc:<provider>:<user_id>` in `app_settings`, Fernet
+  encrypted). The `.env` key stays as an operator default for a one-person install and is not
+  set on a shared host.
+- Passwords use PBKDF2-HMAC-SHA256 at 600,000 iterations and old hashes are upgraded on
+  sign-in. Failed sign-ins are throttled per account and per IP with in-memory counters.
+- Mentor comments carry a per-comment secret issued once to their author. Public views show no
+  author email.
+- Uploads are read in chunks with a hard stop, zip-based files are checked for expansion, and
+  datasets and dictionaries have row, column and page caps.
+
+**Consequences:** In-memory throttle state needs the database or Redis before more than one
+worker runs (beta 2, with HTTPS). Comments posted before this change cannot be edited by
+their authors because nobody holds a secret for them; the project owner still can.
+
+
+## ADR-016: Text the app writes follows a plain house style
+
+**Context:** The QI Stat Advisor's replies showed raw Markdown (asterisks around words, numbered
+lists run together), em dashes, and stock phrases that make text read as machine-written. The
+reports and the mentor page repeat that text, so a resident would paste it into a poster.
+
+**Decision:**
+
+- Every system prompt carries the same style directive (`STYLE_DIRECTIVE` in `api/ai_prompts.py`):
+  plain text, no Markdown, no dash punctuation, straight quotes, ordinary words, and a list of
+  words and habits to avoid. The list follows the published signs of AI writing (Wikipedia's field
+  guide and the humanizer ruleset).
+- `api/ai_text.py` enforces it on what comes back, because a model follows an instruction most of
+  the time and not every time. It strips Markdown markers, turns dash punctuation into commas,
+  periods or "to", straightens quotes, removes emoji and arrows, and replaces a short list of stock
+  phrases. It changes form only. Every parsed model reply and every chat reply goes through it.
+- `tests/test_house_style.py` fails if a dash, curly quote or stock word appears in the source of
+  the app or its interface.
+
+**Consequences:** Replacing a dash with a comma can read slightly less smoothly than a rewrite.
+A model reply that needs a real rewrite to lose its machine tone is only caught by the prompt.

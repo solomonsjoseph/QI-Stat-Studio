@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from api.database import SessionLocal
 from api.main import app
-from api.models_db import AnalysisRun, AuditLog, EditHistory, IntakeAnswer, MentorComment, MentorShare, Project, Upload
+from api.models_db import AnalysisRun, AuditLog, EditHistory, MentorComment, MentorShare, Project, Upload
 
 PASSWORD = "password123"
 TINY_PNG_BASE64 = (
@@ -201,16 +201,16 @@ def test_report_docx_and_pdf_downloads_require_owner_or_admin_authentication():
         _register(other_client, "other@example.com")
         seeded = _seed_report_run(owner_user_id=owner["id"])
 
-        assert anonymous_client.get(f"/report/{seeded['run_id']}/docx").status_code == 401
-        assert anonymous_client.get(f"/report/{seeded['run_id']}/pdf").status_code == 401
+        assert anonymous_client.get(f"/report/project/{seeded['project_id']}/docx").status_code == 401
+        assert anonymous_client.get(f"/report/project/{seeded['project_id']}/pdf").status_code == 401
 
-        owner_docx = owner_client.get(f"/report/{seeded['run_id']}/docx")
+        owner_docx = owner_client.get(f"/report/project/{seeded['project_id']}/docx")
         assert owner_docx.status_code == 200, owner_docx.text
         assert owner_docx.headers["content-type"].startswith(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
-        admin_pdf = admin_client.get(f"/report/{seeded['run_id']}/pdf")
+        admin_pdf = admin_client.get(f"/report/project/{seeded['project_id']}/pdf")
         assert admin_pdf.status_code == 200, admin_pdf.text
         assert admin_pdf.headers["content-type"] == "application/pdf"
         assert admin_pdf.content[:4] == b"%PDF"
@@ -219,8 +219,8 @@ def test_report_docx_and_pdf_downloads_require_owner_or_admin_authentication():
             actions = [row.action for row in db.query(AuditLog).filter_by(project_id=seeded["project_id"]).all()]
             assert "report_downloaded" in actions
 
-        assert other_client.get(f"/report/{seeded['run_id']}/docx").status_code == 403
-        assert other_client.get(f"/report/{seeded['run_id']}/pdf").status_code == 403
+        assert other_client.get(f"/report/project/{seeded['project_id']}/docx").status_code == 403
+        assert other_client.get(f"/report/project/{seeded['project_id']}/pdf").status_code == 403
     finally:
         admin_client.close()
         owner_client.close()
@@ -228,11 +228,64 @@ def test_report_docx_and_pdf_downloads_require_owner_or_admin_authentication():
         anonymous_client.close()
 
 
+def test_run_hydration_dict_raw_caption_never_reflects_intervention_note_to_avoid_duplication():
+    """resume_project's editable surface must use the un-augmented EditHistory caption
+    (raw_caption=True), never _build_context's report-rendering caption (which appends
+    an "Intervention: ..." note) -- reusing the augmented text as an edit's original_text
+    baseline would re-append the note on every save/reload cycle."""
+    from api.routers.report import run_hydration_dict
+
+    db = SessionLocal()
+    try:
+        project = Project(title="Caption Dup Test", description="desc")
+        db.add(project)
+        db.flush()
+        project.ai_project_design = json.dumps(
+            {"intervention": {"present": True, "description": "New protocol", "start_date": "2024-06-01"}}
+        )
+        upload = Upload(project_id=project.id, filename="x.csv", original_filename="x.csv", encrypted_path="/tmp/x.enc")
+        db.add(upload)
+        db.flush()
+        run = AnalysisRun(
+            project_id=project.id, upload_id=upload.id, template="run_chart", parameters="{}",
+            result_json=json.dumps({"result_summary": "ok"}),
+        )
+        db.add(run)
+        db.flush()
+        run_id = run.id
+        db.commit()
+
+        raw_before = run_hydration_dict(run, db, raw_caption=True)
+        assert raw_before["caption"] == ""
+
+        db.add(EditHistory(project_id=project.id, run_id=run_id, field="caption", original_text="", edited_text="My own caption text."))
+        db.commit()
+        run = db.get(AnalysisRun, run_id)
+
+        raw_after = run_hydration_dict(run, db, raw_caption=True)
+        assert raw_after["caption"] == "My own caption text."
+
+        augmented = run_hydration_dict(run, db, raw_caption=False)
+        assert augmented["caption"] == "My own caption text. Intervention: New protocol (2024-06-01)"
+
+        # A second save using the raw caption as its baseline must not accumulate the note.
+        db.add(EditHistory(
+            project_id=project.id, run_id=run_id, field="caption",
+            original_text=raw_after["caption"], edited_text="My own caption text, refined.",
+        ))
+        db.commit()
+        run = db.get(AnalysisRun, run_id)
+        augmented_again = run_hydration_dict(run, db, raw_caption=False)
+        assert augmented_again["caption"].count("Intervention: New protocol") == 1
+    finally:
+        db.close()
+
+
 def test_docx_report_renders_latest_edits_upload_lineage_audit_log_and_visible_mentor_comments(client):
     _register(client, "admin@example.com")
     seeded = _seed_report_run(with_edits=True, with_audit_and_comments=True)
 
-    response = client.get(f"/report/{seeded['run_id']}/docx")
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert response.status_code == 200, response.text
     text = _docx_text(response.content)
 
@@ -254,17 +307,17 @@ def test_docx_report_appends_q7_intervention_to_figure_caption(client):
     _register(client, "admin@example.com")
     seeded = _seed_report_run()
     with SessionLocal() as db:
-        db.add(
-            IntakeAnswer(
-                project_id=seeded["project_id"],
-                question_key="q7",
-                answer=json.dumps({"description": "Started standing orders", "date": "2025-01-01"}),
-                is_unsure=False,
-            )
-        )
+        proj = db.get(Project, seeded["project_id"])
+        proj.ai_project_design = json.dumps({
+            "intervention": {
+                "present": True,
+                "description": "Started standing orders",
+                "start_date": "2025-01-01",
+            }
+        })
         db.commit()
 
-    response = client.get(f"/report/{seeded['run_id']}/docx")
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert response.status_code == 200, response.text
     text = _docx_text(response.content)
 
@@ -297,11 +350,11 @@ def test_report_shows_em_dash_not_none_literal_for_omitted_confidence_intervals(
         ],
     })
 
-    docx_response = client.get(f"/report/{seeded['run_id']}/docx")
+    docx_response = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert docx_response.status_code == 200, docx_response.text
     assert "None" not in _docx_text(docx_response.content)
 
-    pdf_response = client.get(f"/report/{seeded['run_id']}/pdf")
+    pdf_response = client.get(f"/report/project/{seeded['project_id']}/pdf")
     assert pdf_response.status_code == 200, pdf_response.text
     assert "None" not in _pdf_text(pdf_response.content)
 
@@ -311,7 +364,7 @@ def test_pdf_report_renders_latest_edits_upload_lineage_audit_log_and_visible_me
     _register(client, "admin@example.com")
     seeded = _seed_report_run(with_edits=True, with_audit_and_comments=True)
 
-    response = client.get(f"/report/{seeded['run_id']}/pdf")
+    response = client.get(f"/report/project/{seeded['project_id']}/pdf")
     assert response.status_code == 200, response.text
     text = _pdf_text(response.content)
 
@@ -343,7 +396,7 @@ def test_pdf_report_escapes_tag_like_text_instead_of_crashing(client):
     )
     assert title_response.status_code == 200, title_response.text
 
-    response = client.get(f"/report/{seeded['run_id']}/pdf")
+    response = client.get(f"/report/project/{seeded['project_id']}/pdf")
     assert response.status_code == 200, response.text
     text = _pdf_text(response.content)
 
@@ -360,7 +413,7 @@ def test_report_without_analysis_upload_id_uses_legacy_upload_and_marks_missing_
         "figure_base64": None,
     })
 
-    response = client.get(f"/report/{seeded['run_id']}/docx")
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert response.status_code == 200, response.text
     text = _docx_text(response.content)
 
@@ -390,7 +443,7 @@ def test_report_limitations_use_acknowledged_flags_instead_of_all_quality_flags(
     ]
     seeded = _seed_report_run(dq_flags=all_flags, acknowledged_flags=[all_flags[0]])
 
-    response = client.get(f"/report/{seeded['run_id']}/docx")
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert response.status_code == 200, response.text
     text = _docx_text(response.content)
 
@@ -410,7 +463,7 @@ def test_report_limitations_are_empty_when_acknowledged_flags_never_set(client):
         upload = db.get(Upload, seeded["analysis_upload_id"])
         assert upload.acknowledged_flags is None
 
-    response = client.get(f"/report/{seeded['run_id']}/docx")
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert response.status_code == 200, response.text
     text = _docx_text(response.content)
 
@@ -479,7 +532,7 @@ def test_report_audit_trail_sanitizes_phi_like_project_update_metadata(client):
     )
     assert response.status_code == 200, response.text
 
-    report = client.get(f"/report/{seeded['run_id']}/docx")
+    report = client.get(f"/report/project/{seeded['project_id']}/docx")
     assert report.status_code == 200, report.text
     text = _docx_text(report.content)
 
@@ -488,3 +541,158 @@ def test_report_audit_trail_sanitizes_phi_like_project_update_metadata(client):
     assert sensitive_title not in text
     assert sensitive_description not in text
     assert sensitive_deadline not in text
+
+
+_DC = {
+    "steps": [{
+        "description": "Removed rows where age is missing.", "rows_before": 120, "rows_after": 115,
+        "rows_removed": 5, "cells_changed": 0, "warnings": ["age is 4% missing"], "note": "agreed with mentor",
+    }],
+    "decisions": ["Kept outliers in egfr"],
+}
+_RUN = {"methods": "m", "result_summary": "s", "interpretation": "i", "table": [], "data_changes": _DC}
+
+
+def _assert_changes(text):
+    assert "Data changes applied" in text and "current handoff" not in text
+    assert "Removed rows where age is missing." in text
+    assert "Rows before 120" in text and "after 115" in text and "removed 5" in text
+    assert "age is 4% missing" in text
+    assert "Kept outliers in egfr" in text
+
+
+def test_reports_list_data_changes_snapshot_in_project_and_run_docx_and_pdf(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(result=_RUN)
+    pid, rid = seeded["project_id"], seeded["run_id"]
+    for url, extract in (
+        (f"/report/project/{pid}/docx", _docx_text), (f"/report/project/{pid}/pdf", _pdf_text),
+    ):
+        r = client.get(url)
+        assert r.status_code == 200, r.text
+        _assert_changes(extract(r.content))
+    from api.routers.report import _build_docx, _build_pdf
+
+    with SessionLocal() as db:
+        run = db.get(AnalysisRun, rid)
+        _assert_changes(_docx_text(_build_docx(run, db)))
+        _assert_changes(_pdf_text(_build_pdf(run, db)))
+
+
+def test_reports_without_data_changes_have_no_section_and_old_runs_still_export(client):
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run()
+    for url, extract in ((f"/report/project/{seeded['project_id']}/docx", _docx_text),
+                         (f"/report/project/{seeded['project_id']}/pdf", _pdf_text)):
+        r = client.get(url)
+        assert r.status_code == 200, r.text
+        assert "Data changes applied" not in extract(r.content)
+
+
+def test_report_lists_run_snapshot_limitation(client):
+    _register(client, "admin@example.com")
+    line = "No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period."
+    with_it = _seed_report_run(result={"methods": "m", "result_summary": "s", "table": [], "limitations": [line]})
+    assert line in _docx_text(client.get(f"/report/project/{with_it['project_id']}/docx").content)
+    without = _seed_report_run()
+    assert line not in _docx_text(client.get(f"/report/project/{without['project_id']}/docx").content)
+
+
+def test_table_headers_read_as_words():
+    from api.routers.report import _header_text
+    assert _header_text("mean_ci_low") == "Mean CI low"
+    assert _header_text("group") == "Group"
+    assert _header_text("pct") == "%"
+
+
+def _glyph_boxes(pdf_bytes: bytes):
+    """(page_index, page_width, [(l, b, r, t), ...]) for every visible character in the PDF."""
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(pdf_bytes)
+    for index in range(len(pdf)):
+        page = pdf[index]
+        text = page.get_textpage()
+        boxes = []
+        for i in range(text.count_chars()):
+            if text.get_text_range(i, 1).strip():
+                boxes.append(text.get_charbox(i))
+        yield index, page.get_width(), boxes
+
+
+def _assert_pdf_layout_is_clean(pdf_bytes: bytes):
+    for index, width, boxes in _glyph_boxes(pdf_bytes):
+        outside = [b for b in boxes if b[0] < 71 or b[2] > width - 71]
+        assert not outside, f"page {index + 1}: {len(outside)} characters sit outside the page margins"
+        rows = {}
+        for b in boxes:
+            rows.setdefault(round((b[1] + b[3]) / 2 / 3), []).append(b)
+        for key, row in rows.items():
+            candidates = row + rows.get(key + 1, [])
+            for i, a in enumerate(row):
+                for c in candidates[i + 1:]:
+                    overlap_w = min(a[2], c[2]) - max(a[0], c[0])
+                    overlap_h = min(a[3], c[3]) - max(a[1], c[1])
+                    if overlap_w > 0.5 * min(a[2] - a[0], c[2] - c[0]) and overlap_h > 0.5 * min(a[3] - a[1], c[3] - c[1]):
+                        raise AssertionError(f"page {index + 1}: characters print over each other near x={a[0]:.0f}, y={a[1]:.0f}")
+
+
+def test_wide_result_table_and_long_cells_stay_inside_the_pdf_page_without_overprinting(client):
+    _register(client, "layout@example.com")
+    wide = {
+        "group": "post", "variable": "a1c_at_goal", "n": 276, "mean": 0.25, "sd": 0.44, "median": 0.0,
+        "mean_ci_low": 0.2, "mean_ci_high": 0.31, "median_ci_low": 0.0, "median_ci_high": 0.0,
+    }
+    long_cells = {f"column_number_{i}": "a_very_long_unbroken_identifier_value_" + "x" * 30 for i in range(3)}
+    seeded = _seed_report_run(
+        with_edits=True, with_audit_and_comments=True,
+        result={
+            "methods": "Descriptive statistics were calculated.",
+            "result_summary": "Descriptive summary of 1 variable(s) across 2 group(s).",
+            "table": [wide, {**wide, "group": "pre"}],
+            "figure_base64": TINY_PNG_BASE64,
+        },
+    )
+    db = SessionLocal()
+    first = db.query(AnalysisRun).filter_by(project_id=seeded["project_id"]).one()
+    db.add(AnalysisRun(
+        project_id=seeded["project_id"], upload_id=first.upload_id, template="before_after_pct", parameters="{}",
+        result_json=json.dumps({"methods": "m", "result_summary": "s", "table": [long_cells, {**long_cells}]}),
+        created_at=datetime.utcnow() + timedelta(seconds=1),
+    ))
+    db.commit()
+    db.close()
+
+    response = client.get(f"/report/project/{seeded['project_id']}/pdf")
+    assert response.status_code == 200, response.text
+    _assert_pdf_layout_is_clean(response.content)
+    text = _pdf_text(response.content)
+    assert "Run Chart" in text and "Before/After: Proportion" in text  # each section is headed by its own analysis
+
+
+def test_audit_action_names_are_not_broken_across_lines():
+    from reportlab.platypus import Paragraph
+
+    from api.routers.report import _pdf_table
+
+    rows = [["Timestamp", "Action", "Metadata"], ["2026-10-24 04:25 UTC", "mentor_comment_created", "{}"], ["2026-10-24 04:25 UTC", "analysis_plan_executed", "{}"]]
+    table = _pdf_table(rows, widths=[116, 134, 218])
+    for row in table._cellvalues[1:]:
+        action = row[1]
+        assert isinstance(action, Paragraph)
+        width = table._colWidths[1] - 6  # minus the cell padding
+        assert action.wrap(width, 1000)[1] <= action.style.leading + 0.5, "an action name wrapped onto a second line"
+
+
+def test_report_titles_are_centered_in_word_and_pdf(client):
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    from api.routers.report import _pdf_styles
+
+    _register(client, "admin@example.com")
+    seeded = _seed_report_run(with_edits=True, with_audit_and_comments=True)
+    response = client.get(f"/report/project/{seeded['project_id']}/docx")
+    paras = Document(io.BytesIO(response.content)).paragraphs
+    titles = [p for p in paras if p.style.name in ("Title", "Heading 1")][:2]
+    assert [p.alignment for p in titles] == [WD_ALIGN_PARAGRAPH.CENTER] * 2
+    assert _pdf_styles()["Heading1"].alignment == 1

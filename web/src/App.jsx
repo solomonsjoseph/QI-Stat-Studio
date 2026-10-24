@@ -1,51 +1,48 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react'
 import Auth from './screens/Auth'
 import Landing from './screens/Landing'
-import ProjectDescription from './screens/ProjectDescription'
-import IntakeQuestions from './screens/IntakeQuestions'
-import Upload from './screens/Upload'
+import ProjectIntake from './screens/ProjectIntake'
+import ClarificationStage from './screens/ClarificationStage'
 import DataReview from './screens/DataReview'
-import AnalysisSelection from './screens/AnalysisSelection'
-import ParameterSelection from './screens/ParameterSelection'
+import AnalysisPlanStage from './screens/AnalysisPlanStage'
 import Results from './screens/Results'
 import EditReview from './screens/EditReview'
 import DownloadShare from './screens/DownloadShare'
 import Settings from './screens/Settings'
+import History from './screens/History'
 import MentorView from './screens/MentorView'
 import Spinner from './components/Spinner'
+import NoKeyPrompt from './components/NoKeyPrompt'
 import { api } from './api'
 
 export const AppCtx = createContext(null)
 export const useApp = () => useContext(AppCtx)
 
 export const SCREENS = [
-  'landing', 'description', 'intake', 'upload', 'review',
-  'analysis', 'params', 'results', 'edit', 'download',
+  'landing', 'description', 'clarify', 'review',
+  'analysis', 'results', 'edit', 'download',
 ]
 
-const ROUTE_SCREENS = new Set([...SCREENS, 'settings'])
+const ROUTE_SCREENS = new Set([...SCREENS, 'settings', 'history'])
 
 const COMPONENTS = {
   landing: Landing,
-  description: ProjectDescription,
-  intake: IntakeQuestions,
-  upload: Upload,
+  description: ProjectIntake,
+  clarify: ClarificationStage,
   review: DataReview,
-  analysis: AnalysisSelection,
-  params: ParameterSelection,
+  analysis: AnalysisPlanStage,
   results: Results,
   edit: EditReview,
   download: DownloadShare,
   settings: Settings,
+  history: History,
 }
 
 export const STEP_LABELS = {
-  description: 'Description',
-  intake: 'Intake',
-  upload: 'Upload',
+  description: 'Project Intake',
+  clarify: 'Clarification',
   review: 'Review',
-  analysis: 'Analysis',
-  params: 'Parameters',
+  analysis: 'Analysis Plan',
   results: 'Results',
   edit: 'Edits',
   download: 'Download',
@@ -61,24 +58,19 @@ function routeFromPath() {
 
 function ctxFromResume(resume) {
   const latestUpload = resume.latest_upload
-  const latestRun = resume.latest_run
   const latestShare = resume.latest_share
   return {
     projectId: resume.project.id,
     projectTitle: resume.project.title,
     projectDesc: resume.project.description || '',
-    answers: resume.answers || {},
+    design: resume.project.ai_project_design || {},
+    runs: resume.runs || [],
     uploadId: latestUpload?.id,
     colTypes: latestUpload?.col_types || {},
     columnMap: latestUpload?.column_map || {},
+    profile: latestUpload?.dataset_profile || {},
     qualityFlags: latestUpload?.quality_flags || [],
     acknowledgedFlags: latestUpload?.acknowledged_flags || [],
-    runId: latestRun?.id,
-    template: latestRun?.template,
-    params: latestRun?.parameters || {},
-    results: latestRun?.result || {},
-    resultSummary: latestRun?.result?.result_summary,
-    aiInterpretation: latestRun?.result?.interpretation || '',
     shareToken: latestShare?.token,
   }
 }
@@ -101,7 +93,7 @@ function GearIcon() {
 }
 
 function Progress({ screen, maxStepIdx, goTo, hydrating }) {
-  if (screen === 'landing' || screen === 'settings') return null
+  if (screen === 'landing' || screen === 'settings' || screen === 'history') return null
   const steps = SCREENS.filter(s => s !== 'landing')
   return (
     <nav className="border-b border-line bg-surface" aria-label="Wizard progress">
@@ -143,6 +135,10 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [hydrating, setHydrating] = useState(false)
+  const [quitDone, setQuitDone] = useState(false)
+  // null until the key status loads; then the boolean from GET /settings/ai-key.
+  const [advisorAvailable, setAdvisorAvailable] = useState(null)
+  const [advisorSkipped, setAdvisorSkipped] = useState(() => window.sessionStorage.getItem('qiss:advisorSkipped') === '1')
   const headingScopeRef = useRef(null)
 
   const path = window.location.pathname
@@ -211,6 +207,11 @@ export default function App() {
     const idx = SCREENS.indexOf(screen)
     if (idx > 0) goTo(SCREENS[idx - 1])
   }
+  const setAdvisorStatus = (status) => setAdvisorAvailable(status ? !!status.advisor_available : null)
+  const skipAdvisor = () => {
+    window.sessionStorage.setItem('qiss:advisorSkipped', '1')
+    setAdvisorSkipped(true)
+  }
   const logout = async () => {
     await api.logout().catch(() => null)
     window.localStorage.removeItem('qiss:lastProjectId')
@@ -218,6 +219,24 @@ export default function App() {
     setMaxStepIdx(0)
     setScreen('landing')
     setUser(null)
+    window.history.replaceState({}, '', '/')
+  }
+  const quit = async () => {
+    let stopped = false
+    try {
+      const result = await api.quit()
+      stopped = !!result?.stopped
+    } catch {
+      // Production or already-down backend: still clear the client session.
+    }
+    await api.logout().catch(() => null)
+    window.localStorage.removeItem('qiss:lastProjectId')
+    setCtx({})
+    setMaxStepIdx(0)
+    setScreen('landing')
+    setUser(null)
+    window.history.replaceState({}, '', '/')
+    if (stopped) setQuitDone(true)
   }
 
   useEffect(() => {
@@ -235,6 +254,15 @@ export default function App() {
       })
     return () => { cancelled = true }
   }, [isMentor])
+
+  useEffect(() => {
+    if (isMentor || !user) return
+    let cancelled = false
+    api.getAiKeyStatus()
+      .then(status => { if (!cancelled) setAdvisorStatus(status) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [isMentor, user])
 
   useEffect(() => {
     if (isMentor || !authChecked || !user) return
@@ -299,6 +327,20 @@ export default function App() {
     return <MentorView token={token} />
   }
 
+  if (quitDone) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-6">
+        <section className="max-w-md text-center">
+          <h1 className="text-3xl font-semibold text-ink">QI Stat Studio stopped</h1>
+          <p className="mt-3 text-sm leading-6 text-ink-soft">
+            You are signed out and the local backend was shut down. You can close this tab.
+            If a terminal is still running Vite, press Ctrl-C there too.
+          </p>
+        </section>
+      </main>
+    )
+  }
+
   if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-ink-soft" aria-live="polite">
@@ -315,20 +357,31 @@ export default function App() {
   const Screen = COMPONENTS[screen] || Landing
 
   return (
-    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, resumeProject, resetProject }}>
+    <AppCtx.Provider value={{ ctx, update, next, prev, goTo, screen, user, logout, quit, resumeProject, resetProject,
+      advisorAvailable, advisorOff: advisorAvailable === false, advisorSkipped, setAdvisorStatus, skipAdvisor,
+    }}>
       <div className="min-h-screen bg-canvas">
         <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur-sm">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
+            <div className="flex items-center">
             <button type="button" onClick={() => goTo('landing')} className="text-sm font-semibold tracking-tight text-ink">
               QI Stat Studio
             </button>
+            <span className="ml-2 rounded border border-line px-1.5 py-0.5 text-xs text-ink-soft" title="Beta release. Report problems to the project owner.">Beta {__APP_VERSION__}</span>
+            </div>
             <div className="flex items-center gap-3 text-sm text-ink-soft">
               <span className="hidden sm:inline">{user.email}</span>
+              <button type="button" onClick={() => goTo('history')} disabled={hydrating} aria-current={screen === 'history' ? 'page' : undefined} className="btn-secondary px-3 py-2">
+                History
+              </button>
               <button type="button" onClick={() => goTo('settings')} disabled={hydrating} aria-label="Open settings" className="btn-secondary px-3 py-2">
                 <GearIcon />
               </button>
               <button type="button" onClick={logout} className="btn-secondary px-3 py-2">
                 Sign out
+              </button>
+              <button type="button" onClick={quit} className="btn-secondary px-3 py-2">
+                Quit
               </button>
             </div>
           </div>
@@ -341,7 +394,9 @@ export default function App() {
           </div>
         )}
         <main ref={headingScopeRef} aria-busy={hydrating} className={hydrating ? 'pointer-events-none opacity-60' : ''}>
-          <Screen />
+          {advisorAvailable === false && !advisorSkipped && screen !== 'settings' && screen !== 'history'
+            ? <NoKeyPrompt onSaved={setAdvisorStatus} onSkip={skipAdvisor} />
+            : <Screen />}
         </main>
       </div>
     </AppCtx.Provider>

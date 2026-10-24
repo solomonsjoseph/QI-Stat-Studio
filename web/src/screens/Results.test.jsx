@@ -1,13 +1,13 @@
+import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import Results from './Results'
 
 const { apiMock, useAppMock } = vi.hoisted(() => ({
   apiMock: {
-    runAnalysis: vi.fn(),
-    chat: vi.fn(),
+    runPlan: vi.fn(),
+    interpretResults: vi.fn(),
   },
   useAppMock: vi.fn(),
 }))
@@ -16,8 +16,8 @@ vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../App', () => ({ useApp: useAppMock }))
 
 beforeEach(() => {
-  apiMock.runAnalysis.mockReset()
-  apiMock.chat.mockReset()
+  apiMock.runPlan.mockReset()
+  apiMock.interpretResults.mockReset()
   useAppMock.mockReset()
 })
 
@@ -26,144 +26,261 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('Results', () => {
-  it('never blocks Edit & Review on AI interpretation loading, and surfaces chat errors with request id', async () => {
+function baseCtx(overrides = {}) {
+  return {
+    projectId: 1,
+    uploadId: 10,
+    analysisPlan: [
+      { template: 'descriptive_summary', parameters: { value_cols: ['falls'] } },
+      { template: 'before_after_mean', parameters: { group_col: 'period', value_col: 'falls', pre_val: 'pre', post_val: 'post' } },
+    ],
+    ...overrides,
+  }
+}
+
+describe('Results multi-run rendering', () => {
+  it('executes run-plan and interpret-results, then renders one section per run', async () => {
     const update = vi.fn()
     const next = vi.fn()
-    let rejectChat
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 3,
-        uploadId: 4,
-        template: 'run_chart',
-        params: { date_col: 'week', value_col: 'falls' },
-      },
-      update,
-      next,
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update, next, prev: vi.fn() })
+
+    apiMock.runPlan.mockResolvedValue({
+      runs: [
+        { run_id: 1, template: 'descriptive_summary', status: 'ok', result_summary: 'Average falls: 2.5', table: [], figure_base64: null },
+        { run_id: 2, template: 'before_after_mean', status: 'ok', result_summary: 'Mean decreased from 3 to 1', table: [], figure_base64: null },
+      ],
+      failures: [],
     })
-    apiMock.runAnalysis.mockResolvedValue({
-      run_id: 55,
-      result_summary: 'Falls decreased after the intervention.',
-      methods: 'Run chart methods.',
-    })
-    apiMock.chat.mockReturnValue(new Promise((_, reject) => { rejectChat = reject }))
-
-    render(<Results />)
-
-    const editButton = await screen.findByRole('button', { name: /edit & review/i })
-    expect(editButton).not.toBeDisabled()
-    expect(next).not.toHaveBeenCalled()
-
-    await act(async () => {
-      rejectChat(Object.assign(new Error('OpenRouter unavailable'), { requestId: 'req-ai-7' }))
-    })
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('OpenRouter unavailable (Request ID: req-ai-7)')
-    expect(screen.getByRole('button', { name: /edit & review/i })).not.toBeDisabled()
-  })
-
-  it('uses a resumed result interpretation as the edit fallback when no AI interpretation is in context', async () => {
-    const update = vi.fn()
-    const next = vi.fn()
-    const user = userEvent.setup()
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 9,
-        results: {
-          result_summary: 'Screening improved from 60% to 78%.',
-          interpretation: 'Server interpretation from the resumed latest run.',
-          methods: 'Before/after proportion methods.',
-        },
-      },
-      update,
-      next,
+    apiMock.interpretResults.mockResolvedValue({
+      interpretations: [
+        { run_id: 1, text: 'Falls were stable at baseline.' },
+        { run_id: 2, text: 'The decrease was statistically significant.' },
+      ],
+      limitations: ['Single site, no randomization'],
+      abstract_draft: 'Background: ...',
     })
 
     render(<Results />)
 
-    expect(screen.getByText('Server interpretation from the resumed latest run.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /edit & review/i }))
+    expect(await screen.findByRole('heading', { name: 'Descriptive Summary' })).toBeInTheDocument()
+    expect(screen.queryByText('What the data show (descriptive)')).not.toBeInTheDocument()
+    expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
+    expect(screen.getByText('Mean decreased from 3 to 1')).toBeInTheDocument()
+    expect(screen.getByText('Falls were stable at baseline.')).toBeInTheDocument()
+    expect(screen.getByText('The decrease was statistically significant.')).toBeInTheDocument()
 
-    expect(update).toHaveBeenCalledWith({ aiInterpretation: 'Server interpretation from the resumed latest run.' })
-    expect(next).toHaveBeenCalledTimes(1)
-    expect(apiMock.runAnalysis).not.toHaveBeenCalled()
-    expect(apiMock.chat).not.toHaveBeenCalled()
-  })
-  it('lets a failed analysis retry and keeps the column-mapping back action available', async () => {
-    const update = vi.fn()
-    const next = vi.fn()
-    const prev = vi.fn()
-    const user = userEvent.setup()
-    useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 11,
-        uploadId: 22,
-        template: 'run_chart',
-        params: { date_col: 'week', value_col: 'falls', intervention_date: '2026-01-15' },
-      },
-      update,
-      next,
-      prev,
+    await waitFor(() => {
+      expect(apiMock.runPlan).toHaveBeenCalledWith(1, 10, [
+        { template: 'descriptive_summary', parameters: { value_cols: ['falls'] } },
+        { template: 'before_after_mean', parameters: { group_col: 'period', value_col: 'falls', pre_val: 'pre', post_val: 'post' } },
+      ])
+      expect(apiMock.interpretResults).toHaveBeenCalledWith(1)
+      expect(update).toHaveBeenCalledWith(expect.objectContaining({ runs: expect.any(Array) }))
     })
-    apiMock.runAnalysis.mockRejectedValueOnce(Object.assign(new Error('Analysis backend timed out'), { requestId: 'req-analysis-42' }))
-    apiMock.chat.mockResolvedValue({ content: 'Falls improved after the intervention.', phi_redacted: false })
+    expect(screen.getByText('Single site, no randomization')).toBeInTheDocument()
+  })
+
+  it('matches main layout for a single run: Summary card, QI Stat Advisor interpretation heading, methods, Edit & Review', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', methods: 'Methods text', table: [{ mean: 2.5 }] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [{ run_id: 1, text: 'Falls were stable.' }], limitations: [], abstract_draft: '' })
 
     render(<Results />)
 
-    const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('Analysis backend timed out (Request ID: req-analysis-42)')
-    const retryButton = screen.getByRole('button', { name: 'Try again' })
-    const backButton = screen.getByRole('button', { name: '← Back to column mapping' })
-
-    await user.click(backButton)
-    expect(prev).toHaveBeenCalledTimes(1)
-
-    apiMock.runAnalysis.mockResolvedValueOnce({
-      run_id: 88,
-      result_summary: 'Falls decreased from 12 to 7 per month after the intervention.',
-      methods: 'Run chart methods.',
-    })
-    await user.click(retryButton)
-
-    await waitFor(() => expect(apiMock.runAnalysis).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText('Falls decreased from 12 to 7 per month after the intervention.')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Summary' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'QI Stat Advisor interpretation' })).toBeInTheDocument()
+    expect(screen.getByText('Falls were stable.')).toBeInTheDocument()
+    expect(screen.getByText('Methods text')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Edit & Review' })).toBeInTheDocument()
   })
 
-  it('renders an em dash instead of the literal "null" for an omitted confidence interval cell', async () => {
+  it('lists a run-level limitation in the Limitations list', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    const line = 'No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period.'
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'u_c_chart', result_summary: 's', table: [], limitations: [line] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+    render(<Results />)
+    expect(await screen.findByText(line)).toBeInTheDocument()
+  })
+
+  it('shows the paired-rows note under the figure only when counts are present', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [
+        { run_id: 1, template: 'descriptive_summary', result_summary: 'A' },
+        { run_id: 2, template: 'before_after_mean', result_summary: 'B', n_pairs: 34, n_dropped_unpaired: 6 },
+      ],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+
+    render(<Results />)
+
+    expect(await screen.findByText(/34 paired observation\(s\)\. 6 record\(s\) excluded \(unpaired\)\./)).toBeInTheDocument()
+    expect(screen.getAllByText(/paired observation/)).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: 'Descriptive Summary' })).toBeInTheDocument()
+  })
+
+  it('keeps results and shows an interpretation error when interpret-results fails', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({ runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5' }], failures: [] })
+    apiMock.interpretResults.mockRejectedValue(new Error('no key'))
+
+    render(<Results />)
+
+    expect(await screen.findByText('Average falls: 2.5')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('The QI Stat Advisor could not write the interpretation. no key')
+  })
+
+  it('renders failures with a back-to-plan link naming the errors, without blocking successful runs', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+
+    apiMock.runPlan.mockResolvedValue({
+      runs: [
+        { run_id: 1, template: 'descriptive_summary', status: 'ok', result_summary: 'Average falls: 2.5' },
+      ],
+      failures: [
+        { template: 'before_after_mean', status: 'error', errors: ['Column not found: bogus_col'] },
+      ],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+
+    render(<Results />)
+
+    expect(await screen.findByText('Some analyses could not be run')).toBeInTheDocument()
+    expect(screen.getByText('Column not found: bogus_col')).toBeInTheDocument()
+    expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back to plan' })).toBeInTheDocument()
+  })
+
+  it('does not re-execute the plan when ctx.runs is already hydrated from resume', async () => {
+    const hydratedRuns = [
+      { run_id: 5, template: 'descriptive_summary', status: 'ok', result_summary: 'Resumed summary', ai_interpretation: 'Resumed interpretation' },
+    ]
     useAppMock.mockReturnValue({
-      ctx: {
-        projectId: 3,
-        uploadId: 4,
-        template: 'descriptive',
-        params: {},
-        results: {
-          result_summary: 'Descriptive summary of 1 variable(s) across 1 group(s).',
-          methods: 'Descriptive methods.',
-          table: [
-            {
-              group: 'All',
-              variable: 'val',
-              n: 4,
-              mean: 2.5,
-              sd: 1.29,
-              median: 2.5,
-              mean_ci_low: 0.44,
-              mean_ci_high: 4.56,
-              median_ci_low: null,
-              median_ci_high: null,
-            },
-          ],
-        },
-      },
+      ctx: baseCtx({ runs: hydratedRuns }),
       update: vi.fn(),
       next: vi.fn(),
+      prev: vi.fn(),
     })
 
     render(<Results />)
 
+    expect(await screen.findByText('Resumed summary')).toBeInTheDocument()
+    expect(screen.getByText('Resumed interpretation')).toBeInTheDocument()
+    expect(apiMock.runPlan).not.toHaveBeenCalled()
+    expect(apiMock.interpretResults).not.toHaveBeenCalled()
+  })
+
+  it('surfaces run-plan errors with a retry action', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+
+    apiMock.runPlan.mockRejectedValue(Object.assign(new Error('Upload not found'), { requestId: 'req-9' }))
+
+    render(<Results />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload not found (Request ID: req-9)')
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+})
+
+describe('Results regressions', () => {
+  it('renders n/a instead of literal null for a CI cell', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 's',
+        table: [{ group: 'All', mean: 2.5, median_ci_low: null, median_ci_high: null }] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+    render(<Results />)
     const table = await screen.findByRole('table')
     expect(table).toHaveTextContent('Median CI low')
     expect(table.textContent).not.toMatch(/\bnull\b/i)
-    expect(table.textContent).toContain('—')
+    expect(table.textContent).toContain('n/a')
+  })
+
+  it('never blocks Edit & Review while the interpretation loads', async () => {
+    const next = vi.fn()
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next, prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({ runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5' }], failures: [] })
+    let rejectInterp
+    apiMock.interpretResults.mockReturnValue(new Promise((_, reject) => { rejectInterp = reject }))
+    render(<Results />)
+    const btn = await screen.findByRole('button', { name: 'Edit & Review' })
+    expect(await screen.findByText('The QI Stat Advisor is preparing an interpretation…')).toBeInTheDocument()
+    expect(btn).not.toBeDisabled()
+    await userEvent.click(btn)
+    expect(next).toHaveBeenCalled()
+    await act(async () => { rejectInterp(new Error('late')) })
+    expect(screen.getByRole('button', { name: 'Edit & Review' })).not.toBeDisabled()
+  })
+})
+
+describe('Results with the advisor off', () => {
+  it('shows the results and a short note when interpret-results returns advisor_unavailable', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockRejectedValue(Object.assign(new Error('off'), { code: 'advisor_unavailable' }))
+    render(<Results />)
+    expect(await screen.findByText('The QI Stat Advisor is off. You can write your own interpretation on the next screen.')).toBeInTheDocument()
+    expect(screen.getByText('Average falls: 2.5')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('calls the interpretation a draft, not AI output, when the advisor is off', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [], interpretation: 'Falls averaged 2.5.' }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockRejectedValue(Object.assign(new Error('off'), { code: 'advisor_unavailable' }))
+    render(<Results />)
+    expect(await screen.findByRole('heading', { name: 'Draft interpretation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'QI Stat Advisor interpretation' })).not.toBeInTheDocument()
+  })
+
+  it('runs the plan once even when the effect fires twice (strict mode, double click)', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [{ run_id: 1, text: 'Falls averaged 2.5.' }], limitations: [], abstract_draft: '' })
+    render(<React.StrictMode><Results /></React.StrictMode>)
+    expect(await screen.findByText('Falls averaged 2.5.')).toBeInTheDocument()
+    expect(apiMock.runPlan).toHaveBeenCalledTimes(1)
+    expect(apiMock.interpretResults).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls the text a draft when the QI Stat Advisor failed to write it', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', table: [], interpretation: 'Falls averaged 2.5.' }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockRejectedValue(new Error('The QI Stat Advisor is busy right now.'))
+    render(<Results />)
+    expect(await screen.findByRole('heading', { name: 'Draft interpretation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'QI Stat Advisor interpretation' })).not.toBeInTheDocument()
+  })
+
+  it('does not repeat the advisor name when the error already says it', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({ runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 's', table: [] }], failures: [] })
+    apiMock.interpretResults.mockRejectedValue(new Error('The QI Stat Advisor could not answer. Try again, or continue without it.'))
+    render(<Results />)
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('The QI Stat Advisor could not answer. Try again, or continue without it.')
+    expect(alert.textContent.match(/The QI Stat Advisor/g)).toHaveLength(1)
   })
 })

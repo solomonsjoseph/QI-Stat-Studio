@@ -12,13 +12,14 @@ from api.auth import require_admin
 from api.config import settings
 from api.database import get_db
 from api.models_db import FailureLog, User
+from api.version import __version__
 
 router = APIRouter(tags=["ops"])
 
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": __version__}
 
 
 @router.get("/readyz")

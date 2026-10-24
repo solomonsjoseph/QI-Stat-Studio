@@ -29,6 +29,14 @@ class BeforeAfterPctParams(AnalysisParamsBase):
     post_val: str
 
 
+class BeforeAfterPairedParams(AnalysisParamsBase):
+    id_col: str
+    group_col: str
+    value_col: str
+    pre_val: str
+    post_val: str
+    intervention_label: str = "Intervention"
+
 class RunChartParams(AnalysisParamsBase):
     date_col: str
     value_col: str
@@ -60,6 +68,7 @@ TEMPLATE_PARAM_MODELS: dict[str, type[AnalysisParamsBase]] = {
     "descriptive_summary": DescriptiveParams,
     "before_after_mean": BeforeAfterMeanParams,
     "before_after_pct": BeforeAfterPctParams,
+    "before_after_paired": BeforeAfterPairedParams,
     "run_chart": RunChartParams,
     "p_chart": PChartParams,
     "u_c_chart": UCChartParams,
@@ -69,6 +78,7 @@ _TEMPLATE_COLUMN_FIELDS: dict[str, dict[str, bool]] = {
     "descriptive_summary": {"group_col": False, "value_cols": True},
     "before_after_mean": {"group_col": True, "value_col": True},
     "before_after_pct": {"group_col": True, "outcome_col": True},
+    "before_after_paired": {"id_col": True, "group_col": True, "value_col": True},
     "run_chart": {"date_col": True, "value_col": True},
     "p_chart": {"date_col": True, "numerator_col": True, "denominator_col": False},
     "u_c_chart": {"date_col": True, "count_col": True, "denominator_col": False},

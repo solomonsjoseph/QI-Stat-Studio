@@ -9,7 +9,7 @@ to finish.
 |---|--------|--------------------|
 | 1 | Landing | Sign in, start a new project, or resume/archive an existing one. |
 | 2 | Project Description | Title and a plain-language description of the project; triggers AI intake pre-fill. |
-| 3 | Intake Questions | Nine short questions (Q2–Q10) that decide which analysis gets recommended. |
+| 3 | Intake Questions | Nine short questions (Q2-Q10) that decide which analysis gets recommended. |
 | 4 | Upload | Upload a CSV or Excel file, then confirm the detected column types. |
 | 5 | Data Review | Row count, missing-value percentages, and data-quality warnings/errors to acknowledge or fix. |
 | 6 | Analysis Selection | Pick from three ranked analyses; one is marked Recommended. |
@@ -45,7 +45,7 @@ again. "I'm not sure" is always an available answer.
   - Always
 * - Q3
   - Are you comparing before and after something?
-  - Yes — before and after an intervention · No — I'm just describing one
+  - Yes, before and after an intervention · No, I'm just describing one
     time period · More than two periods (phases) · I'm not sure
   - Always
 * - Q4
@@ -67,12 +67,12 @@ again. "I'm not sure" is always an available answer.
   - What was the intervention and when did it start?
   - Intervention description (optional, free text) + Intervention date (if
     known). Pre-filled from your project description.
-  - Skipped when Q3 = "No — I'm just describing one time period"
+  - Skipped when Q3 = "No, I'm just describing one time period"
 * - Q8
   - Who are you comparing?
   - Same unit pre vs. post · Intervention vs. control · Subgroups · I'm not
     sure
-  - Skipped when Q3 = "No — I'm just describing one time period"
+  - Skipped when Q3 = "No, I'm just describing one time period"
 * - Q9
   - Which software should we put in the code export?
   - R · SPSS · SAS · All three · I'm not sure (defaults to including all
@@ -87,13 +87,14 @@ again. "I'm not sure" is always an available answer.
   - Always, optional
 `````
 
-## The six analyses
+## The seven analyses
 
 | Analysis | Use it when | What the tool does |
 |----------|-------------|---------------------|
 | **Descriptive Summary** | You need a one-period summary or Table 1. | Reports n, mean, SD, and median per variable, optionally split by group. |
 | **Before/After: Mean** | You're comparing an average or median before vs. after. | Checks normality (Shapiro-Wilk) and equal variance (Levene), then automatically picks a t-test or a Wilcoxon rank-sum test. |
 | **Before/After: Proportion** | You're comparing a percentage or yes/no rate before vs. after. | Automatically picks a chi-square test or Fisher's exact test based on expected cell counts. |
+| **Before/After: Paired** | The same people or units were measured before and after. | Pairs the before and after values per record and runs a paired t-test or a Wilcoxon signed-rank test. |
 | **Run Chart** | You're tracking a value over time, especially with fewer than 12 points. | Plots the value over time with a median line and flags run (≥8 same-side points) and trend (≥6 consecutive same-direction) signals. |
 | **p-Chart** | You're tracking a percentage/proportion over time with 12+ points. | 3-sigma control limits computed from each period's numerator and denominator. |
 | **u/c-Chart** | You're tracking a rate or count over time with 12+ points. | Uses a u-chart when the denominator varies period to period, or a c-chart when it's stable; both use 3-sigma control limits. |

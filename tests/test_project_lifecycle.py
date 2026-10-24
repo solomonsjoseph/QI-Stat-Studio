@@ -113,44 +113,9 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
     assert response.status_code == 200, response.text
     assert response.json()["current_screen"] == "description"
 
-    client.post(f"/intake/{project_id}", json={"answers": {"q1": "Improve follow-up"}})
-    assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "intake"
-
-    answers = {
-        "q2": "percentage",
-        "q3": "No — I'm just describing one time period",
-        "q4": "Tracking over time (months, weeks, days)",
-        "q5": "Monthly",
-        "q6": "12",
-        "q7": {"description": "Should be removed", "date": "2026-01-01"},
-        "q8": "Same unit pre vs. post",
-        "q9": "R",
-        "q10": {},
-    }
-    saved = client.post(f"/intake/{project_id}", json={"answers": answers})
-    assert saved.status_code == 200, saved.text
-    resumed = client.get(f"/projects/{project_id}/resume").json()
-    assert resumed["current_screen"] == "upload"
-    assert "q7" not in resumed["answers"]
-    assert "q8" not in resumed["answers"]
-
-    comparison_project = _create_project(client, "Comparison Resume", "")
-    comparison_id = comparison_project["id"]
-    comparison_answers = {
-        "q1": "Compare pre/post process",
-        "q2": "average",
-        "q3": "Yes — before and after an intervention",
-        "q4": "Tracking over time (months, weeks, days)",
-        "q5": "Monthly",
-        "q6": "12",
-        "q7": {},
-        "q8": "Same unit pre vs. post",
-        "q9": "R",
-        "q10": {},
-    }
-    comparison_saved = client.post(f"/intake/{comparison_id}", json={"answers": comparison_answers})
-    assert comparison_saved.status_code == 200, comparison_saved.text
-    assert client.get(f"/projects/{comparison_id}/resume").json()["current_screen"] == "upload"
+    updated = client.patch(f"/projects/{project_id}", json={"description": "Improve follow-up"})
+    assert updated.status_code == 200, updated.text
+    assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "description"
 
     with SessionLocal() as db:
         upload = Upload(
@@ -172,6 +137,13 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
         db.refresh(upload)
         upload_id = upload.id
 
+    assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "clarify"
+
+    with SessionLocal() as db:
+        proj = db.get(Project, project_id)
+        proj.ai_clarification_state = json.dumps({"turns": [], "confirmed": True})
+        db.commit()
+
     resumed = client.get(f"/projects/{project_id}/resume").json()
     assert resumed["current_screen"] == "review"
     assert resumed["latest_upload"]["id"] == upload_id
@@ -180,6 +152,13 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
     with SessionLocal() as db:
         upload = db.get(Upload, upload_id)
         upload.acknowledged_flags = upload.quality_flags
+        db.commit()
+
+    assert client.get(f"/projects/{project_id}/resume").json()["current_screen"] == "analysis"
+
+    with SessionLocal() as db:
+        proj = db.get(Project, project_id)
+        proj.ai_analysis_plan = json.dumps({"confirmed": True})
         db.add(AnalysisRun(project_id=project_id, upload_id=upload_id, template="run_chart", parameters="{}", result_json="{\"interpretation\":\"ok\"}"))
         db.commit()
 
@@ -196,25 +175,13 @@ def test_project_resume_derives_wizard_state_and_hydrates_latest_records(client)
 
 def test_project_resume_scopes_latest_run_to_the_active_upload(client):
     _register(client, "owner@example.com")
-    project = _create_project(client, "Resume Rescope", "")
+    project = _create_project(client, "Resume Rescope", "Improve follow-up")
     project_id = project["id"]
 
-    answers = {
-        "q1": "Improve follow-up",
-        "q2": "percentage",
-        "q3": "No — I'm just describing one time period",
-        "q4": "Tracking over time (months, weeks, days)",
-        "q5": "Monthly",
-        "q6": "12",
-        "q7": {},
-        "q8": "Same unit pre vs. post",
-        "q9": "R",
-        "q10": {},
-    }
-    saved = client.post(f"/intake/{project_id}", json={"answers": answers})
-    assert saved.status_code == 200, saved.text
-
     with SessionLocal() as db:
+        proj = db.get(Project, project_id)
+        proj.ai_clarification_state = json.dumps({"turns": [], "confirmed": True})
+        proj.ai_analysis_plan = json.dumps({"confirmed": True})
         old_upload = Upload(
             project_id=project_id,
             filename="old.csv",
@@ -313,3 +280,27 @@ def test_project_purge_removes_project_and_encrypted_upload_file(client, tmp_pat
 
     with SessionLocal() as db:
         assert db.get(Project, project["id"]) is None
+
+
+def test_project_ai_state_json_columns_round_trip_through_the_api(client):
+    _register(client, "owner@example.com")
+    project = _create_project(client, "AI state", "Round trip")
+
+    for field in ("ai_clarification_state", "ai_project_design", "ai_analysis_plan", "data_collection_notes"):
+        assert project[field] is None
+
+    with SessionLocal() as db:
+        row = db.get(Project, project["id"])
+        row.ai_clarification_state = json.dumps({"turns": [{"role": "ai", "text": "What are you measuring?"}]})
+        row.ai_project_design = json.dumps({"primary_outcome": "fall rate", "intervention": "screening tool"})
+        row.ai_analysis_plan = json.dumps({"analyses": ["run_chart", "p_chart"], "confirmed": False})
+        row.data_collection_notes = json.dumps({"missing": ["intervention_date"]})
+        db.commit()
+
+    fetched = client.get(f"/projects/{project['id']}")
+    assert fetched.status_code == 200, fetched.text
+    body = fetched.json()
+    assert body["ai_clarification_state"] == {"turns": [{"role": "ai", "text": "What are you measuring?"}]}
+    assert body["ai_project_design"] == {"primary_outcome": "fall rate", "intervention": "screening tool"}
+    assert body["ai_analysis_plan"] == {"analyses": ["run_chart", "p_chart"], "confirmed": False}
+    assert body["data_collection_notes"] == {"missing": ["intervention_date"]}

@@ -234,3 +234,32 @@ def test_spss_sas_time_series_include_intervention_comment():
     params = {"date_col": "date", "count_col": "cnt", "intervention_date": "2025-01-01"}
     assert "* Intervention began 2025-01-01; mark it on the chart." in generate_spss_code("u_c_chart", params)
     assert "/* Intervention began 2025-01-01 */" in generate_sas_code("u_c_chart", params)
+
+def test_scripts_start_with_data_change_comments_and_cannot_be_broken_out_of():
+    from api.templates.codegen import generate_r_code, generate_sas_code, generate_spss_code
+
+    dc = {"steps": [{"description": "Removed rows.", "rows_before": 10, "rows_after": 8, "rows_removed": 2,
+                     "cells_changed": 0, "warnings": [], "note": "x */ proc delete;\nlibrary(evil)\n. DELETE VARIABLES a"}],
+          "decisions": []}
+    p = {"value_cols": ["a"]}
+    r = generate_r_code("descriptive_summary", p, None, dc)
+    sas = generate_sas_code("descriptive_summary", p, None, dc)
+    spss = generate_spss_code("descriptive_summary", p, None, dc)
+    for code, mark in ((r, "#"), (sas, "/*"), (spss, "*")):
+        assert code.startswith(mark) and "Rows before 10, after 8, removed 2" in code
+    head = r.split("\n\n", 1)[0]
+    assert all(l.startswith("#") for l in head.splitlines())
+    sas_head = sas.split("\n\n", 1)[0]
+    assert all(l.startswith("/*") and l.endswith("*/") and l.count("*/") == 1 for l in sas_head.splitlines())
+    spss_head = spss.split("\n\n", 1)[0]
+    assert all(l.startswith("* ") and l.endswith(".") for l in spss_head.splitlines())
+    for code in (r, sas, spss):
+        assert code.split("\n\n", 1)[1] == code.split("\n\n", 1)[1].lstrip()
+
+
+def test_scripts_have_no_comment_block_without_data_changes():
+    from api.templates.codegen import generate_r_code
+
+    assert generate_r_code("descriptive_summary", {"value_cols": ["a"]}) == \
+        generate_r_code("descriptive_summary", {"value_cols": ["a"]}, None, None)
+    assert not generate_r_code("descriptive_summary", {"value_cols": ["a"]}, None, {"steps": [], "decisions": []}).startswith("#")

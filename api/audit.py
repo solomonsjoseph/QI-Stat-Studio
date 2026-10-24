@@ -62,7 +62,7 @@ SAFE_DIAGNOSTIC_MESSAGES = {
     "internal_error": "Unexpected server error",
     "analysis_failed": "Analysis failed",
     "notification_failed": "Notification delivery failed",
-    "ai_service_unavailable": "AI service unavailable",
+    "ai_service_unavailable": "The QI Stat Advisor could not answer",
 }
 
 

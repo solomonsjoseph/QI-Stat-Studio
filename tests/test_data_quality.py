@@ -63,7 +63,7 @@ def test_flags_outliers_but_skips_binary_columns():
 
 
 def test_check_time_gaps_zero_on_sample_csv():
-    """Sample CSV has 24 consecutive months (2024-2025) — expect 0 gap flags."""
+    """Sample CSV has 24 consecutive months (2024-2025); expect 0 gap flags."""
     df = load()
     flags = quality_flags(df)
     gap_flags = [f for f in flags if f["rule"] == "check_time_gaps"]
@@ -140,7 +140,7 @@ def test_fib4_score_dq_message_includes_expected_behavior_context():
     fib4_flags = [f for f in flags if f["col"] == "fib4_score" and f["rule"] == "missing_pct"]
     assert len(fib4_flags) == 1
     assert "often blank when MASLD screening was not done" in fib4_flags[0]["msg"]
-    assert "expected behavior" in fib4_flags[0]["msg"]
+    assert "expected)" in fib4_flags[0]["msg"]
 
 
 def test_fib4_score_dq_message_does_not_use_generic_wording():
@@ -149,3 +149,130 @@ def test_fib4_score_dq_message_does_not_use_generic_wording():
     fib4_flags = [f for f in flags if f["col"] == "fib4_score" and f["rule"] == "missing_pct"]
     assert len(fib4_flags) == 1
     assert "if this is your outcome column" not in fib4_flags[0]["msg"]
+
+
+def test_new_rules_and_metadata_emitted():
+    n = 21
+    df = pd.DataFrame({
+        "padded_col": ["  val1", "val2  ", "val3"] * 7,
+        "mixed_col": (["12", "15", "text_label", "another_text"] * 5) + ["99"],
+        "total_days": [10] + [20, 25, 30] * 6 + [22, 24],  # row 0 is the only row where the numerator is larger
+        "eligible_n": [0, 5, 6] * 7,  # nonpositive denominator (0)
+        "num_infections": [12] + [5, 2, 3] * 6 + [4, 1],
+        "bin_col": ["yes", "no", "maybe"] * 7,  # third value
+        "sparse_cat": ["A"] * 20 + ["B"],  # B has 1 row (<5)
+        "future_date": ["2099-01-01"] * n,
+    })
+    col_types = {
+        "padded_col": "Category",
+        "mixed_col": "Category",
+        "total_days": "Number",
+        "eligible_n": "Number",
+        "num_infections": "Number",
+        "bin_col": "Yes/No",
+        "sparse_cat": "Category",
+        "future_date": "Date",
+    }
+    flags = run_data_quality(df, col_types)
+    rules = {f["rule"] for f in flags}
+
+    assert "whitespace_padding" in rules
+    assert "mixed_types" in rules
+    assert "nonpositive_denominator" in rules
+    assert "numerator_exceeds_denominator" in rules
+    assert "binary_out_of_range" in rules
+    assert "sparse_category" in rules
+    assert "unexpected_date_range" in rules
+    assert "insufficient_time_points" in rules
+
+    # Check rich metadata presence
+    for f in flags:
+        assert "why" in f and len(f["why"]) > 0
+        assert "suggestion" in f and len(f["suggestion"]) > 0
+        assert "blocks" in f
+
+    nonpos = next(f for f in flags if f["rule"] == "nonpositive_denominator")
+    assert nonpos["blocks"] == "p_chart, u_c_chart"
+    assert nonpos["severity"] == "ERROR"
+
+    num_exc = next(f for f in flags if f["rule"] == "numerator_exceeds_denominator")
+    assert num_exc["blocks"] == "p_chart"
+    assert num_exc["severity"] == "ERROR"
+
+
+def test_duplicate_rows_detected():
+    df = pd.DataFrame({
+        "a": [1, 1, 2],
+        "b": ["x", "x", "y"],
+    })
+    flags = run_data_quality(df, {"a": "Number", "b": "Category"})
+    rules = {f["rule"] for f in flags}
+    assert "duplicate_rows" in rules
+
+
+def test_malformed_fixture_emits_case_whitespace_and_mixed_type_rules():
+    df = pd.read_csv("tests/fixtures/malformed_dates_mixed_case.csv")
+    flags = quality_flags(df)
+
+    assert any(f["col"] == "period" and f["rule"] == "case_inconsistent" for f in flags)
+    assert any(f["col"] == "metric" and f["rule"] == "whitespace_padding" for f in flags)
+    assert any(f["col"] == "metric" and f["rule"] == "mixed_types" for f in flags)
+
+
+def test_flag_ids_present_unique_and_stable():
+    df = load()
+    first = quality_flags(df)
+    second = quality_flags(df)
+    ids = [f["id"] for f in first]
+    assert first and all(ids)
+    assert len(ids) == len(set(ids))
+    assert ids == [f["id"] for f in second]
+
+
+def test_flag_ids_differ_across_columns_for_same_rule():
+    df = pd.DataFrame({"a": [1.0, None, None, 4.0], "b": [None, None, 3.0, 4.0]})
+    flags = run_data_quality(df, {"a": "Number", "b": "Number"})
+    ids = [f["id"] for f in flags if f["rule"] == "missing_pct"]
+    assert sorted(ids) == ["missing_pct:a", "missing_pct:b"]
+
+
+def test_dataset_level_flag_has_fixed_id():
+    df = pd.DataFrame({"a": [1, 1], "b": ["x", "x"]})
+    flags = run_data_quality(df, {"a": "Number", "b": "Category"})
+    assert "duplicate_rows:dataset" in [f["id"] for f in flags]
+
+
+def test_case_variants_are_merged_before_the_sparse_level_check():
+    df = pd.DataFrame({"period": ["pre"] * 10 + ["PRE"] * 2 + ["post"] * 10 + ["Post"] * 2})
+    rules = {f["rule"] for f in run_data_quality(df, {"period": "Category"})}
+    assert "case_inconsistent" in rules
+    assert "sparse_category" not in rules
+
+
+def test_unrelated_numeric_columns_do_not_raise_numerator_exceeds_denominator():
+    df = pd.DataFrame({
+        "age_years": [70.5, 47.8, 63.2, 55.0, 81.4, 39.9, 66.1, 72.3],
+        "n_visits_last_12mo": [7, 5, 3, 4, 6, 2, 8, 5],
+    })
+    flags = run_data_quality(df, {"age_years": "Number", "n_visits_last_12mo": "Number"})
+    assert "numerator_exceeds_denominator" not in {f["rule"] for f in flags}
+
+
+def test_consistently_capitalized_values_are_not_mixed_case():
+    df = pd.DataFrame({"sex": ["F", "M"] * 10, "race": ["White", "Black", "Asian", "Other"] * 5})
+    flags = run_data_quality(df, {"sex": "Category", "race": "Category"})
+    assert "case_inconsistent" not in {f["rule"] for f in flags}
+
+
+def test_first_of_month_dates_are_not_flagged_as_uneven():
+    dates = pd.date_range("2023-01-01", periods=36, freq="MS").strftime("%Y-%m-%d")
+    df = pd.DataFrame({"report_month": dates, "falls": range(36)})
+    rules = {f["rule"] for f in run_data_quality(df, {"report_month": "Date", "falls": "Number"})}
+    assert "uneven_time_intervals" not in rules
+
+
+def test_genuinely_irregular_dates_are_still_flagged_as_uneven():
+    days = [1, 2, 5, 9, 10, 17, 18, 30]
+    df = pd.DataFrame({"visit": [f"2024-01-{d:02d}" for d in days], "x": range(len(days))})
+    rules = {f["rule"] for f in run_data_quality(df, {"visit": "Date", "x": "Number"})}
+    assert "uneven_time_intervals" in rules

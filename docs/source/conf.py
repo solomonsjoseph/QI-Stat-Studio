@@ -14,7 +14,7 @@ import datetime
 project = "QI Stat Studio"
 author = "QI Stat Studio contributors"
 copyright = f"{datetime.date.today().year}, {author}"
-release = "1.0.0"
+release = "1.0.0-beta.1"
 
 extensions = [
     "myst_parser",
@@ -41,7 +41,7 @@ templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # Diataxis structure duplicated per audience; both trees are real files,
-# not copies, so "developer" and "user" never fall out of sync silently —
+# not copies, so "developer" and "user" never fall out of sync silently. 
 # any duplication is a deliberate cross-link, checked by `make linkcheck`.
 suppress_warnings = []
 
@@ -57,6 +57,6 @@ html_theme_options = {
     "top_of_page_buttons": [],
 }
 
-# Fail the build on broken cross-references — a broken :doc:/:ref: link is a
+# Fail the build on broken cross-references. A broken :doc:/:ref: link is a
 # documentation bug, not a warning to ignore.
 nitpicky = False  # MyST + mixed prose docs generate false positives; rely on linkcheck instead

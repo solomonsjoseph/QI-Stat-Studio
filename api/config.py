@@ -6,9 +6,11 @@ from cryptography.fernet import Fernet as _Fernet
 class Settings(BaseSettings):
     ai_provider: str = "openrouter"
     openrouter_api_key: str = ""
-    openrouter_model: str = "anthropic/claude-sonnet-4-6"
+    openrouter_model: str = "anthropic/claude-sonnet-4.6"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash"
     local_api_base: str = "http://localhost:11434"
     local_api_key: str = ""
     local_model: str = "llama3.1"
@@ -24,6 +26,8 @@ class Settings(BaseSettings):
     smtp_pass: str = ""
     from_email: str = "qi-stat-studio@example.com"
     cookie_secure: bool = False
+    # OWASP Password Storage Cheat Sheet: PBKDF2-HMAC-SHA256 needs 600,000 iterations. Tests may lower it.
+    password_iterations: int = 600_000
     cors_origins: str = "http://localhost:5173"
     environment: str = "development"
 
@@ -31,7 +35,7 @@ class Settings(BaseSettings):
     def fernet(self) -> "_Fernet":
         if not self.fernet_key:
             raise RuntimeError(
-                'FERNET_KEY is required in .env — generate with: '
+                'FERNET_KEY is required in .env. Generate with: '
                 'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
         return _Fernet(self.fernet_key.encode())

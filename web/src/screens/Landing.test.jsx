@@ -44,18 +44,19 @@ afterEach(() => {
 })
 
 describe('Landing start new project', () => {
-  it('replaces context wholesale through resetProject instead of merging onto stale state', async () => {
-    apiMock.createProject.mockResolvedValue({ id: 9, title: 'New QI Project', description: '' })
+  it('clears stale context and routes straight to the unified intake screen without pre-creating a project', async () => {
     const user = userEvent.setup()
     const { update, resetProject, goTo } = renderLanding()
 
     await user.click(await screen.findByRole('button', { name: 'Start New Project' }))
 
     // A prior project's template/params/columnMap must not survive into the new
-    // project: resetProject fully replaces ctx (setCtx(patch)), so it must be called
-    // with exactly the new project's fields and nothing merged in from before.
-    expect(resetProject).toHaveBeenCalledWith({ projectId: 9, projectTitle: 'New QI Project', projectDesc: '' })
+    // project: resetProject fully replaces ctx (setCtx(patch)). The project itself
+    // is created inside the unified intake screen once title+file+dictionary are
+    // submitted together, so no createProject call happens here.
+    expect(resetProject).toHaveBeenCalledWith({})
     expect(resetProject).toHaveBeenCalledTimes(1)
+    expect(apiMock.createProject).not.toHaveBeenCalled()
     expect(update).not.toHaveBeenCalled()
     expect(goTo).toHaveBeenCalledWith('description')
   })

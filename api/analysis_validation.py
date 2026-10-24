@@ -167,6 +167,41 @@ def validate_analysis_inputs(template: str, df: pd.DataFrame, params: dict) -> l
             )
         return errors
 
+    if template == "before_after_paired":
+        id_col = params["id_col"]
+        group_col = params["group_col"]
+        value_col = params["value_col"]
+        if id_col not in df.columns:
+            errors.append(f"ID column '{id_col}' is not present in dataset")
+        if group_col not in df.columns:
+            errors.append(f"Group column '{group_col}' is not present in dataset")
+        if value_col not in df.columns:
+            errors.append(f"Value column '{value_col}' is not present in dataset")
+        if errors:
+            return errors
+
+        groups = _normal_group_values(df[group_col])
+        pre_val = _normal_group_value(df[group_col], params["pre_val"])
+        post_val = _normal_group_value(df[group_col], params["post_val"])
+        present = set(groups.dropna().unique())
+        if pre_val not in present:
+            errors.append(f"Pre group '{params['pre_val']}' is not present in column '{group_col}'")
+        if post_val not in present:
+            errors.append(f"Post group '{params['post_val']}' is not present in column '{group_col}'")
+        if pre_val == post_val:
+            errors.append(f"Pre group and post group must be different (both were '{params['pre_val']}')")
+            return errors
+
+        vals = pd.to_numeric(df[value_col], errors="coerce")
+        pre_ids = set(df[(groups == pre_val) & vals.notna()][id_col])
+        post_ids = set(df[(groups == post_val) & vals.notna()][id_col])
+        n_pairs = len(pre_ids & post_ids)
+        if n_pairs < 2:
+            errors.append(
+                f"Paired analysis requires at least 2 complete pairs with values in both groups; found {n_pairs}"
+            )
+        return errors
+
     if template == "run_chart":
         errors.extend(_date_parse_errors(df, params["date_col"]))
         errors.extend(_numeric_parse_errors(df, params["value_col"]))

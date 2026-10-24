@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey
 from api.database import Base
 
 
@@ -34,7 +34,14 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     archived_at = Column(DateTime, nullable=True)
-
+    schema_version = Column(Integer, server_default="1", default=1, nullable=False)
+    workflow_phase = Column(String(32), server_default="intake", default="intake", nullable=False)
+    ai_clarification_state = Column(Text, nullable=True)
+    ai_project_design = Column(Text, nullable=True)
+    ai_analysis_plan = Column(Text, nullable=True)
+    ai_plan_history = Column(Text, nullable=True)
+    inputs_fingerprint = Column(String(64), nullable=True)
+    data_collection_notes = Column(Text, nullable=True)
 
 class Upload(Base):
     __tablename__ = "uploads"
@@ -53,15 +60,38 @@ class Upload(Base):
     original_filename = Column(String(255), default="", nullable=False)
     storage_key = Column(String(512), default="", nullable=False)
     status = Column(String(20), default="active", nullable=False)
+    phi_scan_status = Column(String(20), default="pending", nullable=False)
+    dataset_profile = Column(Text, nullable=True)
+    phi_scan_detail = Column(Text, nullable=True)
+    column_roles = Column(Text, server_default="{}", default="{}", nullable=False)
+    dictionary_filename = Column(String(255), nullable=True)
+    dictionary_text = Column(Text, nullable=True)
+    handoff_md = Column(Text, nullable=True)
+    handoff_steps = Column(Text, server_default="[]", default="[]", nullable=False)
+    handoff_revision = Column(Integer, server_default="0", default=0, nullable=False)
+    handoff_revisions = Column(Text, server_default="[]", default="[]", nullable=False)
+    handoff_status = Column(String(20), server_default="none", default="none", nullable=False)
+    handoff_updated_at = Column(DateTime, nullable=True)
+    handoff_replaced_at = Column(DateTime, nullable=True)
+    handoff_source_upload_id = Column(Integer, ForeignKey("uploads.id", ondelete="SET NULL"), nullable=True)
+    dictionary_checksum_sha256 = Column(String(64), server_default="", default="", nullable=False)
 
 
-class IntakeAnswer(Base):
-    __tablename__ = "intake_answers"
+class WarningGroup(Base):
+    __tablename__ = "warning_groups"
     id = Column(Integer, primary_key=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
-    question_key = Column(String(10))
-    answer = Column(Text)
-    is_unsure = Column(Boolean, default=False)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    upload_id = Column(Integer, ForeignKey("uploads.id", ondelete="CASCADE"), nullable=False, index=True)
+    flag_ids = Column(Text, nullable=False)
+    action = Column(String(20), nullable=False)
+    text = Column(Text, nullable=True)
+    status = Column(String(20), server_default="open", default="open", nullable=False)
+    advisor_turns = Column(Text, server_default="[]", default="[]", nullable=False)
+    pending_proposal = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    handled_at = Column(DateTime, nullable=True)
 
 
 class AnalysisRun(Base):
@@ -91,6 +121,7 @@ class EditHistory(Base):
     __tablename__ = "edit_history"
     id = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"))
+    run_id = Column(Integer, ForeignKey("analysis_runs.id", ondelete="CASCADE"), nullable=True)
     field = Column(String(100))
     original_text = Column(Text)
     edited_text = Column(Text)
@@ -107,6 +138,9 @@ class MentorShare(Base):
     expires_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
     regenerated_from_id = Column(Integer, ForeignKey("mentor_shares.id", ondelete="SET NULL"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)  # the mentor's final sign-off ("good work")
+    approved_by_name = Column(String(255), nullable=True)
+    approved_note = Column(Text, nullable=True)
 
 
 class MentorComment(Base):
@@ -120,6 +154,9 @@ class MentorComment(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
+    resident_reply = Column(Text, nullable=True)  # what the resident did about this comment
+    addressed_at = Column(DateTime, nullable=True)  # the resident says it is handled
+    resolved_at = Column(DateTime, nullable=True)  # the mentor agrees it is handled
 
 
 class AIUsageEvent(Base):

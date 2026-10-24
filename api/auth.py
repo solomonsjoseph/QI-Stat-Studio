@@ -21,7 +21,6 @@ from api.models_db import Project, User, UserSession
 
 SESSION_COOKIE_NAME = "qiss_session"
 SESSION_SECONDS = 8 * 60 * 60
-_PASSWORD_ITERATIONS = 260_000
 
 
 def _hash_token(token: str) -> str:
@@ -65,9 +64,9 @@ def _unsign_session_cookie(cookie_value: str) -> str | None:
 
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PASSWORD_ITERATIONS)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, settings.password_iterations)
     return "pbkdf2_sha256${}${}${}".format(
-        _PASSWORD_ITERATIONS,
+        settings.password_iterations,
         base64.urlsafe_b64encode(salt).decode("ascii"),
         base64.urlsafe_b64encode(digest).decode("ascii"),
     )
@@ -85,6 +84,14 @@ def verify_password(password: str, stored_hash: str) -> bool:
         return False
     actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
     return secrets.compare_digest(actual, expected)
+
+
+def needs_rehash(stored_hash: str) -> bool:
+    """True for a valid hash made with fewer iterations than the current setting."""
+    try:
+        return int(stored_hash.split("$", 3)[1]) < settings.password_iterations
+    except (IndexError, ValueError):
+        return False
 
 
 def new_session_token() -> str:

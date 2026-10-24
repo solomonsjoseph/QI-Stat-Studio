@@ -275,24 +275,31 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
     )
     assert added.status_code == 200, added.text
     comment = added.json()
-    assert comment["author_email"] == "mentor@example.com"
-    assert comment["text"] == "Initial scoped feedback"
+    assert "author_email" not in comment  # a mentor's address is not shown to other link holders
+    assert comment["text"] == "Initial scoped feedback" and comment["edit_token"]
+    assert "author_email" not in client.get(f"/share/view/{share['token']}").json()["comments"][0]
+    assert "edit_token" not in client.get(f"/share/view/{share['token']}").json()["comments"][0]
 
     wrong_author = client.patch(
         f"/share/view/{share['token']}/comment/{comment['id']}",
-        json={"author_email": "someone-else@example.com", "text": "Hijacked feedback"},
+        json={"edit_token": "not-the-token", "text": "Hijacked feedback"},
     )
     assert wrong_author.status_code == 403
+    knows_the_email_only = client.patch(
+        f"/share/view/{share['token']}/comment/{comment['id']}",
+        json={"edit_token": "mentor@example.com", "text": "Hijacked feedback"},
+    )
+    assert knows_the_email_only.status_code == 403
 
     edited = client.patch(
         f"/share/view/{share['token']}/comment/{comment['id']}",
-        json={"author_email": "MENTOR@example.com", "text": "Scoped edited feedback"},
+        json={"edit_token": comment["edit_token"], "text": "Scoped edited feedback"},
     )
     assert edited.status_code == 200, edited.text
     assert edited.json()["text"] == "Scoped edited feedback"
     assert edited.json()["updated_at"] is not None
 
-    report = client.get(f"/report/{run_id}/docx")
+    report = client.get(f"/report/project/{project['id']}/docx")
     assert report.status_code == 200, report.text
     report_text = _docx_text(report.content)
     assert "Scoped edited feedback" in report_text
@@ -301,7 +308,7 @@ def test_mentor_view_comment_author_lifecycle_and_scoped_report_download(client,
     deleted = client.request(
         "DELETE",
         f"/share/view/{share['token']}/comment/{comment['id']}",
-        json={"author_email": "mentor@example.com"},
+        json={"edit_token": comment["edit_token"]},
     )
     assert deleted.status_code == 200, deleted.text
     assert deleted.json() == {"ok": True}
@@ -446,3 +453,22 @@ def test_admin_deadline_reminder_sends_once_per_active_share_deadline_kind_and_r
             assert db.query(NotificationDelivery).filter_by(project_id=project["id"], kind=kind).count() == 2
     finally:
         resident_client.close()
+
+
+def test_a_second_mentor_cannot_edit_or_delete_the_first_mentors_comment():
+    owner_client, first, second = TestClient(app), TestClient(app), TestClient(app)
+    try:
+        _register(owner_client, "owner2@example.com")
+        project = _create_project(owner_client, title="Two Mentors")
+        token = owner_client.post(f"/share/{project['id']}/create", json={}).json()["token"]
+        mine = first.post(f"/share/view/{token}/comment", json={"author_name": "A", "author_email": "a@example.org", "text": "First mentor"}).json()
+        seen_by_second = second.get(f"/share/view/{token}").json()["comments"][0]
+        assert seen_by_second["text"] == "First mentor" and "author_email" not in seen_by_second and "edit_token" not in seen_by_second
+        assert second.patch(f"/share/view/{token}/comment/{mine['id']}", json={"edit_token": "", "text": "Changed"}).status_code == 403
+        assert second.request("DELETE", f"/share/view/{token}/comment/{mine['id']}", json={"edit_token": "guess"}).status_code == 403
+        assert first.patch(f"/share/view/{token}/comment/{mine['id']}", json={"edit_token": mine["edit_token"], "text": "Edited by me"}).status_code == 200
+        with SessionLocal() as db:  # recorded for the project owner, just not shown to other link holders
+            assert db.query(MentorComment).filter_by(id=mine["id"]).one().author_email == "a@example.org"
+    finally:
+        for c in (owner_client, first, second):
+            c.close()

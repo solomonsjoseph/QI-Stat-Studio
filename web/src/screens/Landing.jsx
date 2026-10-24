@@ -43,18 +43,9 @@ export default function Landing() {
     loadProjects()
   }, [])
 
-  async function start() {
-    setSaving(true)
-    setError('')
-    try {
-      const project = await api.createProject({ title: 'New QI Project', description: '' })
-      resetProject({ projectId: project.id, projectTitle: project.title, projectDesc: project.description || '' })
-      goTo('description')
-    } catch (err) {
-      setError(formatError(err))
-    } finally {
-      setSaving(false)
-    }
+  function start() {
+    resetProject({})
+    goTo('description')
   }
 
   async function archiveProject(projectId) {
@@ -88,7 +79,7 @@ export default function Landing() {
         <p className="mb-2 text-sm text-ink-soft">Signed in as {user?.email}</p>
         <h1 id="landing-heading" className="mb-4 text-4xl font-semibold text-ink">QI Stat Studio</h1>
         <p className="mx-auto max-w-md text-lg leading-8 text-ink-soft">
-          A guided statistical analysis tool for medical residents conducting quality improvement projects at Rutgers IM Clinic.
+          Guided stats for QI projects at Rutgers IM Clinic.
         </p>
       </section>
 

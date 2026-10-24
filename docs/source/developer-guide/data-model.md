@@ -35,9 +35,9 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 | `id` | Integer PK | |
 | `title`, `description` | String(255) / Text | |
 | `status` | String(50) | default `draft`; also `archived` |
-| `deadline` | String(20) | ISO date string, not a `Date` column — sourced from intake Q10 |
+| `deadline` | String(20) | ISO date string (not a `Date` column); sourced from intake Q10 |
 | `created_at` | DateTime | |
-| `owner_user_id` | Integer FK → `users.id` | `ondelete=SET NULL` — an owner-deleted project survives, ownerless, as a legacy record |
+| `owner_user_id` | Integer FK → `users.id` | `ondelete=SET NULL`. An owner-deleted project survives as an ownerless legacy record |
 | `archived_at` | DateTime | nullable |
 
 ### `uploads`
@@ -48,7 +48,7 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE` |
 | `filename`, `original_filename`, `file_type`, `storage_key` | String | `storage_key` is the on-disk filename under `uploads_enc/` |
 | `column_map`, `col_types`, `quality_flags` | Text (JSON) | defaults `{}`, `{}`, `[]` |
-| `acknowledged_flags` | Text (JSON) | **nullable, no default** — `None` until the resident completes Data Review; distinguishing "no warnings acknowledged yet" from "acknowledged zero warnings" matters, see {doc}`security` |
+| `acknowledged_flags` | Text (JSON) | **nullable, no default**. `None` until the resident completes Data Review. Distinguishing "no warnings acknowledged yet" from "acknowledged zero warnings" matters; see {doc}`security` |
 | `size_bytes`, `checksum_sha256` | Integer / String(64) | integrity metadata for the encrypted file |
 | `encrypted_path` | String(512) | filesystem path, outside the DB |
 | `status` | String(20) | `active` \| `replaced` \| `deleted` |
@@ -59,7 +59,7 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 |---|---|---|
 | `id` | Integer PK | |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE` |
-| `question_key` | String(10) | `q1`–`q10` |
+| `question_key` | String(10) | `q1`-`q10` |
 | `answer` | Text | JSON-encoded when the answer is a dict/list, else the raw string |
 | `is_unsure` | Boolean | true when the resident picked "I'm not sure" |
 
@@ -70,7 +70,7 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 | `id` | Integer PK | |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE` |
 | `upload_id` | Integer FK → `uploads.id` | `ondelete=CASCADE`, nullable (legacy runs predating this column) |
-| `template` | String(50) | one of the six template ids |
+| `template` | String(50) | one of the seven template ids |
 | `parameters`, `result_json` | Text (JSON) | the exact request params and the template's full return dict |
 | `code_r`, `code_spss`, `code_sas` | Text | generated code supplements (see {doc}`how-to`) |
 | `created_at` | DateTime | |
@@ -82,7 +82,7 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 | `id` | Integer PK | |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE` |
 | `action` | String(100) | e.g. `upload_created`, `share_created`, `intake_answers_saved` |
-| `metadata_json` | Text (JSON) | passed through `sanitize_audit_metadata` before being written — see {doc}`security` |
+| `metadata_json` | Text (JSON) | passed through `sanitize_audit_metadata` before being written; see {doc}`security` |
 | `timestamp` | DateTime | |
 
 ### `edit_history`
@@ -92,7 +92,7 @@ foreign_keys=ON`, set on every connection; see {doc}`architecture`), so the
 | `id` | Integer PK | |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE` |
 | `field` | String(100) | `title` \| `caption` \| `interpretation` |
-| `original_text`, `edited_text` | Text | both kept — this *is* the report's Audit Trail / Resident Edits section |
+| `original_text`, `edited_text` | Text | both kept. This *is* the report's Audit Trail / Resident Edits section |
 | `timestamp` | DateTime | |
 
 ### `mentor_shares`
@@ -118,7 +118,7 @@ dropped in favor of the normalized `mentor_comments` table (migration
 | `share_id` | Integer FK → `mentor_shares.id` | `ondelete=CASCADE`, not nullable |
 | `project_id` | Integer FK → `projects.id` | `ondelete=CASCADE`, not nullable |
 | `author_name` | String(255) | not nullable |
-| `author_email` | String(255) | nullable; required only if the mentor wants to edit/delete their comment later |
+| `author_email` | String(255) | nullable; shown only to the project owner, never in the public mentor view |
 | `text` | Text | not nullable |
 | `created_at`, `updated_at`, `deleted_at` | DateTime | comments are soft-deleted (`deleted_at` set, row kept) |
 
@@ -170,7 +170,7 @@ Five revisions, applied in this order by `alembic upgrade head`:
 
 | Revision | Down-revision | What it does |
 |---|---|---|
-| `cc61920dee93` | — | Placeholder initial migration (`upgrade`/`downgrade` both `pass`). |
+| `cc61920dee93` | (none) | Placeholder initial migration (`upgrade`/`downgrade` both `pass`). |
 | `5be9d78e473c` | `cc61920dee93` | Creates the first real tables: `projects`, `uploads`, `intake_answers`, `analysis_runs`, `audit_log`, `edit_history`, `mentor_shares`, `failure_log`, `app_settings`. |
 | `9b3d2a7c4f10` | `5be9d78e473c` | The big one: adds `users`/`user_sessions` (auth), project ownership/archiving, upload metadata (`checksum_sha256`, `status`, etc.), `mentor_comments`, `ai_usage_events`, `notification_deliveries`, richer `failure_log` columns, and rebuilds every FK with explicit `ondelete` behavior via a named naming convention. |
 | `c4e1f8a2d9b6` | `9b3d2a7c4f10` | Drops `mentor_shares.comments_json` now that `mentor_comments` is normalized. |

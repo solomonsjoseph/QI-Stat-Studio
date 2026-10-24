@@ -6,9 +6,12 @@ import MentorView from './MentorView'
 const { apiMock } = vi.hoisted(() => ({
   apiMock: {
     getMentorView: vi.fn(),
+    getMentorHandoff: vi.fn(),
     addComment: vi.fn(),
     editComment: vi.fn(),
     deleteComment: vi.fn(),
+    resolveComment: vi.fn(),
+    approveReview: vi.fn(),
   },
 }))
 
@@ -27,9 +30,15 @@ function deferred() {
 function mentorPayload(overrides = {}) {
   return {
     project: { title: 'Mentor Project', description: 'Reduce falls on Ward A.' },
-    methods: 'Weekly fall counts were reviewed.',
-    result_summary: 'Falls decreased after the intervention.',
-    table: [{ week: '1', falls: 4 }],
+    results: [
+      {
+        run_id: 1,
+        template: 'run_chart',
+        methods: 'Weekly fall counts were reviewed.',
+        result_summary: 'Falls decreased after the intervention.',
+        table: [{ week: '1', falls: 4 }],
+      },
+    ],
     limitations: [],
     comments: [],
     ...overrides,
@@ -38,6 +47,8 @@ function mentorPayload(overrides = {}) {
 
 beforeEach(() => {
   apiMock.getMentorView.mockReset()
+  apiMock.getMentorHandoff.mockReset()
+  apiMock.getMentorHandoff.mockRejectedValue(new Error('none'))
   apiMock.addComment.mockReset()
   apiMock.editComment.mockReset()
   apiMock.deleteComment.mockReset()
@@ -98,11 +109,18 @@ describe('MentorView', () => {
     expect(screen.getByLabelText(/^comment$/i)).toHaveValue('Please clarify the denominator for week 1.')
   })
 
-  it('edits and deletes comments using the current mentor email', async () => {
+  it('lets a mentor edit and delete only the comment they wrote, using the secret kept in their browser', async () => {
+    window.localStorage.setItem('qiss:comment:mentor-token:12', 'secret-12')
     apiMock.getMentorView
-      .mockResolvedValueOnce(mentorPayload({ comments: [{ id: 12, author_name: 'Dr Mentor', author_email: 'mentor@example.edu', text: 'Original note.' }] }))
-      .mockResolvedValueOnce(mentorPayload({ comments: [{ id: 12, author_name: 'Dr Mentor', author_email: 'mentor@example.edu', text: 'Updated note.' }] }))
-      .mockResolvedValueOnce(mentorPayload({ comments: [] }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [
+        { id: 12, author_name: 'Dr Mentor', text: 'Original note.' },
+        { id: 13, author_name: 'Someone else', text: 'Not mine.' },
+      ] }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [
+        { id: 12, author_name: 'Dr Mentor', text: 'Updated note.' },
+        { id: 13, author_name: 'Someone else', text: 'Not mine.' },
+      ] }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [{ id: 13, author_name: 'Someone else', text: 'Not mine.' }] }))
     apiMock.editComment.mockResolvedValue({})
     apiMock.deleteComment.mockResolvedValue({})
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
@@ -111,22 +129,48 @@ describe('MentorView', () => {
     render(<MentorView token="mentor-token" />)
 
     expect(await screen.findByRole('heading', { name: 'Mentor Project' })).toBeInTheDocument()
-    await user.type(screen.getByLabelText(/email \(optional/i), 'mentor@example.edu')
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1)  // only the mentor's own comment
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument()  // no email shown to other link holders
     await user.click(screen.getByRole('button', { name: 'Edit' }))
     await user.clear(screen.getByLabelText('Edit comment'))
     await user.type(screen.getByLabelText('Edit comment'), 'Updated note.')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(apiMock.editComment).toHaveBeenCalledWith('mentor-token', 12, 'mentor@example.edu', 'Updated note.')
+    expect(apiMock.editComment).toHaveBeenCalledWith('mentor-token', 12, 'secret-12', 'Updated note.')
     expect(await screen.findByText('Updated note.')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
     expect(confirm).toHaveBeenCalledWith('Delete this comment?')
-    expect(apiMock.deleteComment).toHaveBeenCalledWith('mentor-token', 12, 'mentor@example.edu')
-    expect(await screen.findByText('No comments yet.')).toBeInTheDocument()
-    expect(apiMock.getMentorView).toHaveBeenCalledTimes(3)
+    expect(apiMock.deleteComment).toHaveBeenCalledWith('mentor-token', 12, 'secret-12')
+    expect(await screen.findByText('Not mine.')).toBeInTheDocument()
+    expect(window.localStorage.getItem('qiss:comment:mentor-token:12')).toBeNull()
 
     confirm.mockRestore()
+  })
+
+  it('shows the resident reply and status, lets the author resolve their comment, and records the sign-off', async () => {
+    window.localStorage.setItem('qiss:comment:mentor-token:21', 'secret-21')
+    const answered = { id: 21, author_name: 'Dr Mentor', text: 'Please add the date.', resident_reply: 'Added January 2025 to the caption.', addressed_at: '2026-10-24T10:00:00', resolved_at: null }
+    apiMock.getMentorView
+      .mockResolvedValueOnce(mentorPayload({ comments: [answered], approval: null }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [{ ...answered, resolved_at: '2026-10-24T11:00:00' }], approval: null }))
+      .mockResolvedValueOnce(mentorPayload({ comments: [{ ...answered, resolved_at: '2026-10-24T11:00:00' }], approval: { approved_at: '2026-10-24T12:00:00', approved_by_name: 'Dr Mentor', approved_note: 'Good work.' } }))
+    apiMock.resolveComment.mockResolvedValue({})
+    apiMock.approveReview.mockResolvedValue({})
+    const user = userEvent.setup()
+    render(<MentorView token="mentor-token" />)
+
+    expect(await screen.findByText('Added January 2025 to the caption.')).toBeInTheDocument()
+    expect(screen.getByTestId('comment-status')).toHaveTextContent('Addressed by the resident')
+    await user.click(screen.getByRole('button', { name: 'Mark resolved' }))
+    expect(apiMock.resolveComment).toHaveBeenCalledWith('mentor-token', 21, 'secret-21', true)
+    expect(await screen.findByRole('button', { name: 'Reopen' })).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('Name for the sign-off'), 'Dr Mentor')
+    await user.type(screen.getByLabelText('Note (optional)'), 'Good work.')
+    await user.click(screen.getByRole('button', { name: 'Approve: good work' }))
+    expect(apiMock.approveReview).toHaveBeenCalledWith('mentor-token', 'Dr Mentor', 'Good work.')
+    expect(await screen.findByText(/Approved by Dr Mentor/)).toBeInTheDocument()
   })
 })
