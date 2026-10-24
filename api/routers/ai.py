@@ -273,6 +273,8 @@ def _llm_completion_nonempty(
     """
     resp = _llm_completion(provider, api_key, api_base, model, messages, max_tokens=max_tokens, reasoning_effort=reasoning_effort)
     content = (resp.choices[0].message.content or "").strip()
+    if getattr(resp.choices[0], "finish_reason", None) == "length":
+        logger.warning("advisor_answer_truncated model=%s max_tokens=%s answer_chars=%s", model, max_tokens, len(content))
     if content:
         return content
     resp = _llm_completion(provider, api_key, api_base, model, messages, max_tokens=max_tokens * 2, reasoning_effort="minimal")
@@ -319,7 +321,7 @@ def _validated_completion(
 
     try:
         retry_content = _llm_completion_nonempty(
-            provider, api_key, api_base, model, retry_messages, max_tokens=max_tokens, reasoning_effort="minimal"
+            provider, api_key, api_base, model, retry_messages, max_tokens=max_tokens * 2, reasoning_effort="minimal"
         )
         retry_data = _extract_json_object(retry_content)
         if not retry_data:
