@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import sys
@@ -10,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from api.ai_prompts import (
@@ -18,9 +17,7 @@ from api.ai_prompts import (
     COLLECTION_SYSTEM_V1,
     INTERPRET_SYSTEM_V1,
     OVERRIDE_SYSTEM_V1,
-    PROMPT_VERSIONS,
     RECOMMEND_EXPLAIN_SYSTEM_V2,
-    RECOMMEND_SYSTEM_V1,
 )
 from api.dataset_profile import get_effective_profile, get_upload_profile
 from api.models_api import (
@@ -36,8 +33,6 @@ from api.models_api import (
     OverridePlanResponse,
     ProjectDesign,
     RecommendExplainModel,
-    RecommendPlanModel,
-    RunInterpretation,
     ScrubPreviewRequest,
     ScrubPreviewResponse,
 )
@@ -53,7 +48,7 @@ from api.middleware.phi_scrubber import scrub_text
 from api.analysis_schemas import TEMPLATE_PARAM_MODELS
 from api.routers.analyze import _ALL as ANALYSIS_TEMPLATES
 from api.routers.analyze import _DESCRIPTIONS as ANALYSIS_DESCRIPTIONS
-from api.audit import log_action, safe_diagnostic_message
+from api.audit import log_action
 from api.models_db import AIUsageEvent, AnalysisRun, Project, Upload, User
 from api.settings_registry import get_runtime_setting
 from api.ai_key import advisor_failed, advisor_unavailable, resolve_key

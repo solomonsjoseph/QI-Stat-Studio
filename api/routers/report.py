@@ -334,7 +334,6 @@ def _project_change_lines(ctx: dict[str, Any]) -> list[str]:
 
 def _build_project_docx(project_id: int, db: Session, share_id: int | None = None) -> bytes:
     ctx = _build_project_context(project_id, db)
-    project = ctx["project"]
     upload = ctx["upload"]
 
     doc = Document()

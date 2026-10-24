@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import logging
-
 import json
+import logging
 import math
 import threading
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,7 +14,7 @@ from api.audit import log_action, safe_diagnostic_message
 from api.analysis_schemas import TEMPLATE_PARAM_MODELS, validate_template_parameters
 from api.analysis_validation import validate_analysis_inputs
 from api.analysis_downgrade import maybe_downgrade_control_chart
-from api.auth import get_current_user, require_project_owner
+from api.auth import get_current_user
 from api.database import get_db
 from api.models_api import (
     AnalysisRequest,

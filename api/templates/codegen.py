@@ -152,13 +152,13 @@ def _r_body(template: str, params: dict, result: dict | None = None) -> str:
             denom = params.get("source_denominator_col")
             if denom:
                 aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=sum({denom}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
-                val_line = f"agg$val <- agg$num / agg$denom\n"
+                val_line = "agg$val <- agg$num / agg$denom\n"
             elif source_num:
                 aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), denom=n(), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
-                val_line = f"agg$val <- agg$num / agg$denom\n"
+                val_line = "agg$val <- agg$num / agg$denom\n"
             else:
                 aggregate = f"summarise(num=sum({nc}, na.rm=TRUE), bucket_start=min({dc}, na.rm=TRUE), .groups='drop')"
-                val_line = f"agg$val <- agg$num\n"
+                val_line = "agg$val <- agg$num\n"
             agg_setup = (
                 f"agg <- df %>% group_by(bucket=format({dc}, '{fmt}')) %>% {aggregate}\n"
                 f"{val_line}"
@@ -222,21 +222,21 @@ def _r_body(template: str, params: dict, result: dict | None = None) -> str:
         if denom and runtime_chart_type != "c":
             return (
                 prefix
-                + f"agg$rate <- agg$cnt / agg$denom\n"
-                + f"ubar <- sum(agg$cnt, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
-                + f"agg$ucl <- ubar + 3*sqrt(ubar/agg$denom)\n"
-                + f"agg$lcl <- pmax(0, ubar - 3*sqrt(ubar/agg$denom))\n"
-                + f"ggplot(agg, aes(x=bucket_start, y=rate, group=1)) + geom_line() + geom_point() +\n"
-                + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+                + "agg$rate <- agg$cnt / agg$denom\n"
+                + "ubar <- sum(agg$cnt, na.rm=TRUE) / sum(agg$denom, na.rm=TRUE)\n"
+                + "agg$ucl <- ubar + 3*sqrt(ubar/agg$denom)\n"
+                + "agg$lcl <- pmax(0, ubar - 3*sqrt(ubar/agg$denom))\n"
+                + "ggplot(agg, aes(x=bucket_start, y=rate, group=1)) + geom_line() + geom_point() +\n"
+                + "  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
                 + _r_intervention_layer(params)
             )
         return (
             prefix
-            + f"cbar <- mean(agg$cnt, na.rm=TRUE)\n"
-            + f"agg$ucl <- cbar + 3*sqrt(cbar)\n"
-            + f"agg$lcl <- pmax(0, cbar - 3*sqrt(cbar))\n"
-            + f"ggplot(agg, aes(x=bucket_start, y=cnt, group=1)) + geom_line() + geom_point() +\n"
-            + f"  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
+            + "cbar <- mean(agg$cnt, na.rm=TRUE)\n"
+            + "agg$ucl <- cbar + 3*sqrt(cbar)\n"
+            + "agg$lcl <- pmax(0, cbar - 3*sqrt(cbar))\n"
+            + "ggplot(agg, aes(x=bucket_start, y=cnt, group=1)) + geom_line() + geom_point() +\n"
+            + "  geom_step(aes(y=ucl), color='red', linetype='dashed') + geom_step(aes(y=lcl), color='red', linetype='dashed')"
             + _r_intervention_layer(params)
         )
 

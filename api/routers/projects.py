@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 
-import hashlib
 import json
 from datetime import datetime
 from pathlib import Path

@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Tuple
 
 import pandas as pd
 

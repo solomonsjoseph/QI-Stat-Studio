@@ -18,7 +18,7 @@ Current release: 1.0.0-beta.1 (a pre-release). See [`CHANGELOG.md`](CHANGELOG.md
 
 Each tester runs their own copy and brings their own AI key.
 
-1. Install Python 3.9+ and Node.js 20.19+ (see below), then `git clone <repo-url> && cd qi_stat_studio`.
+1. Install Python 3.9+ and Node.js 20.19+ (see below), then `git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio`.
 2. `make real`. The first run builds everything and creates `.env` with its own `FERNET_KEY`
    and `SECRET_KEY`. Back up `.env`: uploads cannot be decrypted without the `FERNET_KEY`.
 3. Open `http://127.0.0.1:5173` and register. The first account on a copy is its admin.
@@ -35,7 +35,7 @@ everyone who signs in to that copy. A key saved in Settings is used only by its 
 **Prerequisites:** Python 3.9+ (3.11 recommended; 3.9 needs `eval_type_backport`, which requirements.txt installs), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
 
 ```bash
-git clone <repo-url> && cd qi_stat_studio
+git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio
 make stub   # offline AI stub, no key needed. Or: make real (set your AI key in .env first)
 ```
 

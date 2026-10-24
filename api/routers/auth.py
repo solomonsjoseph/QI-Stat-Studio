@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from api import throttle
 from api.audit import log_action
 from api.auth import (
-    SESSION_COOKIE_NAME,
     clear_session_cookie,
     create_user_session,
     get_current_user,

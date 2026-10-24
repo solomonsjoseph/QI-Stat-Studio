@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from api.audit import log_action
 from api.auth import get_current_user
 from api.database import get_db
-from api.flag_ids import flag_id, with_ids
+from api.flag_ids import with_ids
 from api.models_api import (
     FlagStateOut,
     FlagStatesOut,

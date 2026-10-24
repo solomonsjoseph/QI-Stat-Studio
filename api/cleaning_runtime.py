@@ -4,12 +4,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import pandas as pd
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from api.cleaning_steps import StepError, apply_steps
-from api.upload_utils import _load_raw, load_raw_upload_dataframe
+from api.upload_utils import _load_raw
 
 
 class StepsApplyError(HTTPException):

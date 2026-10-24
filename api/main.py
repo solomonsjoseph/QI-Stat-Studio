@@ -7,7 +7,6 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 
-import api.models_db  # ensure all models are registered for tests and Alembic metadata
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware

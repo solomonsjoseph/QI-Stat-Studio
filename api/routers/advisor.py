@@ -10,7 +10,7 @@ import json
 import sys
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import update
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from api.ai_key import advisor_failed, advisor_unavailable
 from api.ai_prompts import ADVISOR_SYSTEM_V1
-from api.audit import log_action, safe_diagnostic_message
+from api.audit import log_action
 from api.auth import get_current_user
 from api.cleaning_steps import STEP_VOCABULARY, StepError, apply_steps, describe_step
 from api.database import get_db
