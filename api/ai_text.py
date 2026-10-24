@@ -39,9 +39,15 @@ _PHRASES = [
     (re.compile(r"\bleverag(?:e|es|ed|ing)\b", re.I), "use"),
     (re.compile(r"\bshowcas(?:e|es|ed|ing)\b", re.I), "show"),
     (re.compile(r"\bunderscor(?:e|es|ed|ing)\b", re.I), "show"),
+    (re.compile(r"\bin order to\b", re.I), "to"),
+    (re.compile(r"\bdue to the fact that\b", re.I), "because"),
+    (re.compile(r"\bin the event that\b", re.I), "if"),
+    (re.compile(r"\bvibrant\b", re.I), "active"),
+    (re.compile(r"\bintricate\b", re.I), "detailed"),
+    (re.compile(r"\bfoster(?:s|ed|ing)?\b", re.I), "support"),
 ]
 # A lead-in with no content. The next word takes over its capital letter.
-_LEAD_INS = re.compile(r"\b(it(?:'s| is) (?:worth noting|important to note) that)\s+(\w)", re.I)
+_LEAD_INS = re.compile(r"\b(it(?:'s| is) (?:worth noting|important to note) that|additionally,)\s+(\w)", re.I)
 
 
 def _match_case(original: str, replacement: str) -> str:

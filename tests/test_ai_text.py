@@ -57,3 +57,9 @@ def test_every_system_prompt_carries_the_style_directive():
     for template in templates:
         assert "{IDENTITY_DIRECTIVE}" in str(template), template
     assert "Plain text only" in ai_prompts.IDENTITY_DIRECTIVE and "em dashes" in ai_prompts.IDENTITY_DIRECTIVE
+
+
+def test_filler_and_lead_ins_are_plain():
+    from api.ai_text import clean_ai_text
+    assert clean_ai_text("Additionally, we did this in order to learn.") == "We did this to learn."
+    assert clean_ai_text("Due to the fact that it is low, check it.") == "Because it is low, check it."
