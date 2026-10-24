@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import HandoffViewer from './HandoffViewer'
+import HandoffViewer, { renderMarkdown } from './HandoffViewer'
 
 vi.mock('../api', () => ({ api: { getHandoff: vi.fn() } }))
 afterEach(() => cleanup())
@@ -35,5 +35,14 @@ describe('HandoffViewer', () => {
     expect(screen.getByText('Show 3 more examples')).toBeInTheDocument()
     expect(container.querySelectorAll('details')).toHaveLength(1) // a single example has nothing to fold
     expect(screen.getByText('Examples: only')).toBeInTheDocument()
+  })
+})
+
+describe('inline formatting', () => {
+  it('shows inline code and bold as formatted text, not raw backticks or asterisks', () => {
+    const { container } = render(<div>{renderMarkdown('## Quality warnings\n\n- `case_inconsistent:period` [WARNING] Mixed **case** in period\n\nPlain `x` text.')}</div>)
+    expect(container.querySelectorAll('code')).toHaveLength(2)
+    expect(container.querySelector('strong')).toHaveTextContent('case')
+    expect(container.textContent).not.toMatch(/[`*]/)
   })
 })

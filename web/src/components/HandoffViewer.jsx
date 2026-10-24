@@ -9,15 +9,24 @@ const KIND_LABELS = {
 const cells = line => line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
 const isSep = line => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line)
 
+// Inline code and bold show as formatted text, never as raw backticks or asterisks.
+function inline(text) {
+  return String(text).split(/(`[^`]+`|\*\*[^*]+\*\*)/).filter(Boolean).map((part, n) => {
+    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) return <code key={n} className="rounded bg-surface-sunken px-1 font-mono text-xs">{part.slice(1, -1)}</code>
+    if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) return <strong key={n}>{part.slice(2, -2)}</strong>
+    return part
+  })
+}
+
 // A warning's "Examples: a; b; c" line shows the first example and folds the rest into a native <details>.
 function renderItem(text) {
   const m = /^Examples:\s+(.*)$/.exec(text)
   const parts = m ? m[1].split('; ') : []
-  if (parts.length < 2) return text
+  if (parts.length < 2) return inline(text)
   const more = parts.slice(1)
   return (
     <>
-      Example: {parts[0]}
+      Example: {inline(parts[0])}
       <details className="mt-1">
         <summary className="cursor-pointer text-xs text-ink-soft">Show {more.length} more example{more.length === 1 ? '' : 's'}</summary>
         <ul className="list-disc pl-5">{more.map((e, n) => <li key={n}>{e}</li>)}</ul>
@@ -44,7 +53,7 @@ export function renderMarkdown(md) {
     } else if (/^#{1,6}\s/.test(line)) {
       const level = line.match(/^#+/)[0].length
       const Tag = `h${Math.min(level + 1, 6)}`
-      out.push(<Tag key={key()} className="mt-3 font-semibold text-ink">{line.replace(/^#+\s*/, '')}</Tag>)
+      out.push(<Tag key={key()} className="mt-3 font-semibold text-ink">{inline(line.replace(/^#+\s*/, ''))}</Tag>)
       i++
     } else if (line.includes('|') && i + 1 < lines.length && isSep(lines[i + 1])) {
       const head = cells(line)
@@ -54,8 +63,8 @@ export function renderMarkdown(md) {
       out.push(
         <div key={key()} className="overflow-x-auto">
           <table className="table-clean">
-            <thead><tr>{head.map((h, c) => <th key={c}>{h}</th>)}</tr></thead>
-            <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci}>{c}</td>)}</tr>)}</tbody>
+            <thead><tr>{head.map((h, c) => <th key={c}>{inline(h)}</th>)}</tr></thead>
+            <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci}>{inline(c)}</td>)}</tr>)}</tbody>
           </table>
         </div>,
       )
@@ -70,7 +79,7 @@ export function renderMarkdown(md) {
     } else {
       const para = []
       while (i < lines.length && lines[i].trim() && !/^(\s*```|#{1,6}\s|\s*([-*]|\d+\.)\s)/.test(lines[i])) para.push(lines[i++])
-      out.push(<p key={key()} className="text-sm text-ink">{para.join(' ')}</p>)
+      out.push(<p key={key()} className="text-sm text-ink">{inline(para.join(' '))}</p>)
     }
   }
   return out
