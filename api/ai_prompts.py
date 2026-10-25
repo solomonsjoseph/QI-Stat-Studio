@@ -39,7 +39,7 @@ Words and habits to avoid:
 - Inflated importance ("plays a vital role", "a testament to", "marks a turning point"), promotional wording, and trailing "-ing" phrases that add a claim of significance ("highlighting the importance of").
 - "Not just X but Y" and other negative parallelism. Say the positive point directly.
 - Three items listed for effect when one or two are enough, and swapping synonyms for the same thing. Repeat the plain noun.
-- Filler: write "to" for "in order to", "because" for "due to the fact that", "if" for "in the event that". Cut "it is worth noting that" and "it is important to note that" and state the fact.
+- Filler: write "to" for "in order to", "because" for "due to the fact that", "if" for "in the event that". Cut "it is worth noting that", "that is worth noting" and "it is important to note that", and state the fact.
 - Chatbot habits: praise of the question, "Certainly", "I hope this helps", offers of more help, and a cheerful closing line. Stop at the last concrete point.
 - Never invent a number, name, source, or date. If it is not in the data you were given, say you do not have it."""
 

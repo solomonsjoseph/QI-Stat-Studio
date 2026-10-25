@@ -48,6 +48,8 @@ _PHRASES = [
 ]
 # A lead-in with no content. The next word takes over its capital letter.
 _LEAD_INS = re.compile(r"\b(it(?:'s| is) (?:worth noting|important to note) that|additionally,)\s+(\w)", re.I)
+# A short sentence that only says something is worth noting has no content, so it is dropped.
+_EMPTY_SENTENCE = re.compile(r"(?:(?<=[.!?]\s)|(?<=\n)|^)[^.!?\n]{0,80}\bis (?:also )?worth (?:noting|mentioning)\.[ \t]*", re.I)
 
 
 def _match_case(original: str, replacement: str) -> str:
@@ -75,6 +77,7 @@ def clean_ai_text(text: str) -> str:
     out = _TIGHT_DASH.sub(", ", out)
     out = _LONE_EN_DASH.sub("-", out)
     out = _LEAD_INS.sub(lambda m: m.group(2).upper() if m.group(1)[0].isupper() else m.group(2), out)
+    out = _EMPTY_SENTENCE.sub("", out)
     for pattern, replacement in _PHRASES:
         out = pattern.sub(lambda m, r=replacement: _match_case(m.group(0), r), out)
     out = re.sub(r"[ \t]+\n", "\n", out)

@@ -63,3 +63,8 @@ def test_filler_and_lead_ins_are_plain():
     from api.ai_text import clean_ai_text
     assert clean_ai_text("Additionally, we did this in order to learn.") == "We did this to learn."
     assert clean_ai_text("Due to the fact that it is low, check it.") == "Because it is low, check it."
+
+
+def test_empty_worth_noting_sentence_is_dropped():
+    from api.ai_text import clean_ai_text
+    assert clean_ai_text("The test is significant. That apparent tension is worth noting. A rise may be brief.") == "The test is significant. A rise may be brief."
