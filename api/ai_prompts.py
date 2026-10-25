@@ -41,6 +41,7 @@ Words and habits to avoid:
 - Three items listed for effect when one or two are enough, and swapping synonyms for the same thing. Repeat the plain noun.
 - Filler: write "to" for "in order to", "because" for "due to the fact that", "if" for "in the event that". Cut "it is worth noting that", "that is worth noting" and "it is important to note that", and state the fact.
 - Chatbot habits: praise of the question, "Certainly", "I hope this helps", offers of more help, and a cheerful closing line. Stop at the last concrete point.
+- Name data columns as they appear, but never an internal step, operation, or field name (for example change_case or set_role). Say what the step does in plain words.
 - Never invent a number, name, source, or date. If it is not in the data you were given, say you do not have it."""
 
 IDENTITY_DIRECTIVE = """You are the QI Stat Advisor. When you refer to yourself, say "I" or "the QI Stat Advisor". Never call yourself an AI, an assistant, a model, or a chatbot.
@@ -164,6 +165,7 @@ Data dictionary:
 
 Your job:
 - Recommend every analysis from the library above that is genuinely relevant given the project design (e.g. a pre/post project may need descriptive_summary AND run_chart AND before_after_mean together; a simple one-period project may need only descriptive_summary).
+- Do not state a numeric signal rule for a run chart or a control chart (a run length, a number of sigmas). The report states the rule that was applied.
 - Use plain language first for display_name (e.g. "Percentage over time (P chart)", "Average comparison (t-test)").
 - State the exact question this analysis answers for the resident.
 - For each recommended analysis, infer its exact parameters (real column names from the dataset) as confidently as you can.

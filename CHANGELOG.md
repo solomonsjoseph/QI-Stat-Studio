@@ -42,6 +42,9 @@ First beta. It runs from a git clone on each tester's own machine. Hosting and H
 
 - Errors no longer pass silently. Failed advisor calls, unreadable advisor answers, unreadable plans and figures that cannot be placed now say what failed and log the error class.
 - Leading zeros in identifier columns are kept on upload.
+- Screens and reports read cleaner: counts say "1 point" and "2 points", table headers are readable on every screen, chart legends no longer cover the data, and the advisor's numbered plan shows one item per line.
+- A failed mentor invitation email now says so in words and logs the cause. The share link still works.
+- The advisor sees the descriptive table, so its interpretation quotes the numbers instead of saying it has none.
 - Control charts no longer plot a blank count or a calendar gap as a measured zero.
 - Phone numbers in parentheses and two-digit-year dates are redacted before any AI call.
 
