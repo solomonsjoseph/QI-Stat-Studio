@@ -56,11 +56,11 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     ax.axhline(median, color="red", linestyle="--", label=f"Median={median:.2f}")
     if intervention_date:
         ax.axvline(pd.to_datetime(intervention_date).to_datetime64(), color="green", linestyle=":", linewidth=2, label="Intervention")
-    title = f"Run Chart — {value_col}"
+    title = f"Run Chart, {value_col}"
     if signal:
         title += " ⚠ Signal detected (run ≥8)"
     ax.set_title(title)
-    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False)
     ax.set_xlabel(date_col)
     ax.set_ylabel(value_col)
     buf = io.BytesIO()

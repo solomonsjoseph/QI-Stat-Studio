@@ -1,6 +1,7 @@
 import pandas as pd
 from api.stats_intervals import mean_ci, median_ci
 from typing import Dict, Any
+from api.plural import plural
 
 
 def run_descriptive(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
@@ -52,17 +53,17 @@ def run_descriptive(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
 
     miss_str = (f" Note: {', '.join(missing_notes)} had missing values excluded."
                 if missing_notes else "")
-    methods = (f"Descriptive statistics were calculated for {len(value_cols)} variable(s). "
+    methods = (f"Descriptive statistics were calculated for {plural(len(value_cols), 'variable')}. "
                f"Continuous variables are reported as mean ± SD and median.{miss_str} "
                f"Means are reported with a 95% t-based confidence interval and medians with a distribution-free "
                f"interval from order statistics; intervals are omitted where the group has too few values to "
                f"support one.")
-    n_groups = df[group_col].nunique() if group_col and group_col in df.columns else 1
+    n_groups = len({row["group"].strip().lower() for row in table}) if group_col and group_col in df.columns else 1
     interpretation = (
-        f"The descriptive analysis summarized {len(value_cols)} variable(s) across {n_groups} group(s). "
+        f"The descriptive analysis summarized {plural(len(value_cols), 'variable')} across {plural(n_groups, 'group')}. "
         f"{'Missing data were observed in: ' + ', '.join(missing_notes) + '.' if missing_notes else 'No missing data were observed in the selected variables.'} "
         f"[Edit this paragraph to describe what the findings mean for your QI project.]"
     )
     return {"table": table, "figure_base64": None, "methods": methods,
-            "result_summary": f"Descriptive summary of {len(value_cols)} variable(s) across {n_groups} group(s).",
+            "result_summary": f"Descriptive summary of {plural(len(value_cols), 'variable')} across {plural(n_groups, 'group')}.",
             "interpretation": interpretation}

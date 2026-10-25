@@ -45,14 +45,14 @@ your text first, you'll see a banner telling you so.
 
 You'll see up to nine short questions (Q2-Q10; Q1 is the description you
 already gave). Answer honestly, and whenever you're not sure pick
-**"I'm not sure"** — it's always a valid answer, and the app falls back to a
+**"I'm not sure"**. That answer is always valid, and the app falls back to a
 safe default rather than blocking you. The exact question wording is in
 {doc}`reference`.
 
 For this walkthrough:
 
 - **What are you measuring?** → *An average or median value*
-- **Are you comparing before and after something?** → *No — I'm just
+- **Are you comparing before and after something?** → *No, I'm just
   describing one time period* (skip this if you truly are comparing two
   periods; comparing before/after leads to a different analysis).
 - **Are you tracking over time, or comparing two groups?** → *Tracking over
@@ -72,8 +72,8 @@ Accepted types are `.csv`, `.xlsx`, and `.xls`, up to 50 MB. Click
 
 ## 6. Confirm column types
 
-The app guesses each column's type — **Number**, **Category**, **Date**,
-**ID**, or **Yes/No** — from its contents and its header name. Review the
+The app guesses each column's type (**Number**, **Category**, **Date**,
+**ID**, or **Yes/No**) from its contents and its header name. Review the
 **Data preview (first 5 rows)** table and correct any wrong guesses using the
 dropdown next to each column, then click **Confirm Types**.
 
@@ -82,8 +82,12 @@ dropdown next to each column, then click **Confirm Types**.
 The app runs a set of automatic checks and shows any **Data Quality
 Warnings** (mixed casing, missing data, outliers, gaps in your time series,
 and similar) alongside the row count and missing-value percentage per
-column. Check every warning's acknowledgement box to confirm you actually
-looked at it; **Continue** stays disabled until you have.
+column. Select the warnings you want to deal with. Click **Acknowledge
+selected** if a warning is expected and fine as it is, or **Clarify with QI
+Stat Advisor** to talk it through and agree on a fix. The advisor proposes a
+change, shows how many rows it affects, and nothing is applied until you
+confirm. Open the handoff document to read every agreed change. **Continue**
+stays disabled until each warning is acknowledged or handled.
 
 If a check finds something more serious, a true **ERROR** like duplicate
 patient IDs, the app blocks you outright and gives you a
@@ -95,7 +99,7 @@ acknowledged away; the underlying file has to change.
 The app ranks three analyses based on your intake answers and marks one
 **Recommended**. For this walkthrough (tracking a value over time, monthly,
 12 points) it recommends **Run Chart**. You can pick any of the three shown;
-the full list of six possible analyses is in {doc}`reference`.
+the full list of seven possible analyses is in {doc}`reference`.
 
 ## 9. Map your columns
 
@@ -113,7 +117,7 @@ loading.
 ## 11. Edit the report
 
 Adjust the **Report Title**, **Figure Caption**, and **Interpretation** to
-match your own voice. The AI text is a draft, not a final answer. Only the
+match your own voice. The QI Stat Advisor's text is a draft, not a final answer. Only the
 fields you actually change are saved as edits, and the report keeps both the
 original and edited text in its audit trail. Click **Save & Continue**.
 

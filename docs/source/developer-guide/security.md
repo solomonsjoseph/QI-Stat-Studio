@@ -19,7 +19,7 @@ there is no accidental "run without encryption" mode.
 
 `api/middleware/phi_scrubber.py`'s `scrub_text(text)` runs on **every**
 string sent toward an LLM provider: the project description
-(`/ai/intake-prefill`) and every string field of every chat message
+(`/ai/clarify`) and every string field of every chat message
 (`/ai/chat`, scrubbed field by field, not just the `content` key). It
 combines:
 
@@ -28,7 +28,13 @@ combines:
   street addresses.
 - spaCy's `en_core_web_sm` NER model (when installed, see
   {doc}`getting-started`) for `PERSON`, `DATE`, and `ORG` entities the
-  regexes would miss.
+  regexes would miss. The small model also tags project vocabulary, so
+  `_ner_redactable` in `api/middleware/phi_scrubber.py` keeps what is not an
+  identifier: a single token with a digit (SGLT2, GLP-1), payer names
+  (Medicaid, Medicare), and dates that do not reach a specific day ("January
+  2025", "3 months"). Multi-word names with a digit, such as "Maria Garcia 2B",
+  are still redacted. The dataset profile's dictionary definitions are scrubbed
+  when the profile is built, because the profile goes to the AI.
 
 Every match, from either method, is replaced with the literal string
 `[REDACTED]`, and a redaction count is returned alongside the cleaned text.
@@ -45,7 +51,7 @@ into free-text fields in the first place.
 :::
 
 Independently of scrubbing, full spreadsheet rows are architecturally never
-in the AI request path at all. `/ai/chat` and `/ai/intake-prefill` only ever
+in the AI request path at all. `/ai/chat`, `/ai/clarify` and the advisor chat only ever
 see the project description, chat messages, and small pre-computed result
 summaries (`result_summary`, template name), never the uploaded dataframe.
 There's no code path that could leak raw CSV rows to a provider even if
@@ -75,6 +81,40 @@ each call site:
   returned to the client, only the request id, route, action, and this
   fixed sentence. That's enough for `GET /admin/failures` to be useful for
   triage without becoming a second place PHI could leak into.
+- **`advisor_failed`** (`api/ai_key.py`): when a provider call raises, the
+  response is picked from the exception *class* only. Rate limits, timeouts and
+  connection errors give `503 advisor_busy` ("busy right now, wait a minute");
+  anything else gives `502 advisor_error`. Both sentences tell the resident they
+  can continue without the QI Stat Advisor. The provider's own text can echo
+  request content and is never returned.
+
+## Sign-in, passwords and uploads (OWASP)
+
+These follow the OWASP Password Storage, Authentication and File Upload cheat sheets.
+
+- **Passwords:** PBKDF2-HMAC-SHA256, 600,000 iterations (`PASSWORD_ITERATIONS`). Older
+  hashes still verify and are upgraded at the next sign-in. Argon2id is the other
+  OWASP-recommended choice; PBKDF2 needs no extra dependency.
+- **Brute force:** `api/throttle.py` counts failed sign-ins per account identifier, 5 failures in
+  15 minutes lock it for 15 minutes (HTTP 429 with `Retry-After`). Unknown emails are counted
+  the same way, so a lockout does not reveal which accounts exist. A per-IP limit covers
+  attempts spread across accounts (60 per 15 minutes) and bulk registration (10 per hour).
+  Failures and lockouts go to the audit log, with a short hash of the email, never the address.
+  A dummy password check runs for unknown emails so response time does not reveal them.
+- **Limitations:** the counters live in process memory. They reset on restart and are not
+  shared between workers, which is fine for a git-clone install or one worker; use the database
+  or Redis before running several. Registration still answers "Email already registered",
+  because the app sends no confirmation email. There is no multi-factor sign-in and no
+  breached-password check. The per-IP limit sees the proxy's address behind a reverse proxy.
+- **Per-user AI keys:** a saved key is a Fernet-encrypted row per user. Another account never
+  uses it, and the status endpoint returns only the last four characters.
+- **Mentor comments:** public share views show no author email. Editing or deleting a comment
+  needs a secret returned once to the person who posted it and kept in that browser. The
+  project owner can still edit and delete comments from their own view.
+- **Uploads:** read in chunks and stopped at 50 MB (10 MB for a dictionary). xlsx and docx are
+  zip files, so their expanded size is capped at 250 MB and any entry that expands more than
+  100 times is refused. Datasets are capped at 200,000 rows and 500 columns, dictionaries at 200
+  PDF pages and 500,000 characters.
 
 ## The mentor-share trust boundary
 
@@ -91,6 +131,44 @@ download route `/share/view/{token}/report/{fmt}` is hard-wired to return
 share (`mentor_shares.revoked_at`) takes effect immediately;
 `_active_share_or_404` checks it on every request, so there's no caching or
 grace period to work around.
+
+## Beta 1 audit
+
+An independent security audit of the beta 1 branch found the items below. The first group is fixed in
+`1.0.0-beta.1`. The second group is known and accepted for a beta that runs from a git clone on each
+tester's own machine.
+
+Fixed:
+
+- Scrubbing waits for the spaCy name model before any text goes to an AI provider. Before, the first
+  call after a restart sent regex-only output. The model now also loads at startup (`WARM_PHI_NER`).
+- A mentor comment secret is computed from the install's own Fernet key as well as `SECRET_KEY`, so it
+  cannot be forged on an install that kept the default `SECRET_KEY`.
+- Control characters are removed from mentor comments, because one of them made every later Word
+  export fail. Passwords and emails have a length cap.
+- Requests with a body over the limit get 413 before the body is read (2 MB for JSON, 61 MB for an
+  upload and its dictionary).
+- `/dev/quit` needs an admin. The `local_api_base` setting must be an http or https address.
+- Every response carries `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: no-referrer`. Share links are masked in uvicorn's access log.
+- Provider failures and unreadable advisor answers log the error class only, never provider text.
+
+Accepted for beta 1, with the reason:
+
+- The first account registered on a copy becomes its admin, and an admin can point the `local`
+  provider at another address. This is the intended one-person install. A hosted beta 2 needs invited
+  accounts and a host allowlist.
+- Column names and column statistics in the dataset profile go to the AI provider unscrubbed, because
+  the QI Stat Advisor refers to columns by name. The upload gate rejects column names that look like
+  identifiers, and sample values are scrubbed.
+- A chunked upload with no `Content-Length` is capped while it is read, not before. Put a body limit
+  in the reverse proxy when the app is hosted.
+- Registering an address that already exists returns a clear error, so an email address can be
+  confirmed as registered. Sign-in itself does not reveal it.
+- No Content-Security-Policy yet. It needs testing against the Vite build and comes with HTTPS.
+- If the spaCy model is missing, scrubbing falls back to patterns only, and a warning is logged at
+  load time.
+- The Docker image runs as root and the Python requirements are pinned without hashes.
 
 ## Reporting a security concern
 

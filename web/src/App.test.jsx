@@ -6,8 +6,10 @@ import App from './App'
 const { apiMock } = vi.hoisted(() => ({
   apiMock: {
     me: vi.fn(),
+    getAiKeyStatus: vi.fn(),
     resumeProject: vi.fn(),
     logout: vi.fn(),
+    quit: vi.fn(),
     listProjects: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
@@ -18,13 +20,12 @@ const { apiMock } = vi.hoisted(() => ({
 
 vi.mock('./api', () => ({ api: apiMock }))
 vi.mock('./screens/Auth', () => ({ default: () => <h1>Auth screen</h1> }))
-vi.mock('./screens/ProjectDescription', () => ({ default: () => <h1>Screen description</h1> }))
-vi.mock('./screens/IntakeQuestions', () => ({ default: () => <h1>Screen intake</h1> }))
-vi.mock('./screens/Upload', () => ({ default: () => <h1>Screen upload</h1> }))
+vi.mock('./screens/ProjectIntake', () => ({ default: () => <h1>Screen description</h1> }))
+vi.mock('./screens/ClarificationStage', () => ({ default: () => <h1>Screen clarify</h1> }))
 vi.mock('./screens/DataReview', () => ({ default: () => <h1>Screen review</h1> }))
-vi.mock('./screens/AnalysisSelection', () => ({ default: () => <h1>Screen analysis</h1> }))
-vi.mock('./screens/ParameterSelection', () => ({ default: () => <h1>Screen params</h1> }))
+vi.mock('./screens/AnalysisPlanStage', () => ({ default: () => <h1>Screen analysis</h1> }))
 vi.mock('./screens/Results', () => ({ default: () => <h1>Screen results</h1> }))
+vi.mock('./screens/History', () => ({ default: () => <h1>Screen history</h1> }))
 vi.mock('./screens/DownloadShare', () => ({ default: () => <h1>Screen download</h1> }))
 vi.mock('./screens/Settings', () => ({ default: () => <h1>Screen settings</h1> }))
 vi.mock('./screens/MentorView', () => ({ default: ({ token }) => <h1>Mentor {token}</h1> }))
@@ -32,9 +33,9 @@ vi.mock('./screens/MentorView', () => ({ default: ({ token }) => <h1>Mentor {tok
 function resumePayload({ id, currentScreen }) {
   return {
     project: { id, title: `Project ${id}`, description: 'A resident QI project' },
-    answers: { q1: 'Aim statement' },
     latest_upload: { id: 20, col_types: { week: 'date' }, column_map: {}, quality_flags: [], acknowledged_flags: [] },
     latest_run: { id: 30, template: 'run_chart', parameters: { date_col: 'week' }, result: { result_summary: 'Improved.', interpretation: 'Server interpretation.' } },
+    runs: [{ run_id: 30, template: 'run_chart', result_summary: 'Improved.', ai_interpretation: 'Server interpretation.', caption: '' }],
     latest_share: { token: 'mentor-token' },
     current_screen: currentScreen,
   }
@@ -42,8 +43,10 @@ function resumePayload({ id, currentScreen }) {
 
 beforeEach(() => {
   apiMock.me.mockResolvedValue({ email: 'resident@example.test' })
+  apiMock.getAiKeyStatus.mockReset().mockResolvedValue({ configured: true, source: 'env', last4: '9z1q', provider: 'openrouter', advisor_available: true })
   apiMock.resumeProject.mockReset()
   apiMock.logout.mockReset()
+  apiMock.quit.mockReset()
   apiMock.listProjects.mockResolvedValue([])
   apiMock.createProject.mockReset()
   apiMock.deleteProject.mockReset()
@@ -120,15 +123,42 @@ describe('App resume hydration', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Screen review' })).toBeInTheDocument()
-    for (const label of ['Description', 'Intake', 'Upload', /Review/]) {
+    for (const label of ['Project Intake', 'Clarification', /Review/]) {
       expect(screen.getByRole('button', { name: label })).toBeEnabled()
     }
     expect(screen.getByRole('button', { name: /Results/ })).toBeDisabled()
 
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.click(screen.getByRole('button', { name: 'Clarification' }))
 
-    expect(await screen.findByRole('heading', { name: 'Screen upload' })).toBeInTheDocument()
-    expect(window.location.pathname).toBe('/app/77/upload')
+    expect(await screen.findByRole('heading', { name: 'Screen clarify' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app/77/clarify')
+  })
+
+  it('signs out without stopping the backend', async () => {
+    apiMock.logout.mockResolvedValue({})
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }))
+
+    expect(apiMock.logout).toHaveBeenCalled()
+    expect(apiMock.quit).not.toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: 'Auth screen' })).toBeInTheDocument()
+  })
+
+  it('quits by stopping the backend and showing the stopped page', async () => {
+    apiMock.quit.mockResolvedValue({ ok: true, stopped: true })
+    apiMock.logout.mockResolvedValue({})
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: 'Quit' }))
+
+    expect(apiMock.quit).toHaveBeenCalled()
+    expect(apiMock.logout).toHaveBeenCalled()
+    expect(await screen.findByRole('heading', { name: 'QI Stat Studio stopped' })).toBeInTheDocument()
   })
 
   it('lets the landing project list recover from a load failure', async () => {
@@ -176,5 +206,55 @@ describe('App resume hydration', () => {
     const interpField = screen.getByLabelText(/interpretation/i)
     expect(interpField).toHaveValue('Server interpretation.')
     expect(interpField).not.toHaveValue('Project 44 local edit that must not leak.')
+  })
+})
+
+describe('App no-key prompt', () => {
+  const noKey = { configured: false, source: 'none', last4: null, provider: 'openrouter', advisor_available: false }
+
+  beforeEach(() => window.sessionStorage.clear())
+  afterEach(() => window.sessionStorage.clear())
+
+  it('shows the prompt when the advisor is unavailable and the skip is remembered for the session', async () => {
+    apiMock.getAiKeyStatus.mockResolvedValue(noKey)
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: /needs an AI key/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue without the QI Stat Advisor' }))
+    expect(screen.queryByRole('heading', { name: /needs an AI key/ })).not.toBeInTheDocument()
+    expect(window.sessionStorage.getItem('qiss:advisorSkipped')).toBe('1')
+
+    cleanup()
+    render(<App />)
+    await screen.findByText('resident@example.test')
+    await waitFor(() => expect(apiMock.getAiKeyStatus).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('heading', { name: /needs an AI key/ })).not.toBeInTheDocument()
+  })
+
+  it('saves a key from the prompt and dismisses it', async () => {
+    apiMock.getAiKeyStatus.mockResolvedValue(noKey)
+    apiMock.saveAiKey = vi.fn().mockResolvedValue({ ...noKey, configured: true, source: 'settings', last4: '3456', advisor_available: true })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(await screen.findByLabelText('AI key'), 'sk-or-v1-abcdef123456')
+    await user.click(screen.getByRole('button', { name: 'Save key' }))
+
+    expect(apiMock.saveAiKey).toHaveBeenCalledWith('sk-or-v1-abcdef123456')
+    await waitFor(() => expect(screen.queryByRole('heading', { name: /needs an AI key/ })).not.toBeInTheDocument())
+  })
+
+  it('does not show the prompt when the advisor is available', async () => {
+    render(<App />)
+    await screen.findByText('resident@example.test')
+    expect(screen.queryByRole('heading', { name: /needs an AI key/ })).not.toBeInTheDocument()
+  })
+
+  it('shows a History tab after login that opens the History screen', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'History' }))
+    expect(await screen.findByRole('heading', { name: 'Screen history' })).toBeInTheDocument()
   })
 })

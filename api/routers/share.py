@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -10,17 +13,28 @@ from sqlalchemy.orm import Session
 
 from api.audit import log_action, safe_notification_error
 from api.auth import require_project_owner
+from api.config import settings
 from api.database import get_db
 from api.models_api import (
     CommentPayload,
+    MentorApprovalIn,
+    MentorApprovalOut,
     MentorCommentAuthorIn,
     MentorCommentEditIn,
+    MentorCommentResolveIn,
+    MentorReviewOut,
+    ResidentReplyIn,
+    MentorCommentOwnerEditIn,
+    MentorCommentCreatedOut,
     MentorCommentOut,
+    MentorCommentPublicOut,
     ShareCreateIn,
     ShareMutationIn,
 )
 from api.models_db import AnalysisRun, MentorComment, MentorShare, NotificationDelivery, Project
 from api.services import notifications as notification_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/share", tags=["share"])
 
@@ -37,15 +51,6 @@ def _active_share_or_404(token: str, db: Session) -> MentorShare:
     return share
 
 
-
-
-def _latest_run(project_id: int, db: Session) -> AnalysisRun | None:
-    return (
-        db.query(AnalysisRun)
-        .filter(AnalysisRun.project_id == project_id)
-        .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
-        .first()
-    )
 
 
 def _share_url(request: Request, token: str) -> str:
@@ -166,7 +171,8 @@ def create_share(
             )
             log_action(db, project_id, "notification_sent", {"share_id": share.id, "kind": "share_invite"})
             notification_status = "sent"
-        except Exception:  # email must not block creating a scoped review link
+        except Exception as exc:  # email must not block creating a scoped review link
+            logger.warning("share_invite_failed error_type=%s", type(exc).__name__)
             _record_notification(
                 db,
                 project_id=project_id,
@@ -226,21 +232,50 @@ def regenerate_share(
 
 @router.get("/view/{token}")
 def mentor_view(token: str, db: Session = Depends(get_db)):
-    from api.routers.report import _build_context
+    from api.routers.report import _build_context, run_hydration_dict
+    from api.models_db import Upload
 
     share = _active_share_or_404(token, db)
     project = db.get(Project, share.project_id)
-    run = _latest_run(share.project_id, db)
-    context = _build_context(run, db) if run else None
-    result = context["result"] if context else {}
-    flags = context["flags"] if context else []
+    upload = (
+        db.query(Upload)
+        .filter(Upload.project_id == share.project_id, Upload.status == "active")
+        .order_by(Upload.created_at.desc(), Upload.id.desc())
+        .first()
+    )
+    run_query = db.query(AnalysisRun).filter(AnalysisRun.project_id == share.project_id)
+    if upload:
+        run_query = run_query.filter(AnalysisRun.upload_id == upload.id)
+    runs = run_query.order_by(AnalysisRun.created_at.asc(), AnalysisRun.id.asc()).all()
+
+    results_list = []
+    for r in runs:
+        hydrated = run_hydration_dict(r, db)
+        results_list.append({
+            "run_id": hydrated["run_id"],
+            "template": hydrated["template"],
+            "methods": hydrated["methods"],
+            "result_summary": hydrated["result_summary"],
+            "interpretation": hydrated["ai_interpretation"],
+            "table": hydrated["table"],
+            "figure_base64": hydrated["figure_base64"],
+            "caption": hydrated["caption"],
+            "code_r": hydrated["code_r"],
+            "code_spss": hydrated["code_spss"],
+            "code_sas": hydrated["code_sas"],
+        })
+
+    latest_ctx = _build_context(runs[-1], db) if runs else None
+    latest_res = latest_ctx["result"] if latest_ctx else {}
+    flags = latest_ctx["flags"] if latest_ctx else []
+
     comments = (
         db.query(MentorComment)
         .filter(MentorComment.share_id == share.id, MentorComment.deleted_at.is_(None))
         .order_by(MentorComment.created_at.asc(), MentorComment.id.asc())
         .all()
     )
-    normalized_comments = [MentorCommentOut.model_validate(comment).model_dump(mode="json") for comment in comments]
+    normalized_comments = [MentorCommentPublicOut.model_validate(comment).model_dump(mode="json") for comment in comments]
     return {
         "project": {
             "id": project.id,
@@ -249,22 +284,36 @@ def mentor_view(token: str, db: Session = Depends(get_db)):
             "deadline": project.deadline,
         } if project else {},
         "share": _share_response(share),
-        "template": run.template if run else None,
-        "methods": result.get("methods", ""),
-        "result_summary": result.get("result_summary", ""),
-        "interpretation": context["interpretation"] if context else result.get("interpretation", ""),
-        "table": result.get("table", []),
-        "figure_base64": result.get("figure_base64"),
-        "caption": context["caption"] if context else "",
+        "results": results_list,
+        "template": runs[-1].template if runs else None,
+        "methods": latest_res.get("methods", ""),
+        "result_summary": latest_res.get("result_summary", ""),
+        "interpretation": latest_ctx["interpretation"] if latest_ctx else latest_res.get("interpretation", ""),
+        "table": latest_res.get("table", []),
+        "figure_base64": latest_res.get("figure_base64"),
+        "caption": latest_ctx["caption"] if latest_ctx else "",
         "limitations": flags,
-        "code_r": run.code_r if run else "",
-        "code_spss": run.code_spss if run else "",
-        "code_sas": run.code_sas if run else "",
+        "code_r": runs[-1].code_r if runs else "",
+        "code_spss": runs[-1].code_spss if runs else "",
+        "code_sas": runs[-1].code_sas if runs else "",
         "comments": normalized_comments,
+        "approval": MentorApprovalOut.model_validate(share).model_dump(mode="json") if share.approved_at else None,
     }
 
+def _edit_token(share_id: int, comment_id: int) -> str:
+    """Stateless per-comment secret: only the response to the create call carries it."""
+    message = f"mentor-comment:{share_id}:{comment_id}".encode()
+    # The Fernet key is unique to each install, so the token stays unforgeable even on the default SECRET_KEY.
+    key = f"{settings.secret_key}:{settings.fernet_key}".encode()
+    return hmac.new(key, message, hashlib.sha256).hexdigest()[:32]
 
-@router.post("/view/{token}/comment", response_model=MentorCommentOut)
+
+def _require_edit_token(share: MentorShare, comment: MentorComment, token: str) -> None:
+    if not hmac.compare_digest((token or "").encode(), _edit_token(share.id, comment.id).encode()):
+        raise HTTPException(status_code=403, detail="Only the person who wrote this comment can change it")
+
+
+@router.post("/view/{token}/comment", response_model=MentorCommentCreatedOut)
 def add_comment(token: str, payload: CommentPayload, db: Session = Depends(get_db)):
     share = _active_share_or_404(token, db)
     comment = MentorComment(
@@ -279,18 +328,16 @@ def add_comment(token: str, payload: CommentPayload, db: Session = Depends(get_d
     db.commit()
     db.refresh(comment)
     log_action(db, share.project_id, "mentor_comment_created", {"share_id": share.id, "comment_id": comment.id, "public": True})
-    return comment
+    return MentorCommentCreatedOut(**MentorCommentPublicOut.model_validate(comment).model_dump(), edit_token=_edit_token(share.id, comment.id))
 
 
-@router.patch("/view/{token}/comment/{comment_id}", response_model=MentorCommentOut)
+@router.patch("/view/{token}/comment/{comment_id}", response_model=MentorCommentPublicOut)
 def edit_public_comment(token: str, comment_id: int, payload: MentorCommentEditIn, db: Session = Depends(get_db)):
     share = _active_share_or_404(token, db)
     comment = db.get(MentorComment, comment_id)
     if not comment or comment.share_id != share.id or comment.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Comment not found")
-    author_email = payload.author_email.strip().lower() if payload.author_email else None
-    if not comment.author_email or comment.author_email != author_email:
-        raise HTTPException(status_code=403, detail="Comment author email required")
+    _require_edit_token(share, comment, payload.edit_token)
     comment.text = payload.text
     comment.updated_at = datetime.utcnow()
     db.commit()
@@ -310,20 +357,86 @@ def delete_public_comment(
     comment = db.get(MentorComment, comment_id)
     if not comment or comment.share_id != share.id or comment.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Comment not found")
-    author_email = payload.author_email.strip().lower() if payload.author_email else None
-    if not comment.author_email or comment.author_email != author_email:
-        raise HTTPException(status_code=403, detail="Comment author email required")
+    _require_edit_token(share, comment, payload.edit_token)
     comment.deleted_at = datetime.utcnow()
     db.commit()
     log_action(db, share.project_id, "mentor_comment_deleted", {"share_id": share.id, "comment_id": comment.id, "public": True})
     return {"ok": True}
 
 
+@router.patch("/view/{token}/comment/{comment_id}/resolve", response_model=MentorCommentPublicOut)
+def resolve_public_comment(token: str, comment_id: int, payload: MentorCommentResolveIn, db: Session = Depends(get_db)):
+    """The mentor who wrote a comment says whether the resident's fix settles it."""
+    share = _active_share_or_404(token, db)
+    comment = db.get(MentorComment, comment_id)
+    if not comment or comment.share_id != share.id or comment.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    _require_edit_token(share, comment, payload.edit_token)
+    comment.resolved_at = datetime.utcnow() if payload.resolved else None
+    db.commit()
+    db.refresh(comment)
+    log_action(db, share.project_id, "mentor_comment_resolved" if payload.resolved else "mentor_comment_reopened",
+               {"share_id": share.id, "comment_id": comment.id})
+    return comment
+
+
+@router.post("/view/{token}/approve", response_model=MentorApprovalOut)
+def approve_review(token: str, payload: MentorApprovalIn, db: Session = Depends(get_db)):
+    """The mentor's final sign-off. Anyone holding the link can give it, like a comment. Giving it again replaces it."""
+    share = _active_share_or_404(token, db)
+    share.approved_at = datetime.utcnow()
+    share.approved_by_name = payload.author_name.strip()
+    share.approved_note = payload.note.strip() or None
+    db.commit()
+    db.refresh(share)
+    log_action(db, share.project_id, "mentor_approved", {"share_id": share.id})
+    return share
+
+
+@router.get("/{project_id}/review", response_model=MentorReviewOut)
+def resident_review(project_id: int, db: Session = Depends(get_db), project: Project = Depends(require_project_owner)):
+    """What the resident needs to act on: every mentor comment with its status, and the approval if given."""
+    comments = (
+        db.query(MentorComment)
+        .filter(MentorComment.project_id == project_id, MentorComment.deleted_at.is_(None))
+        .order_by(MentorComment.created_at.asc(), MentorComment.id.asc())
+        .all()
+    )
+    approved = (
+        db.query(MentorShare)
+        .filter(MentorShare.project_id == project_id, MentorShare.revoked_at.is_(None), MentorShare.approved_at.isnot(None))
+        .order_by(MentorShare.approved_at.desc())
+        .first()
+    )
+    return {"comments": comments, "approval": approved}
+
+
+@router.post("/{project_id}/comment/{comment_id}/reply", response_model=MentorCommentOut)
+def resident_reply(
+    project_id: int,
+    comment_id: int,
+    payload: ResidentReplyIn,
+    db: Session = Depends(get_db),
+    project: Project = Depends(require_project_owner),
+):
+    """The resident says what they did about a comment. It goes back to the mentor to resolve."""
+    comment = db.get(MentorComment, comment_id)
+    if not comment or comment.project_id != project_id or comment.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    comment.resident_reply = payload.reply.strip() or None
+    comment.addressed_at = datetime.utcnow()
+    comment.resolved_at = None  # a new reply asks the mentor to look again
+    db.commit()
+    db.refresh(comment)
+    log_action(db, project_id, "mentor_comment_addressed", {"comment_id": comment.id})
+    return comment
+
+
 @router.patch("/{project_id}/comment/{comment_id}", response_model=MentorCommentOut)
 def owner_edit_comment(
     project_id: int,
     comment_id: int,
-    payload: MentorCommentEditIn,
+    payload: MentorCommentOwnerEditIn,
     db: Session = Depends(get_db),
     project: Project = Depends(require_project_owner),
 ):

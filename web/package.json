@@ -1,10 +1,10 @@
 {
   "name": "qi-stat-studio-web",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.0-beta.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run --environment jsdom",

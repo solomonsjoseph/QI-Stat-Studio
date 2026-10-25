@@ -95,14 +95,14 @@
   }
 
   .table-clean {
-    @apply w-full text-sm border-collapse tabular-nums;
+    @apply w-full text-xs border-collapse tabular-nums;
   }
 
   .table-clean th {
-    @apply border-b border-line bg-canvas px-3 py-2 text-left font-medium text-ink-soft;
+    @apply border-b border-line bg-canvas px-2 py-2 text-left font-medium text-ink-soft;
   }
 
   .table-clean td {
-    @apply border-b border-line px-3 py-2;
+    @apply border-b border-line px-2 py-2;
   }
 }

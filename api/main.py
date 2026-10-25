@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import threading
 import uuid
 from contextlib import asynccontextmanager
 
-import api.models_db  # ensure all models are registered for tests and Alembic metadata
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,8 @@ from api.config import settings
 from api.database import SessionLocal
 from api.audit import safe_diagnostic_message
 from api.models_db import FailureLog
+from api.upload_utils import MAX_DICTIONARY_BYTES, MAX_UPLOAD_BYTES
+from api.version import __version__
 
 class _RequestIdDefaultFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -33,6 +36,22 @@ for _handler in logging.getLogger().handlers:
     _handler.addFilter(_RequestIdDefaultFilter())
 
 logger = logging.getLogger(__name__)
+
+# A share link is a bearer secret. Keep it out of uvicorn's access log lines.
+_SHARE_TOKEN_RE = re.compile(r"(/share/(?:view/)?)[A-Za-z0-9_-]{20,}")
+
+
+class _MaskShareTokens(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3 and isinstance(record.args[2], str):
+            record.args = (*record.args[:2], _SHARE_TOKEN_RE.sub(r"\1[token]", record.args[2]), *record.args[3:])
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_MaskShareTokens())
+
+_MAX_BODY_BYTES = MAX_UPLOAD_BYTES + MAX_DICTIONARY_BYTES + 1_000_000  # an upload plus its dictionary
+_MAX_JSON_BYTES = 2_000_000
 
 
 def _parse_cors_origins(value: str) -> list[str]:
@@ -55,6 +74,23 @@ async def lifespan(app: FastAPI):
     if settings.environment == "production" and settings.secret_key == "dev-secret-change-in-prod":
         raise RuntimeError("SECRET_KEY must be configured in production")
     settings.fernet
+
+    def _warm_phi_ner() -> None:
+        # Keep /health fast, but avoid the first upload blocking for minutes while
+        # spaCy+torch load from a slow filesystem.
+        try:
+            from api.middleware.phi_scrubber import _get_nlp
+
+            _get_nlp()
+            logger.info("phi_ner_warm_complete")
+        except Exception:
+            logger.exception("phi_ner_warm_failed")
+
+    # Names are only found once the spaCy model is loaded, and scrubbing waits for it. Load it in the
+    # background at startup so the first AI call does not wait; /health stays fast. WARM_PHI_NER=0 turns
+    # this off (the tests do).
+    if os.environ.get("WARM_PHI_NER", "1").strip().lower() in {"1", "true", "yes"}:
+        threading.Thread(target=_warm_phi_ner, daemon=True, name="phi-ner-warm").start()
     yield
 
 
@@ -85,7 +121,7 @@ class SPAStaticFiles(StaticFiles):
             response = await super().get_response("index.html", scope)
         return response
 
-app = FastAPI(title="QI Stat Studio", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="QI Stat Studio", version=__version__, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,8 +138,16 @@ app.add_middleware(ApiPrefixMiddleware)
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
     request.state.request_id = request_id
-    if "application/json" in request.headers.get("content-type", ""):
+    is_json = "application/json" in request.headers.get("content-type", "")
+    declared = request.headers.get("content-length", "")
+    # Refuse an oversized body before it is read or spooled. A chunked body with no length is only
+    # capped for JSON (below); uploads are capped while reading in api/upload_utils.py.
+    if declared.isdigit() and int(declared) > (_MAX_JSON_BYTES if is_json else _MAX_BODY_BYTES):
+        return _error_response(413, "payload_too_large", "The request is too large.", request_id)
+    if is_json:
         raw_body = await request.body()
+        if len(raw_body) > _MAX_JSON_BYTES:
+            return _error_response(413, "payload_too_large", "The request is too large.", request_id)
         request.state.sanitized_body_ids = _ids_from_json_body(raw_body)
 
         async def receive():
@@ -112,6 +156,10 @@ async def request_id_middleware(request: Request, call_next):
         request._receive = receive
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    # No framing (clickjacking), no MIME sniffing, and no Referer, so a share link in the address bar is not leaked.
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
     return response
 
 
@@ -206,7 +254,7 @@ def _record_failure(request: Request, exc: Exception, request_id: str, ids: dict
         db.close()
 
 
-def _error_response(status_code: int, code: str, message: str, request_id: str, field_errors=None):
+def _error_response(status_code: int, code: str, message: str, request_id: str, field_errors=None, extra=None, headers=None):
     return JSONResponse(
         status_code=status_code,
         content={
@@ -215,9 +263,10 @@ def _error_response(status_code: int, code: str, message: str, request_id: str, 
                 "message": message,
                 "field_errors": field_errors or {},
                 "request_id": request_id,
+                **(extra or {}),
             }
         },
-        headers={"X-Request-ID": request_id},
+        headers={**(headers or {}), "X-Request-ID": request_id},
     )
 
 
@@ -229,9 +278,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(detail, dict):
         message = str(detail.get("message") or "HTTP error")
         field_errors = detail.get("field_errors") if isinstance(detail.get("field_errors"), dict) else {}
-        return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id, field_errors)
+        code = detail["code"] if isinstance(detail.get("code"), str) else f"HTTP_{exc.status_code}"
+        extra = {"key_source": detail["key_source"]} if code == "advisor_unavailable" else None
+        return _error_response(exc.status_code, code, message, request_id, field_errors, extra, exc.headers)
     message = detail if isinstance(detail, str) else "HTTP error"
-    return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id)
+    return _error_response(exc.status_code, f"HTTP_{exc.status_code}", message, request_id, headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)
@@ -261,16 +312,20 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return _error_response(500, "INTERNAL_ERROR", "Internal server error", request_id)
 
 
-from api.routers import auth, projects, upload, analyze, ai, report, intake, share, settings_router, notifications, health  # noqa: E402,F401
+from api.routers import auth, projects, upload, analyze, ai, report, share, settings_router, notifications, health, dev, warning_groups, reupload, handoff, advisor  # noqa: E402,F401
 
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(dev.router)
 app.include_router(projects.router)
 app.include_router(upload.router)
+app.include_router(reupload.router)
+app.include_router(warning_groups.router)
+app.include_router(handoff.router)
 app.include_router(analyze.router)
 app.include_router(ai.router)
+app.include_router(advisor.router)
 app.include_router(report.router)
-app.include_router(intake.router)
 app.include_router(share.router)
 app.include_router(settings_router.router)
 app.include_router(notifications.router)

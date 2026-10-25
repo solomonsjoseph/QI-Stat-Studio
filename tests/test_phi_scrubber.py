@@ -1,5 +1,7 @@
+import pandas as pd
+
 from api.middleware import phi_scrubber
-from api.middleware.phi_scrubber import scrub_text
+from api.middleware.phi_scrubber import scan_dataframe_for_phi, scrub_text
 
 
 def _create_project(client) -> int:
@@ -12,7 +14,7 @@ def _create_project(client) -> int:
 
 def test_redacts_person_name_when_ner_available():
     result, count = scrub_text("Patient John Smith was admitted")
-    if phi_scrubber._nlp is None:
+    if phi_scrubber._get_nlp() is None:
         assert result == "Patient John Smith was admitted"
         assert count == 0
     else:
@@ -59,6 +61,7 @@ def test_clean_text_unchanged():
 
 def test_regex_fallback_redacts_mrn_email_and_dates_when_spacy_missing(monkeypatch):
     monkeypatch.setattr(phi_scrubber, "_nlp", None)
+    monkeypatch.setattr(phi_scrubber, "_nlp_loaded", True)
 
     result, count = scrub_text("MRN 1234567 email a@example.org visit 02/03/2024 followup 2024-03-04")
 
@@ -71,6 +74,7 @@ def test_regex_fallback_redacts_mrn_email_and_dates_when_spacy_missing(monkeypat
 
 def test_regex_fallback_redacts_street_addresses(monkeypatch):
     monkeypatch.setattr(phi_scrubber, "_nlp", None)
+    monkeypatch.setattr(phi_scrubber, "_nlp_loaded", True)
 
     result, count = scrub_text("Patient lives at 123 Main Street and attends clinic")
 
@@ -115,3 +119,110 @@ def test_ai_chat_scrubs_phi_from_system_messages_before_outbound_call(client, mo
     assert system_message["role"] == "system"
     assert "123-45-6789" not in system_message["content"]
     assert response.json()["redaction_count"] >= 1
+
+
+def test_scan_flags_patient_name_and_mrn_columns():
+    df = pd.DataFrame({
+        "patient_name": ["Jane Doe", "John Smith"],
+        "mrn": [100234, 100567],
+        "age": [72, 65],
+    })
+    result = scan_dataframe_for_phi(df)
+    categories = {v.column: v.category for v in result.violations}
+    assert categories == {"patient_name": "Patient Name", "mrn": "Medical Record Number"}
+    assert result.blocked is True
+
+
+def test_scan_permits_sequential_and_synthetic_id_columns():
+    # Sequential small ints (pt_id) and non-identifying synthetic codes
+    # (patient_id like "P10270") are internal IDs, not PHI -- never flagged
+    # purely for being named "id"-like.
+    df = pd.DataFrame({
+        "pt_id": [1, 2, 3, 4],
+        "patient_id": ["P10270", "P10271", "P10272", "P10273"],
+        "age": [72, 65, 50, 44],
+    })
+    result = scan_dataframe_for_phi(df)
+    assert result.blocked is False
+
+
+def test_scan_dob_message_varies_with_age_presence():
+    with_age = scan_dataframe_for_phi(pd.DataFrame({"dob": ["1/2/1980"], "age": [45]}))
+    assert "already available" in with_age.violations[0].message
+
+    without_age = scan_dataframe_for_phi(pd.DataFrame({"dob": ["1/2/1980"]}))
+    assert "Convert this to age" in without_age.violations[0].message
+
+
+def test_scan_dictionary_cannot_clear_real_identifier_categories():
+    df = pd.DataFrame({
+        "patient_name": ["Jane Doe"],
+        "mrn": [100234],
+        "dob": ["1/2/1980"],
+    })
+    dictionary_text = (
+        "patient_name: non-identifying. mrn: de-identified study id. "
+        "dob: not phi, sequential id."
+    )
+    result = scan_dataframe_for_phi(df, dictionary_text=dictionary_text)
+    assert {v.column for v in result.violations} == {"patient_name", "mrn", "dob"}
+
+
+def test_scan_flags_value_level_ssn_in_generically_named_column():
+    df = pd.DataFrame({"notes": ["SSN 123-45-6789", "nothing here"]})
+    result = scan_dataframe_for_phi(df)
+    assert result.violations[0].category == "Social Security Number"
+
+
+def test_scan_dictionary_clears_an_incidental_value_scan_match():
+    # A phone-shaped reference code in a generic column is a clearable category
+    # (Phone Number, found via value-scan, not a real-identifier column-name
+    # match) -- the dictionary can clear this one, unlike name/mrn/ssn/dob.
+    df = pd.DataFrame({"batch_ref": ["555-123-4567", "555-987-6543"]})
+    result = scan_dataframe_for_phi(df)
+    assert result.violations[0].category == "Phone Number"
+
+    cleared = scan_dataframe_for_phi(
+        df, dictionary_text="batch_ref: an internal batch code formatted like a phone number, non-identifying, not phi."
+    )
+    assert cleared.blocked is False
+
+
+def test_scan_clean_dataset_passes():
+    df = pd.DataFrame({
+        "id": [1, 2, 3],
+        "fall_date": ["2026-01-04", "2026-01-09", "2026-01-15"],
+        "unit": ["3W", "3W", "3W"],
+        "age": [72, 65, 80],
+    })
+    result = scan_dataframe_for_phi(df)
+    assert result.blocked is False
+
+
+def test_scrub_text_redact_dates_false_preserves_a_standalone_date_but_still_redacts_names_and_ids():
+    result, count = scrub_text("MRN 1234567, started 2026-01-01, contact patient@hospital.org", redact_dates=False)
+    assert "2026-01-01" in result
+    assert "1234567" not in result
+    assert "patient@hospital.org" not in result
+    assert count >= 2  # MRN + email redacted, date preserved
+
+
+def test_scrub_text_redact_dates_true_still_redacts_a_standalone_date_by_default():
+    result, count = scrub_text("Seen on 2026-01-01 at the clinic")
+    assert "2026-01-01" not in result
+    assert count >= 1
+
+
+def test_project_context_survives_the_ner_model_but_patient_identifiers_do_not():
+    if phi_scrubber._get_nlp(wait=True) is None:
+        pytest.skip("spaCy model not installed")
+    context = "Intervention launched January 2025. Secondary outcomes are SGLT2 and GLP-1 prescribing within 3 months for Medicaid patients."
+    assert scrub_text(context) == (context, 0)
+    result, count = scrub_text("John Smith was seen on March 5, 2024.")
+    assert "John Smith" not in result and "March 5" not in result and count >= 2
+
+
+def test_a_name_followed_by_a_digit_is_still_redacted():
+    if phi_scrubber._get_nlp(wait=True) is None:
+        pytest.skip("spaCy model not installed")
+    assert "Maria Garcia" not in scrub_text("Maria Garcia 2B called")[0]

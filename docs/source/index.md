@@ -3,7 +3,7 @@
 QI Stat Studio is a guided statistical analysis app for medical residents running
 quality-improvement (QI) projects. A resident describes a project in plain
 language, uploads a CSV or Excel export, confirms data-quality checks, runs one
-of six guide-recommended analyses, edits the interpretation, and downloads a
+of seven guide-recommended analyses, edits the interpretation, and downloads a
 Word/PDF report or shares an in-browser mentor review link. No statistics
 code required, at any step.
 
@@ -20,7 +20,7 @@ finish a task.
 :link-type: doc
 
 For residents and mentors running a QI project through the app: the 10-screen
-wizard, the six analyses in plain English, uploading data, and sharing a
+wizard, the seven analyses in plain English, uploading data, and sharing a
 report.
 ::::
 

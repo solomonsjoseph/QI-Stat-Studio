@@ -14,7 +14,7 @@ closing the tab mid-workflow never leaves you at the wrong step.
 ## Fix a data-quality ERROR
 
 When Data Review shows a red **ERROR** (for example, duplicate patient IDs),
-you cannot check a box past it — the file itself must change. Click
+you cannot check a box past it. The file itself must change. Click
 **Re-upload corrected file**, fix the underlying spreadsheet, and upload it
 again from the Upload screen.
 
@@ -56,7 +56,7 @@ manage this through the API directly (`POST /share/{project_id}/revoke` /
 Mentor comments appear inline with the shared report on the mentor's review
 page. As the resident, you'll see the same comments in your project once the
 mentor posts them. Mentors can edit or delete their own comments, but they
-need to re-enter the email they originally commented with — that's what
+need to re-enter the email they originally commented with. That's what
 proves it's the same mentor, since mentors never create an account.
 
 ## Update your report before re-downloading
@@ -77,8 +77,9 @@ admin if you need a project permanently removed.
 Admins see a **Settings** link that residents don't. It lists the current
 values for things like the clinic name shown in reports, which AI
 provider/model is active, and the AI rate limit, and lets you add or update
-one setting at a time. Secrets (API keys, the database URL, the encryption
-key) are never editable here — they live only in the server's environment
+one setting at a time. Secrets (the database URL and the encryption
+key) are never editable here. The AI key has its own section; see
+"Set the AI key" below. They live only in the server's environment
 configuration; see {doc}`../developer-guide/how-to` if you're the one
 managing that deployment.
 
@@ -88,10 +89,53 @@ Two admin-only capabilities are exposed through the API rather than a
 dedicated screen, reachable at `/docs` (Swagger UI) while signed in as
 admin:
 
-- `GET /admin/failures` — a searchable log of failed analyses/uploads/AI
+- `GET /admin/failures`: a searchable log of failed analyses/uploads/AI
   calls, with enough context to help a resident (request ID, project, route)
   without exposing raw patient data.
-- `POST /notifications/deadline-reminders/run` — sends a reminder email to
+- `POST /notifications/deadline-reminders/run`: sends a reminder email to
   any mentor whose share has a deadline within the next 7 days and who
   hasn't already been reminded. Run this periodically (e.g. from a scheduled
   job) if your deployment wants automatic reminders.
+
+## Set the AI key
+
+The QI Stat Advisor needs an AI key. Open **Settings**, paste the key under
+**AI key** and click **Save key**. The screen shows only the last four
+characters afterwards. A saved key belongs to your account only: nobody else
+can use it, and you cannot use anyone else's. It overrides the one in `.env`
+for you. **Remove saved key** falls back to `.env`. The other settings on the
+page are for admins.
+
+## Work without the QI Stat Advisor
+
+With no key set, the app shows a banner saying the QI Stat Advisor is off.
+Clarify is disabled, but you can still acknowledge warnings, edit the analysis
+plan items yourself, write your own interpretation, run analyses and download
+the report.
+
+## Read the handoff document
+
+On Data Review, open the handoff document to see the agreed changes, the
+change log and earlier revisions. Each change you confirm with the QI Stat
+Advisor is applied to your data before any analysis runs, so results and the
+report use the cleaned data. To undo or revise a change, reopen the warning and
+ask in the chat.
+
+## Replace a data file
+
+Use **Replace data file** on Data Review. A different file starts a new
+handoff and the old one is kept in History. If the files are identical you are
+asked whether to keep your earlier changes or start fresh, and Continue stays
+disabled until you choose.
+
+## History
+
+**History** lists the handoff documents of replaced files. You can view one or
+delete the document; its change log stays and only an administrator can
+remove it.
+
+## Mentor view
+
+A mentor opening a share link sees the results, comments and the current
+handoff document read-only. The document shows who acted as "user", "advisor"
+or "system", never an email address.

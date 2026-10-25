@@ -6,7 +6,7 @@ from sqlalchemy import pool
 
 from alembic import context
 
-from api.models_db import Base  # noqa: F401 — registers all models
+from api.models_db import Base  # noqa: F401  # registers all models
 
 config = context.config
 
