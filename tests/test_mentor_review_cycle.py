@@ -58,8 +58,11 @@ def test_comment_reply_resolve_and_approval_cycle_ends_the_report(client):
     assert "Status: Resolved by the mentor" in tail
     assert "Mentor approval: approved by Dr Rivera" in tail and "Good work." in tail
 
-    paragraphs = [p.text for p in Document(io.BytesIO(client.get(f"/report/project/{project['id']}/docx").content)).paragraphs if p.text.strip()]
+    doc = Document(io.BytesIO(client.get(f"/report/project/{project['id']}/docx").content))
+    paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
     assert paragraphs[-1].startswith("Mentor approval:")  # the mentor has the last word
+    first = next(i for i, p in enumerate(doc.paragraphs) if p.text == "Mentor Feedback")
+    assert all(p.alignment is None for p in doc.paragraphs[first:])  # only the report title is centered
 
 
 def test_a_new_reply_reopens_a_resolved_comment_and_only_the_owner_can_reply(client):

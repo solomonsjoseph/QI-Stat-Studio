@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import Spinner from './Spinner'
 import { api } from '../api'
+import { plural } from '../plural'
 
 function describe(err, fallback) {
   return `${err.message || fallback}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
@@ -88,7 +89,7 @@ export default function MentorReviewPanel({ projectId, refreshKey }) {
       {review && comments.length === 0 && <p className="text-sm text-ink-soft">No mentor comments yet. Send the link, then come back here.</p>}
       {comments.length > 0 && (
         <p className="text-sm text-ink-soft">
-          {open === 0 ? 'The mentor has resolved every comment.' : `${open} of ${comments.length} comment(s) not resolved yet.`} Use Back to change the report, then reply here. The mentor sees your reply on the same link and marks it resolved.
+          {open === 0 ? 'The mentor has resolved every comment.' : `${open} of ${plural(comments.length, 'comment')} not resolved yet.`} Use Back to change the report, then reply here. The mentor sees your reply on the same link and marks it resolved.
         </p>
       )}
       {comments.map(c => <Comment key={c.id} projectId={projectId} comment={c} onChanged={load} setError={setError} />)}

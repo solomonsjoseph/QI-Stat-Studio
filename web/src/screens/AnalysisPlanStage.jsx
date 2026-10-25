@@ -426,7 +426,7 @@ export default function AnalysisPlanStage() {
         <div className="card flex flex-col gap-2 mb-6">
           <h3 className="font-medium text-ink text-sm">Conversation history</h3>
           {turns.map((turn, i) => (
-            <p key={i} className={turn.role === 'ai' ? 'text-ink text-sm' : 'text-ink-soft text-sm'}>
+            <p key={i} className={`whitespace-pre-line ${turn.role === 'ai' ? 'text-ink text-sm' : 'text-ink-soft text-sm'}`}>
               <strong>{turn.role === 'ai' ? 'QI Stat Advisor' : 'You'}:</strong> {turn.content}
             </p>
           ))}

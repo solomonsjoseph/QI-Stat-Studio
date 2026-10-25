@@ -972,12 +972,14 @@ def ai_interpret_results(
     _INTERPRET_FIELDS = (
         "template", "result_summary", "p_value", "test_used", "effect_estimate",
         "effect_ci", "odds_ratio", "risk_difference", "ucl", "lcl", "pbar",
-        "signal_detected", "trend_signal_detected", "n_pairs",
+        "signal_detected", "trend_signal_detected", "n_pairs", "table",
     )
     results_payload = []
     for run in runs:
         res_json = json.loads(run.result_json or "{}")
         run_data = {k: res_json.get(k) for k in _INTERPRET_FIELDS if res_json.get(k) is not None}
+        if isinstance(run_data.get("table"), list):
+            run_data["table"] = run_data["table"][:40]  # keeps the prompt small when many variables are summarised
         run_data["run_id"] = run.id
         run_data["template"] = run.template
         results_payload.append(run_data)

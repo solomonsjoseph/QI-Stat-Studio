@@ -173,13 +173,13 @@ export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, re
         <div className="mb-3 rounded border border-line p-3" aria-labelledby={`readback-${groupId}`} role="group">
           <h3 id={`readback-${groupId}`} className="mb-2 font-medium text-ink">{MODE_LABELS[pending.mode] || 'Proposed changes'}: read-back</h3>
           {pending.proposals.map(p => (
-            <div key={p.warning_id} className="mb-2">
+            <div key={p.warning_id} className="mb-3 space-y-1">
               <p className="text-sm font-medium">For warning: {label(p.warning_id)}</p>
               {p.summary && <p className="text-sm">{p.summary}</p>}
               {p.steps.length === 0
                 ? <p className="text-sm text-ink-soft">No data change. Your decision will be recorded as a note.</p>
                 : (
-                  <ol className="list-decimal pl-5 text-sm">
+                  <ol className="list-decimal space-y-0.5 pl-5 text-sm">
                     {p.steps.map((s, i) => {
                       const dry = p.dry_run?.[i]
                       if (s.op === 'set_role') {

@@ -6,6 +6,7 @@ import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
 import { TEMPLATE_LABELS } from '../templateLabels'
+import { columnLabel } from '../columnLabels'
 
 function errorMessage(err) {
   return `${err.message || 'Could not create share link'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
@@ -18,6 +19,11 @@ function FileIcon() {
       <path d="M14 2v5h5" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )
+}
+
+const NOTIFICATION_TEXT = {
+  sent: 'The invitation email was sent to the mentor.',
+  failed: 'The invitation email could not be sent. The share link below still works, so copy it and send it yourself.',
 }
 
 export default function DownloadShare() {
@@ -105,7 +111,7 @@ export default function DownloadShare() {
                   <div className="mb-2 overflow-x-auto">
                     <table className="table-clean">
                       <thead>
-                        <tr>{Object.keys(run.table[0]).map(h => <th key={h}>{h}</th>)}</tr>
+                        <tr>{Object.keys(run.table[0]).map(h => <th key={h}>{columnLabel(h)}</th>)}</tr>
                       </thead>
                       <tbody>
                         {run.table.map((row, idx) => (
@@ -157,7 +163,7 @@ export default function DownloadShare() {
 
           <section className="border-t border-line pt-6" aria-labelledby="share-heading">
             <h2 id="share-heading" className="mb-3 font-semibold text-ink">Share with Mentor</h2>
-            {notificationStatus && <p className="mb-2 text-sm text-ink-soft">Notification status: {notificationStatus}</p>}
+            {NOTIFICATION_TEXT[notificationStatus] && <p className="mb-2 text-sm text-ink-soft" role={notificationStatus === 'failed' ? 'alert' : undefined}>{NOTIFICATION_TEXT[notificationStatus]}</p>}
             {shareToken ? (
               <div>
                 <p className="mb-2 text-sm text-ink-soft">Share this link:</p>

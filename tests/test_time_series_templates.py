@@ -150,7 +150,7 @@ class TestPChart:
 
         assert target_rate < old_ucl
         assert target_rate > result["ucl"][-1]
-        assert "1 out-of-control point(s)" in result["result_summary"]
+        assert "1 out-of-control point" in result["result_summary"]
 
     def test_intervention_date_does_not_crash(self):
         df = _monthly_df()

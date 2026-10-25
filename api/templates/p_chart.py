@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from api.plural import plural
 
 
 def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
@@ -58,7 +59,7 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     ax.set_title(f"p-Chart, {numerator_col}/{denom_label}")
     ax.set_ylabel("Proportion (%)")
     ax.set_xlabel(date_col)
-    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False)
     buf = io.BytesIO()
     fig.savefig(buf, format="png", bbox_inches="tight")
     plt.close(fig)
@@ -78,8 +79,8 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     exclusion_note = f" {' '.join(exclusion_notes)}" if exclusion_notes else ""
     methods = (f"A p-chart (control chart for proportions) was constructed using {len(agg)} time points. "
                f"Control limits were set at 3 standard deviations using each period's denominator. "
-               f"{out_of_control} point(s) fell outside control limits.{exclusion_note}")
-    oc_phrase = (f"{out_of_control} point(s) fell outside the 3-sigma control limits, indicating special-cause variation."
+               f"{plural(out_of_control, 'point')} fell outside control limits.{exclusion_note}")
+    oc_phrase = (f"{plural(out_of_control, 'point')} fell outside the 3-sigma control limits, indicating special-cause variation."
                  if out_of_control else "All points fell within control limits, indicating the process was in statistical control.")
     interpretation = (
         f"The p-chart shows the proportion of {numerator_col} over {len(agg)} time periods. "
@@ -90,7 +91,7 @@ def run_p_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     return {
         "table": [], "figure_base64": fig_b64, "methods": methods,
         "result_summary": (
-            f"Mean={pbar*100:.1f}%. {out_of_control} out-of-control point(s).{exclusion_note}"
+            f"Mean={pbar*100:.1f}%. {plural(out_of_control, 'out-of-control point')}.{exclusion_note}"
         ),
         "interpretation": interpretation,
         "ucl": [round(float(value), 4) for value in ucl],

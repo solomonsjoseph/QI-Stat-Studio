@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from api.plural import plural
 
 
 def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
@@ -100,8 +101,8 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     exclusion_note = f" {' '.join(exclusion_notes)}" if exclusion_notes else ""
     methods = (f"A {'u' if chart_type == 'u' else 'c'}-chart was constructed for {count_col} "
                f"across {len(agg)} time points. {limit_note} "
-               f"{out_of_control} point(s) fell outside control limits.{exclusion_note}")
-    oc_phrase = (f"{out_of_control} point(s) fell outside control limits, indicating special-cause variation."
+               f"{plural(out_of_control, 'point')} fell outside control limits.{exclusion_note}")
+    oc_phrase = (f"{plural(out_of_control, 'point')} fell outside control limits, indicating special-cause variation."
                  if out_of_control else "All points fell within control limits, indicating the process was in statistical control.")
     chart_label = "u-chart (rate)" if chart_type == "u" else "c-chart (count)"
     interpretation = (
@@ -111,7 +112,7 @@ def run_u_c_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     )
     return {
         "table": [], "figure_base64": fig_b64, "methods": methods,
-        "result_summary": f"Mean={ubar:.3f}. {out_of_control} out-of-control point(s).{exclusion_note}",
+        "result_summary": f"Mean={ubar:.3f}. {plural(out_of_control, 'out-of-control point')}.{exclusion_note}",
         "interpretation": interpretation,
         "chart_type": chart_type,
         "ucl": [round(float(value), 4) for value in ucl], "lcl": [round(float(value), 4) for value in lcl],

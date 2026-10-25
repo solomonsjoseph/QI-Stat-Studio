@@ -3,6 +3,7 @@ import { useApp } from '../App'
 import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
+import { plural } from '../plural'
 
 function errorMessage(err) {
   return `${err.message || 'Could not save project'}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
@@ -124,7 +125,7 @@ export default function ProjectIntake() {
           required
         />
         {desc.length > 0 && desc.trim().length < 40 && (
-          <p className="text-xs text-ink-faint">{40 - desc.trim().length} more character(s) needed</p>
+          <p className="text-xs text-ink-faint">{plural(40 - desc.trim().length, 'more character')} needed</p>
         )}
 
         <label htmlFor="project-deadline" className="label">Target Completion / Abstract Deadline (optional)</label>

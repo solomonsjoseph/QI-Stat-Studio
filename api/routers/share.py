@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -32,6 +33,8 @@ from api.models_api import (
 )
 from api.models_db import AnalysisRun, MentorComment, MentorShare, NotificationDelivery, Project
 from api.services import notifications as notification_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/share", tags=["share"])
 
@@ -168,7 +171,8 @@ def create_share(
             )
             log_action(db, project_id, "notification_sent", {"share_id": share.id, "kind": "share_invite"})
             notification_status = "sent"
-        except Exception:  # email must not block creating a scoped review link
+        except Exception as exc:  # email must not block creating a scoped review link
+            logger.warning("share_invite_failed error_type=%s", type(exc).__name__)
             _record_notification(
                 db,
                 project_id=project_id,

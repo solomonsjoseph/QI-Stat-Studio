@@ -96,4 +96,17 @@ describe('DownloadShare multi-run preview', () => {
     expect(apiMock.createShare).toHaveBeenCalledWith(7, 'mentor@example.edu')
     expect(await screen.findByText(/mentor\/tok-123/)).toBeInTheDocument()
   })
+
+  it('says in words that the invitation email failed and that the link still works', async () => {
+    useAppMock.mockReturnValue({ ctx: multiRunCtx(), update: vi.fn(), prev: vi.fn() })
+    apiMock.createShare.mockResolvedValue({ token: 'tok-9', notification_status: 'failed' })
+
+    const user = userEvent.setup()
+    render(<DownloadShare />)
+    await user.click(screen.getByRole('button', { name: 'Generate report' }))
+    await user.type(screen.getByLabelText(/mentor email/i), 'mentor@example.edu')
+    await user.click(screen.getByRole('button', { name: 'Share with mentor' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The invitation email could not be sent. The share link below still works')
+  })
 })

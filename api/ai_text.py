@@ -52,6 +52,10 @@ _LEAD_INS = re.compile(r"\b(it(?:'s| is) (?:worth noting|important to note) that
 _EMPTY_SENTENCE = re.compile(r"(?:(?<=[.!?]\s)|(?<=\n)|^)[^.!?\n]{0,80}\bis (?:also )?worth (?:noting|mentioning)\.[ \t]*", re.I)
 
 
+# "... four analyses. 1. First 2. Second" becomes one item per line when the text really is a numbered list.
+_INLINE_ITEM = re.compile(r"(?<=[.!?:])[ \t]+(?=[2-9]\. [A-Z])")
+
+
 def _match_case(original: str, replacement: str) -> str:
     return replacement[:1].upper() + replacement[1:] if original[:1].isupper() else replacement
 
@@ -77,6 +81,9 @@ def clean_ai_text(text: str) -> str:
     out = _TIGHT_DASH.sub(", ", out)
     out = _LONE_EN_DASH.sub("-", out)
     out = _LEAD_INS.sub(lambda m: m.group(2).upper() if m.group(1)[0].isupper() else m.group(2), out)
+    if re.search(r"[.!?:][ \t]+1\. [A-Z]", out) and re.search(r"[.!?:][ \t]+2\. [A-Z]", out):
+        out = re.sub(r"(?<=[.!?:])[ \t]+(?=1\. [A-Z])", "\n", out)
+        out = _INLINE_ITEM.sub("\n", out)
     out = _EMPTY_SENTENCE.sub("", out)
     for pattern, replacement in _PHRASES:
         out = pattern.sub(lambda m, r=replacement: _match_case(m.group(0), r), out)

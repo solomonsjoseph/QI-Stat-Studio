@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from api.plural import plural
 from api.ai_key import advisor_failed, advisor_unavailable
 from api.ai_prompts import ADVISOR_SYSTEM_V1
 from api.audit import log_action
@@ -180,7 +181,7 @@ def _plain_report(proposals: List[dict]) -> str:
             if r.get("op") == "set_role":
                 lines.append("- %s No data changes.%s" % (r["description"], " " + r["note"] if r.get("note") else ""))
             else:
-                lines.append("- %s: %d rows affected." % (r["description"], r["rows_changed"]))
+                lines.append("- %s: %s affected." % (r["description"].rstrip("."), plural(r["rows_changed"], "row")))
     return "Checked on your data:\n" + "\n".join(lines) if lines else ""
 
 

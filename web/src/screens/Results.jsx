@@ -5,6 +5,8 @@ import PageIntro from '../components/PageIntro'
 import Spinner from '../components/Spinner'
 import { api } from '../api'
 import { TEMPLATE_LABELS } from '../templateLabels'
+import { columnLabel } from '../columnLabels'
+import { plural } from '../plural'
 
 function errorMessage(err, fallback = 'Analysis failed') {
   return `${err.message || fallback}${err.requestId ? ` (Request ID: ${err.requestId})` : ''}`
@@ -28,13 +30,8 @@ function ResultCard({ run, single, aiOff }) {
         <thead>
           <tr>
             {Object.keys(run.table[0]).map(k => (
-              <th key={k} className="capitalize">
-                {({
-                  mean_ci_low: 'Mean CI low',
-                  mean_ci_high: 'Mean CI high',
-                  median_ci_low: 'Median CI low',
-                  median_ci_high: 'Median CI high',
-                })[k] || k}
+              <th key={k}>
+                {columnLabel(k)}
               </th>
             ))}
           </tr>
@@ -60,14 +57,14 @@ function ResultCard({ run, single, aiOff }) {
 
       {(run.n_dropped_unpaired != null || run.n_pairs != null) && (
         <p className="text-xs text-ink-faint mb-2">
-          {run.n_pairs != null && `${run.n_pairs} paired observation(s). `}
-          {run.n_dropped_unpaired != null && run.n_dropped_unpaired > 0 && `${run.n_dropped_unpaired} record(s) excluded (unpaired).`}
+          {run.n_pairs != null && `${plural(run.n_pairs, 'paired observation')}. `}
+          {run.n_dropped_unpaired != null && run.n_dropped_unpaired > 0 && `${plural(run.n_dropped_unpaired, 'record')} excluded (unpaired).`}
         </p>
       )}
 
       {interpretation && (
         <div className="alert-info mb-4">
-          <h2 className="mb-1 font-medium">{aiOff ? 'Draft interpretation' : 'QI Stat Advisor interpretation'}</h2>
+          <h2 className="mb-1 font-medium">{aiOff || !run.ai_interpretation ? 'Draft interpretation' : 'QI Stat Advisor interpretation'}</h2>
           <p>{interpretation}</p>
         </div>
       )}

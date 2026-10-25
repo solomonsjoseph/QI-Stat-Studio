@@ -63,14 +63,14 @@ def step_line(s: dict) -> str:
     if s.get("op") == "set_role":
         out = f"{s['description']} No rows changed."
         if s.get("warnings"):
-            out += " Warnings: " + "; ".join(s["warnings"]) + "."
+            out += " Warnings: " + "; ".join(w.rstrip(".") for w in s["warnings"]) + "."
         if s.get("note"):
             out += f" Note: {s['note']}"
         return one_line(out)
     out = (f"{s['description']} Rows before {s['rows_before']}, after {s['rows_after']}, "
            f"removed {s['rows_removed']}, cells changed {s['cells_changed']}.")
     if s.get("warnings"):
-        out += " Warnings: " + "; ".join(s["warnings"]) + "."
+        out += " Warnings: " + "; ".join(w.rstrip(".") for w in s["warnings"]) + "."
     if s.get("note"):
         out += f" Note: {s['note']}"
     return one_line(out)
@@ -91,7 +91,7 @@ def comment_block(lines: List[str], language: str) -> str:
         mk = lambda t: "# " + t
     elif language == "spss":
         # SPSS comments end at a period at the end of a line; the text is one line and ends with one
-        mk = lambda t: "* " + t.rstrip(".") + "."
+        mk = lambda t: "* " + t.rstrip(".:") + "."
     else:
         mk = lambda t: "/* " + t.replace("*/", "* /").replace("/*", "/ *") + " */"
     return "\n".join(mk(one_line(t)) for t in [head, *lines]) + "\n\n"

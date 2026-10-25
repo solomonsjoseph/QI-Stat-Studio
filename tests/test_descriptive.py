@@ -92,4 +92,4 @@ def test_string_dtype_numeric_column_with_group_does_not_crash():
 def test_group_count_merges_case_variants():
     df = pd.DataFrame({"period": ["pre", "PRE", "Post", "post"], "score": [1.0, 2.0, 3.0, 4.0]})
     out = run_descriptive(df, {"group_col": "period", "value_cols": ["score"]})
-    assert "across 2 group(s)" in out["interpretation"]
+    assert "across 2 groups" in out["interpretation"]

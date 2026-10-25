@@ -60,7 +60,7 @@ def run_run_chart(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
     if signal:
         title += " ⚠ Signal detected (run ≥8)"
     ax.set_title(title)
-    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False)
     ax.set_xlabel(date_col)
     ax.set_ylabel(value_col)
     buf = io.BytesIO()

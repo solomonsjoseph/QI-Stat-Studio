@@ -97,6 +97,20 @@ describe('Results multi-run rendering', () => {
     expect(screen.getByRole('button', { name: 'Edit & Review' })).toBeInTheDocument()
   })
 
+  it('labels the template text a draft when the QI Stat Advisor wrote nothing for the run', async () => {
+    useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
+    apiMock.runPlan.mockResolvedValue({
+      runs: [{ run_id: 1, template: 'descriptive_summary', result_summary: 'Average falls: 2.5', interpretation: 'Template text.', table: [{ mean: 2.5 }] }],
+      failures: [],
+    })
+    apiMock.interpretResults.mockResolvedValue({ interpretations: [], limitations: [], abstract_draft: '' })
+
+    render(<Results />)
+
+    expect(await screen.findByRole('heading', { name: 'Draft interpretation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'QI Stat Advisor interpretation' })).not.toBeInTheDocument()
+  })
+
   it('lists a run-level limitation in the Limitations list', async () => {
     useAppMock.mockReturnValue({ ctx: baseCtx(), update: vi.fn(), next: vi.fn(), prev: vi.fn() })
     const line = 'No denominator was assigned, so this is a counts-only chart that assumes the same exposure every period.'
@@ -122,7 +136,7 @@ describe('Results multi-run rendering', () => {
 
     render(<Results />)
 
-    expect(await screen.findByText(/34 paired observation\(s\)\. 6 record\(s\) excluded \(unpaired\)\./)).toBeInTheDocument()
+    expect(await screen.findByText(/34 paired observations\. 6 records excluded \(unpaired\)\./)).toBeInTheDocument()
     expect(screen.getAllByText(/paired observation/)).toHaveLength(1)
     expect(screen.getByRole('heading', { name: 'Descriptive Summary' })).toBeInTheDocument()
   })

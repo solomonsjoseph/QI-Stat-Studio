@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
+from api.plural import plural
 
 
 def _norm_group(df: pd.DataFrame, col: str, val: str) -> Tuple[pd.DataFrame, str]:
@@ -43,7 +44,7 @@ def run_before_after_paired(df: pd.DataFrame, params: dict[str, Any]) -> Dict[st
     n_dropped_unpaired = len(all_ids) - n_pairs
 
     if n_pairs < 2:
-        raise ValueError(f"Fewer than 2 complete pairs found for paired analysis ({n_pairs} pair(s) found).")
+        raise ValueError(f"Fewer than 2 complete pairs found for paired analysis ({plural(n_pairs, 'pair')} found).")
 
     pre_series = pre_df.loc[paired_ids, value_col]
     post_series = post_df.loc[paired_ids, value_col]

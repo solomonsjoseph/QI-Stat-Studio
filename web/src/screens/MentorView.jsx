@@ -4,6 +4,7 @@ import Spinner from '../components/Spinner'
 import HandoffViewer from '../components/HandoffViewer'
 import { api } from '../api'
 import { TEMPLATE_LABELS } from '../templateLabels'
+import { columnLabel } from '../columnLabels'
 
 // The secret that lets a mentor change their own comment is returned once, when they post it, and kept
 // in this browser only. Other people with the link never receive it.
@@ -218,7 +219,7 @@ export default function MentorView({ token }) {
               <div className="mb-4 overflow-x-auto">
                 <h3 className="mb-2 font-semibold text-ink">Results Table</h3>
                 <table className="table-clean">
-                  <thead><tr>{tableHeaders.map(h => <th key={h}>{h}</th>)}</tr></thead>
+                  <thead><tr>{tableHeaders.map(h => <th key={h}>{columnLabel(h)}</th>)}</tr></thead>
                   <tbody>{table.map((row, idx) => <tr key={idx}>{tableHeaders.map(h => <td key={h}>{String(row[h] ?? '')}</td>)}</tr>)}</tbody>
                 </table>
               </div>

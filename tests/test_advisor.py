@@ -72,7 +72,7 @@ def test_advisor_goes_first_with_dry_run(auth_client, stub):
     assert set(by) == {W_UNIT, W_AGE}
     assert by[W_UNIT]["steps"][0]["op"] == "trim" and by[W_UNIT]["dry_run"][0]["rows_changed"] == 1
     assert by[W_AGE]["steps"] == []  # note only
-    assert d["proposal_id"] == "p_%d_1" % gid and "1 rows affected" in d["message"]
+    assert d["proposal_id"] == "p_%d_1" % gid and "1 row affected" in d["message"]
     t = auth_client.get(f"/ai/advisor/groups/{gid}").json()
     assert [x["role"] for x in t["turns"]] == ["advisor"] and t["pending"]["proposal_id"] == d["proposal_id"]
     assert t["group"]["status"] == "discussing" and t["advisor_available"]

@@ -68,3 +68,10 @@ def test_filler_and_lead_ins_are_plain():
 def test_empty_worth_noting_sentence_is_dropped():
     from api.ai_text import clean_ai_text
     assert clean_ai_text("The test is significant. That apparent tension is worth noting. A rise may be brief.") == "The test is significant. A rise may be brief."
+
+
+def test_inline_numbered_list_goes_one_item_per_line():
+    from api.ai_text import clean_ai_text
+    out = clean_ai_text("There are three steps. 1. Load it. 2. Check it. 3. Run it.")
+    assert out.splitlines() == ["There are three steps.", "1. Load it.", "2. Check it.", "3. Run it."]
+    assert clean_ai_text("The rate was 0.05. 5. Not a list.") == "The rate was 0.05. 5. Not a list."

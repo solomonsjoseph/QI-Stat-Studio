@@ -21,6 +21,7 @@ from api.phi_gate import PhiGateResult, scan_upload
 from api.models_api import ColumnTypeUpdate, ReplaceUploadExtra, UploadOut
 from api.staleness import check_and_apply_inputs_fingerprint
 from api.models_db import Project, Upload, User
+from api.plural import plural
 from api.upload_utils import (
     _allowed_suffix,
     _read_dataframe,
@@ -185,7 +186,7 @@ def run_data_quality(
                 col=col,
                 rule="outlier_count",
                 severity="WARNING",
-                msg=f"{col}: {n_out} outlier(s) outside [{q1 - 1.5 * iqr:.1f}, {q3 + 1.5 * iqr:.1f}]",
+                msg=f"{col}: {plural(n_out, 'outlier')} outside [{q1 - 1.5 * iqr:.1f}, {q3 + 1.5 * iqr:.1f}]",
                 why="Extreme outliers can distort mean calculations and inflate standard errors.",
                 suggestion="Review outlier values to confirm they are clinically plausible and not data entry errors.",
                 blocks=None,
@@ -208,7 +209,7 @@ def run_data_quality(
                             col=col,
                             rule="check_time_gaps",
                             severity="WARNING",
-                            msg=f"{gaps} month(s) with no records detected",
+                            msg=f"{plural(gaps, 'month')} with no records detected",
                             why="Calendar gaps between periods can violate continuous-time assumptions in time-series charts.",
                             suggestion="Confirm whether gaps represent zero-volume periods or missing collection intervals.",
                             blocks=None,
@@ -316,7 +317,7 @@ def run_data_quality(
             col="(dataset)",
             rule="duplicate_rows",
             severity="WARNING",
-            msg=f"Dataset contains {n_dup} fully duplicate row(s).",
+            msg=f"Dataset contains {plural(n_dup, 'fully duplicate row')}.",
             why="Duplicate records artificially inflate sample sizes and distort proportion estimates.",
             suggestion="Verify whether duplicate rows represent distinct encounters or duplicate submissions.",
             blocks=None,
@@ -379,7 +380,7 @@ def run_data_quality(
                     col=col,
                     rule="binary_out_of_range",
                     severity="WARNING",
-                    msg=f"Binary column '{col}' has unexpected or third distinct value(s): {invalid or vals}",
+                    msg=f"Binary column '{col}' has an unexpected or third distinct value: {invalid or vals}",
                     why="Binary analyses assume two distinct values representing success or failure.",
                     suggestion="Recode unexpected values to standard Yes or No categories.",
                     blocks=None,
@@ -399,7 +400,7 @@ def run_data_quality(
                         col=col,
                         rule="sparse_category",
                         severity="WARNING",
-                        msg=f"Grouping column '{col}' has level(s) with < 5 rows: {dict(sparse)}",
+                        msg=f"Grouping column '{col}' has levels with fewer than 5 rows: {dict(sparse)}",
                         why="Subgroups with fewer than 5 rows yield unstable statistical estimates.",
                         suggestion="Combine small categories into an 'Other' group or interpret with caution.",
                         blocks=None,
@@ -420,7 +421,7 @@ def run_data_quality(
                 col=col,
                 rule="unexpected_date_range",
                 severity="WARNING",
-                msg=f"Date column '{col}' has {future_count} date(s) in the future.",
+                msg=f"Date column '{col}' has {plural(future_count, 'date')} in the future.",
                 why="Future dates indicate system clock misconfiguration or data entry error.",
                 suggestion="Verify and correct date entries that occur in the future.",
                 blocks=None,
