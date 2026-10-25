@@ -77,7 +77,7 @@ function CommentCard({ comment, token, load, setError }) {
     <article className="card p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <div className="font-medium text-ink">{author}</div>
-        <span className="rounded border border-line px-2 py-0.5 text-xs text-ink-soft" data-testid="comment-status">{status}</span>
+        <span className="rounded-sm border border-line px-2 py-0.5 text-xs text-ink-soft" data-testid="comment-status">{status}</span>
       </div>
       {timestamp && <div className="mb-2 text-xs text-ink-faint">{timestamp}</div>}
       {editing ? (
@@ -93,7 +93,7 @@ function CommentCard({ comment, token, load, setError }) {
         <>
           <p className="leading-6 text-ink-soft">{comment.text}</p>
           {comment.resident_reply && (
-            <div className="mt-3 rounded border border-line bg-canvas p-3">
+            <div className="mt-3 rounded-sm border border-line bg-canvas p-3">
               <div className="text-xs font-medium text-ink-faint">Resident reply{comment.addressed_at ? `, ${new Date(comment.addressed_at).toLocaleString()}` : ''}</div>
               <p className="mt-1 leading-6 text-ink-soft">{comment.resident_reply}</p>
             </div>

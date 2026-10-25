@@ -13,12 +13,12 @@ built with Sphinx. See **Documentation** below to build and browse it.
 
 ## Beta quick start (git clone)
 
-Current release: 1.0.0-beta.1 (a pre-release). See [`CHANGELOG.md`](CHANGELOG.md) and
+Current release: 1.0.0-beta.2 (a pre-release). See [`CHANGELOG.md`](CHANGELOG.md) and
 [`docs/release-notes/`](docs/release-notes/). The version also shows in the page header and at `/health`.
 
 Each tester runs their own copy and brings their own AI key.
 
-1. Install Python 3.9+ and Node.js 20.19+ (see below), then `git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio`.
+1. Install Python 3.12+ and Node.js 24.15+ (see below), then `git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio`.
 2. `make real`. The first run builds everything and creates `.env` with its own `FERNET_KEY`
    and `SECRET_KEY`. Back up `.env`: uploads cannot be decrypted without the `FERNET_KEY`.
 3. Open `http://127.0.0.1:5173` and register. The first account on a copy is its admin.
@@ -32,7 +32,7 @@ everyone who signs in to that copy. A key saved in Settings is used only by its 
 
 ## Quick start
 
-**Prerequisites:** Python 3.9+ (3.11 recommended; 3.9 needs `eval_type_backport`, which requirements.txt installs), Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
+**Prerequisites:** Python 3.12 or newer, Node.js 24.15 or newer (running the app needs 20.19 or 22.12; the frontend tests need 22.22.2 or 24.15, per Vitest 5 and jsdom 30).
 
 ```bash
 git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio

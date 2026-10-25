@@ -9,6 +9,24 @@ before `1.0.0`.
 
 Changes the clinical owner asks for after beta 1 go here.
 
+## [1.0.0-beta.2] - 2026-10-25
+
+Same features as beta 1. This release moves every dependency to its latest version and makes a fresh install work first time.
+
+### Changed
+
+- Python 3.12 or newer and Node.js 24.15 or newer. The backend, the frontend and Docker use the latest releases, including React 19, Tailwind CSS 4, Vite 8.3, Vitest 5, pandas 3, numpy 2, SQLAlchemy 2.1 and spaCy 3.8.
+- `make real` and `make stub` pick the newest Python 3.12 or later on the machine, build the environment, install everything, create `.env`, and open the app in the browser. `QISS_NO_BROWSER=1` skips the browser.
+
+### Fixed
+
+- On a fresh install the patient name detector in the PHI scrubber did not load, because the newest `preshed` release breaks spaCy. `preshed` is pinned to 3.0.13 with a note on when to lift it.
+- Under pandas 3 the before and after analyses and the data checks stopped treating text columns as text, so group labels in mixed case no longer matched. They use one check for text columns again.
+
+### Added
+
+- `requirements-dev.txt` for the tools the tests need (pytest, pypdfium2, ruff).
+
 ## [1.0.0-beta.1] - 2026-10-24
 
 First beta. It runs from a git clone on each tester's own machine. Hosting and HTTPS are planned for beta 2.
@@ -64,5 +82,6 @@ First beta. It runs from a git clone on each tester's own machine. Hosting and H
 - The app runs over plain HTTP on the tester's own machine. HTTPS comes with hosting in beta 2.
 - Several clinical decisions are still open with the clinical owner. They are listed in the owner questions file.
 
-[Unreleased]: https://github.com/solomonsjoseph/QI-Stat-Studio/compare/v1.0.0-beta.1...HEAD
+[Unreleased]: https://github.com/solomonsjoseph/QI-Stat-Studio/compare/v1.0.0-beta.2...HEAD
+[1.0.0-beta.2]: https://github.com/solomonsjoseph/QI-Stat-Studio/compare/v1.0.0-beta.1...v1.0.0-beta.2
 [1.0.0-beta.1]: https://github.com/solomonsjoseph/QI-Stat-Studio/releases/tag/v1.0.0-beta.1

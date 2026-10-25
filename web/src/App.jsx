@@ -367,7 +367,7 @@ export default function App() {
             <button type="button" onClick={() => goTo('landing')} className="text-sm font-semibold tracking-tight text-ink">
               QI Stat Studio
             </button>
-            <span className="ml-2 rounded border border-line px-1.5 py-0.5 text-xs text-ink-soft" title="Beta release. Report problems to the project owner.">Beta {__APP_VERSION__}</span>
+            <span className="ml-2 rounded-sm border border-line px-1.5 py-0.5 text-xs text-ink-soft" title="Beta release. Report problems to the project owner.">Beta {__APP_VERSION__}</span>
             </div>
             <div className="flex items-center gap-3 text-sm text-ink-soft">
               <span className="hidden sm:inline">{user.email}</span>

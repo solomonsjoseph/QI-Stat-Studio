@@ -35,7 +35,7 @@ function Comment({ projectId, comment, onChanged, setError }) {
     <article className="card p-4 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium text-ink">{comment.author_name}</span>
-        <span className="rounded border border-line px-2 py-0.5 text-xs text-ink-soft" data-testid="review-status">{status(comment)}</span>
+        <span className="rounded-sm border border-line px-2 py-0.5 text-xs text-ink-soft" data-testid="review-status">{status(comment)}</span>
       </div>
       <p className="mt-2 leading-6 text-ink-soft">{comment.text}</p>
       <form onSubmit={send} className="mt-3 flex flex-col gap-2">

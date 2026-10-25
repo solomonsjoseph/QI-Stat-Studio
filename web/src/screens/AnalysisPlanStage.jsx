@@ -24,7 +24,7 @@ function ConfidenceChip({ level }) {
     low: 'bg-red-50 text-red-700 border-red-200',
   }
   return (
-    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${styles[level] || styles.medium}`}>
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium border ${styles[level] || styles.medium}`}>
       {level}
     </span>
   )

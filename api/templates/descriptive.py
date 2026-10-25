@@ -1,4 +1,6 @@
 import pandas as pd
+
+from api.pandas_text import is_text
 from api.stats_intervals import mean_ci, median_ci
 from typing import Dict, Any
 from api.plural import plural
@@ -23,10 +25,10 @@ def run_descriptive(df: pd.DataFrame, params: dict) -> Dict[str, Any]:
         if pct_miss > 0:
             missing_notes.append(f"{col} ({pct_miss:.1f}% missing)")
         if group_col and group_col in df.columns:
-            grp_col = df[group_col].str.strip().str.lower() if df[group_col].dtype == object else df[group_col]
+            grp_col = df[group_col].str.strip().str.lower() if is_text(df[group_col]) else df[group_col]
             for grp, sub in df.groupby(grp_col):
                 sub_vals = col_series.loc[sub.index]
-                display_group = str(sub[group_col].iloc[0]) if df[group_col].dtype == object else str(grp)
+                display_group = str(sub[group_col].iloc[0]) if is_text(df[group_col]) else str(grp)
                 mean_lo, mean_hi = mean_ci(sub_vals)
                 median_lo, median_hi = median_ci(sub_vals)
                 table.append({"group": display_group, "variable": col,

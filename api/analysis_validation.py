@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import pandas as pd
+
+from api.pandas_text import is_text
 from api.templates.before_after_pct import _coerce_binary_outcome
 
 
 def _normal_group_values(series: pd.Series) -> pd.Series:
-    if series.dtype == object:
+    if is_text(series):
         return series.astype(str).str.strip().str.lower()
     return series
 
 
 def _normal_group_value(series: pd.Series, value) -> str:
-    if series.dtype == object:
+    if is_text(series):
         return str(value).strip().lower()
     return value
 
@@ -20,7 +22,7 @@ def _normal_group_value(series: pd.Series, value) -> str:
 
 def _non_missing(series: pd.Series) -> pd.Series:
     present = series.notna()
-    if series.dtype == object:
+    if is_text(series):
         present &= series.astype(str).str.strip().ne("")
     return present
 

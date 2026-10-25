@@ -147,4 +147,21 @@ done
 (cd web && API_PORT="${API_PORT:-8000}" npx vite --host 127.0.0.1 --port 5173) &
 FRONTEND_PID=$!
 echo "frontend http://127.0.0.1:5173  mode=${AI_PROVIDER:-from .env}"
+
+# Open the app once the frontend answers. Skipped with QISS_NO_BROWSER=1, or when this machine has no
+# display or opener (a remote server). The address is printed either way.
+APP_URL="http://127.0.0.1:5173"
+for _ in $(seq 1 60); do
+  curl -sf --max-time 2 "$APP_URL" >/dev/null 2>&1 && break
+  sleep 1
+done
+echo "QI Stat Studio is ready at $APP_URL. Register there, then use Settings to add your AI key."
+echo "A mentor opens the share link from the resident's Download screen. Press Ctrl+C here to stop."
+if [[ "${QISS_NO_BROWSER:-0}" != "1" ]]; then
+  if command -v open >/dev/null 2>&1; then
+    open "$APP_URL" >/dev/null 2>&1 || echo "Could not open a browser. Open $APP_URL yourself." >&2
+  elif command -v xdg-open >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+    xdg-open "$APP_URL" >/dev/null 2>&1 || echo "Could not open a browser. Open $APP_URL yourself." >&2
+  fi
+fi
 wait

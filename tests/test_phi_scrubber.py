@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from api.middleware import phi_scrubber
 from api.middleware.phi_scrubber import scan_dataframe_for_phi, scrub_text
