@@ -12,6 +12,17 @@
   }
 }
 
+/* Tailwind 4 strips the native look from the file picker button. Give it back a visible edge. */
+input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}
+
 @layer base {
   body {
     @apply bg-canvas text-ink antialiased;
