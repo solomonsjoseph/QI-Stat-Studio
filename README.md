@@ -7,7 +7,7 @@ QI Stat Studio guides medical residents through the statistics of a quality-impr
 The current release is `1.0.0-beta.2`, a pre-release for testers. The whole workflow runs end to end, but some behavior is still open for decision by the clinical owner, so wording, defaults and statistics choices may change.
 
 - Use synthetic or de-identified data only. The app is not HIPAA compliant.
-- It runs on your own machine over plain HTTP. It does not send email.
+- It runs on your own machine over plain HTTP. It does not send email unless SMTP settings are added to `.env`, so you copy the mentor link yourself.
 - Each tester brings their own AI key. Without one the app still works and the QI Stat Advisor stays off.
 
 See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/release-notes/`](docs/release-notes/) for what changed in each release. The version also shows in the page header and at `/health`.
@@ -21,15 +21,15 @@ See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/release-notes/`](docs/release-note
 
 - Python 3.12 or newer
 - Node.js 24.15 or newer
-- About 1.5 GB of free disk space for the first install
+- About 1.5 GB of free disk space for the first install (a fresh install measured 1.3 GB)
 
 ## Install and run
 
 ```bash
 git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git
 cd QI-Stat-Studio
-make stub    # first check: offline, no AI key needed
-make real    # the real app
+make stub    # first check: offline, no AI key needed (Ctrl+C to stop)
+make real    # then the real app
 ```
 
 Both commands set everything up the first time: the Python environment, packages, the language model for name detection, the frontend packages, the database and a `.env` file with its own keys. Later runs skip finished steps and reinstall only when the dependency files changed.
@@ -41,7 +41,7 @@ Back up the generated `.env`. Uploads cannot be decrypted without its `FERNET_KE
 ## First use
 
 1. Register. The first account on a copy is its admin.
-2. Open Settings, paste your AI key (an OpenRouter key starts with `sk-or-v1-`) and choose Save key. The key belongs to your account only.
+2. Open Settings (the gear icon in the header), paste your AI key (an OpenRouter key starts with `sk-or-v1-`) and choose Save key. The key belongs to your account only.
 3. Describe the project, upload the data file and the data dictionary, and answer the questions.
 4. Review the data warnings, accept the plan, run the analysis and edit the text.
 5. Download the Word or PDF report.
