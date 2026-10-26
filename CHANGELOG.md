@@ -7,15 +7,7 @@ before `1.0.0`.
 
 ## [Unreleased]
 
-Changes the clinical owner asks for after beta 1 go here.
-
-### Changed
-
-- `preshed` moves to 3.0.15, which fixes the spaCy tokenizer error that 3.0.14 caused. Every direct dependency is again at its newest release.
-
-### Fixed
-
-- `make real` and `make stub` now reinstall the Python and frontend packages when `requirements.txt` or `web/package-lock.json` changed since the last install. Before, an existing beta 1 environment was kept as it was.
+Changes the clinical owner asks for after beta 2 go here.
 
 ## [1.0.0-beta.2] - 2026-10-25
 
@@ -28,7 +20,8 @@ Same features as beta 1. This release moves every dependency to its latest versi
 
 ### Fixed
 
-- On a fresh install the patient name detector in the PHI scrubber did not load, because the newest `preshed` release breaks spaCy. `preshed` is pinned to 3.0.13 with a note on when to lift it.
+- On a fresh install the patient name detector in the PHI scrubber did not load, because `preshed` 3.0.14 breaks spaCy. `preshed` is pinned to 3.0.15, which loads it again.
+- `make real` and `make stub` now reinstall the Python and frontend packages when `requirements.txt` or `web/package-lock.json` changed since the last install. Before, an existing beta 1 environment was kept as it was.
 - Under pandas 3 the before and after analyses and the data checks stopped treating text columns as text, so group labels in mixed case no longer matched. They use one check for text columns again.
 
 ### Added

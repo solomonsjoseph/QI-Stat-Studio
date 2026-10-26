@@ -1,90 +1,85 @@
 # QI Stat Studio
 
-QI Stat Studio is a guided statistical analysis app for medical residents
-running quality-improvement (QI) projects. A resident describes a project,
-uploads a CSV or Excel file, confirms data-quality checks, runs one of seven
-guide-recommended analyses, edits the interpretation, and downloads a
-Word/PDF report or shares an in-browser mentor review link. No statistics
-training or coding required.
+QI Stat Studio guides medical residents through the statistics of a quality-improvement (QI) project. A resident describes the project in plain language, uploads a CSV or Excel file with a data dictionary, reviews data-quality warnings, runs a recommended analysis, edits the written interpretation, and downloads a Word or PDF report. A mentor can review the work through a share link and leave comments. No statistics training or coding is needed.
 
-Full documentation (user guide, architecture, API reference, data model,
-security design, testing, and deployment) lives in [`docs/`](docs/) and is
-built with Sphinx. See **Documentation** below to build and browse it.
+## Status: beta
 
-## Beta quick start (git clone)
+The current release is `1.0.0-beta.2`, a pre-release for testers. The whole workflow runs end to end, but some behavior is still open for decision by the clinical owner, so wording, defaults and statistics choices may change.
 
-Current release: 1.0.0-beta.2 (a pre-release). See [`CHANGELOG.md`](CHANGELOG.md) and
-[`docs/release-notes/`](docs/release-notes/). The version also shows in the page header and at `/health`.
+- Use synthetic or de-identified data only. The app is not HIPAA compliant.
+- It runs on your own machine over plain HTTP. It does not send email.
+- Each tester brings their own AI key. Without one the app still works and the QI Stat Advisor stays off.
 
-Each tester runs their own copy and brings their own AI key.
+See [`CHANGELOG.md`](CHANGELOG.md) and [`docs/release-notes/`](docs/release-notes/) for what changed in each release. The version also shows in the page header and at `/health`.
 
-1. Install Python 3.12+ and Node.js 24.15+ (see below), then `git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio`.
-2. `make real`. The first run builds everything and creates `.env` with its own `FERNET_KEY`
-   and `SECRET_KEY`. Back up `.env`: uploads cannot be decrypted without the `FERNET_KEY`.
-3. Open `http://127.0.0.1:5173` and register. The first account on a copy is its admin.
-4. Open **Settings**, paste your own AI key (an OpenRouter key looks like `sk-or-v1-...`) and
-   click **Save key**. The key belongs to your account only. Without a key the app still
-   works, and the QI Stat Advisor stays off.
-5. Use synthetic or de-identified data only. This prototype is not HIPAA compliant.
+## Who uses it
 
-Do not put a shared key in `.env` on a machine several people use: an `.env` key is used by
-everyone who signs in to that copy. A key saved in Settings is used only by its owner.
+- A resident runs the project from intake to the final report.
+- A mentor opens the share link from the resident's Download screen, reads the work, comments, and approves. The mentor needs no account.
 
-## Quick start
+## Requirements
 
-**Prerequisites:** Python 3.12 or newer, Node.js 24.15 or newer (running the app needs 20.19 or 22.12; the frontend tests need 22.22.2 or 24.15, per Vitest 5 and jsdom 30).
+- Python 3.12 or newer
+- Node.js 24.15 or newer
+- About 1.5 GB of free disk space for the first install
+
+## Install and run
 
 ```bash
-git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git && cd QI-Stat-Studio
-make stub   # offline AI stub, no key needed. Or: make real (set your AI key in .env first)
+git clone https://github.com/solomonsjoseph/QI-Stat-Studio.git
+cd QI-Stat-Studio
+make stub    # first check: offline, no AI key needed
+make real    # the real app
 ```
 
-The first run creates `.venv`, installs Python and npm dependencies, downloads
-the spaCy model, creates a git-ignored `.env` with a generated `FERNET_KEY`, and
-applies migrations. Later runs skip finished steps. Back up `FERNET_KEY`:
-uploads cannot be decrypted without it.
+Both commands set everything up the first time: the Python environment, packages, the language model for name detection, the frontend packages, the database and a `.env` file with its own keys. Later runs skip finished steps and reinstall only when the dependency files changed.
 
-Open `http://127.0.0.1:5173` and register. First account becomes admin.
+When the servers are ready, `make` opens the app in your browser at `http://127.0.0.1:5173`. On a machine with no display it prints that address instead, and `QISS_NO_BROWSER=1` turns the browser launch off. Press Ctrl+C in the terminal to stop.
 
-The backend listens on `API_PORT` (default 8010; for example `make stub API_PORT=9000`).
+Back up the generated `.env`. Uploads cannot be decrypted without its `FERNET_KEY`.
 
-## QI Stat Advisor
+## First use
 
-On Data Review the QI Stat Advisor explains each data warning and proposes
-fixes. You select warnings, then acknowledge them or clarify them with the
-advisor. Nothing changes until you confirm, and agreed changes are listed in a
-handoff document and applied to your data before any analysis. The advisor
-needs an AI key: put it in `.env` (`make real`) or paste it on the Settings
-screen, where a saved key overrides `.env`. Without a key the app still works
-manually.
+1. Register. The first account on a copy is its admin.
+2. Open Settings, paste your AI key (an OpenRouter key starts with `sk-or-v1-`) and choose Save key. The key belongs to your account only.
+3. Describe the project, upload the data file and the data dictionary, and answer the questions.
+4. Review the data warnings, accept the plan, run the analysis and edit the text.
+5. Download the Word or PDF report.
+6. To get a mentor review, copy the share link from the Download screen and send it yourself.
+
+Do not put a shared key in `.env` on a machine several people use. Everyone who signs in to that copy would use it.
 
 ## Commands
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `make stub` | Backend + frontend with offline AI stub (no API key). |
-| `make real` | Backend + frontend using `AI_PROVIDER` / keys from `.env`. |
-| `make test` | Backend pytest + frontend vitest. |
-| `make e2e` | Playwright critical path (servers already running). |
-| `alembic upgrade head` | Apply database migrations (also run by `make stub`/`real`). |
-| `docker build -t qi-stat-studio . && docker run -p 8000:8000 ...` | Build and run the production container. |
+| `make stub` | Runs the app with an offline AI stub. No key needed. |
+| `make real` | Runs the app with the AI settings from `.env` or your Settings key. |
+| `make test` | Runs the backend and frontend tests. |
+| `make e2e` | Runs the Playwright browser test against running servers. |
+
+The backend uses port 8010 by default. Change it with `make real API_PORT=9000`.
+
+## Troubleshooting
+
+- `No space left on device` during install means the disk or its quota is full. Free space and run `make` again.
+- If setup stops partway, run `make real` again. Finished steps are skipped.
+- If the QI Stat Advisor says it is unavailable, check that a key is saved in Settings.
+
+## Report a problem
+
+Open an issue with the "Beta bug report" template. Include the version from the page header, the step you were on, and the request ID shown with any error. Do not paste patient data or your AI key.
 
 ## Documentation
+
+The full documentation is a Sphinx site with a user guide for residents and mentors and a developer guide for engineers.
 
 ```bash
 pip install -r docs/requirements.txt
 make -C docs html
 ```
 
-Then open `docs/build/html/index.html` in a browser. The site has two
-independent guides:
-
-- **User Guide**: for residents and mentors. The full walkthrough, task
-  how-tos, exact intake question wording, and the seven analyses explained in
-  plain English.
-- **Developer Guide**: for engineers. Local setup, system architecture, the
-  full data model, complete API reference, security/PHI design, the test
-  suite, and deployment.
+Then open `docs/build/html/index.html`.
 
 ## License
 
