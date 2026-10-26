@@ -7,6 +7,12 @@ of seven guide-recommended analyses, edits the interpretation, and downloads a
 Word/PDF report or shares an in-browser mentor review link. No statistics
 code required, at any step.
 
+```{note}
+This is a beta. The current release is 1.0.0-beta.2, a pre-release for testers. Use synthetic or
+de-identified data only; the app is not HIPAA compliant. Some behavior is still open for decision
+by the clinical owner and may change.
+```
+
 This site has two independent guides. Pick the one that matches what you're
 doing right now; each is a complete, self-contained Diataxis set (tutorial,
 how-to guides, reference, explanation), so you never need the other one to

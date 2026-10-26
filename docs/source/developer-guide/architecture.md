@@ -25,7 +25,7 @@ flowchart LR
     UI -- "GET /mentor/:token (no auth)" --> RT
 ```
 
-- **Frontend** (`web/src/`): a React 18 single-page app. `App.jsx` owns a
+- **Frontend** (`web/src/`): a React 19 single-page app. `App.jsx` owns a
   single `AppCtx` context holding the whole wizard's state and a `screen`
   router driven by both in-memory state and the URL (`popstate`-aware, see
   `routeFromPath`/`applyResume`). Screens never talk to the backend directly
@@ -37,7 +37,7 @@ flowchart LR
   `/projects`, `/upload`, `/analyze`, `/ai`, `/report`, `/share`,
   `/settings`, `/notifications`, plus unprefixed `/health` + `/readyz` +
   `/admin/failures`).
-- **Database**: SQLite by default (`DB_URL`), reached through SQLAlchemy 2.0
+- **Database**: SQLite by default (`DB_URL`), reached through SQLAlchemy 2.1
   with a single global `SessionLocal` (`api/database.py`); `PRAGMA
   foreign_keys=ON` is set on every new SQLite connection via a `connect`
   event listener, since SQLite doesn't enforce FKs by default. Schema is

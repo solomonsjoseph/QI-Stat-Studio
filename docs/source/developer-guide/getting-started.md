@@ -3,6 +3,14 @@
 Get the app running locally, end to end: backend, frontend, database, and
 your first user account.
 
+## The short way
+
+`make stub` (offline AI stub) and `make real` (your AI key) do everything below for you: they create
+`.venv`, install the packages and the spaCy model, create `.env` with generated keys, apply the
+migrations, start both servers and open the app. They reinstall when `requirements.txt` or
+`web/package-lock.json` change. Run `make stub` first as a check. The steps below are the same
+things done by hand. `make` serves the backend on port 8010; the manual steps below use 8000.
+
 ## Prerequisites
 
 - Python 3.12+ (what Docker uses in production).
