@@ -4,7 +4,7 @@ about: Report a problem found while testing a beta release
 title: ""
 ---
 
-Version shown in the page header (for example Beta 1.0.0-beta.1):
+Version shown in the page header (for example Beta 1.0.0-beta.2):
 
 QI Stat Advisor on or off:
 

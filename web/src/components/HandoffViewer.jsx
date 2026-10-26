@@ -12,7 +12,7 @@ const isSep = line => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l
 // Inline code and bold show as formatted text, never as raw backticks or asterisks.
 function inline(text) {
   return String(text).split(/(`[^`]+`|\*\*[^*]+\*\*)/).filter(Boolean).map((part, n) => {
-    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) return <code key={n} className="rounded bg-surface-sunken px-1 font-mono text-xs">{part.slice(1, -1)}</code>
+    if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) return <code key={n} className="rounded-sm bg-surface-sunken px-1 font-mono text-xs">{part.slice(1, -1)}</code>
     if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) return <strong key={n}>{part.slice(2, -2)}</strong>
     return part
   })
@@ -49,7 +49,7 @@ export function renderMarkdown(md) {
       i++
       while (i < lines.length && !/^\s*```/.test(lines[i])) code.push(lines[i++])
       i++
-      out.push(<pre key={key()} className="overflow-x-auto rounded bg-surface-sunken p-3 font-mono text-xs">{code.join('\n')}</pre>)
+      out.push(<pre key={key()} className="overflow-x-auto rounded-sm bg-surface-sunken p-3 font-mono text-xs">{code.join('\n')}</pre>)
     } else if (/^#{1,6}\s/.test(line)) {
       const level = line.match(/^#+/)[0].length
       const Tag = `h${Math.min(level + 1, 6)}`

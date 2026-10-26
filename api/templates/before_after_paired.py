@@ -8,12 +8,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from api.pandas_text import is_text
 from scipy import stats
 from api.plural import plural
 
 
 def _norm_group(df: pd.DataFrame, col: str, val: str) -> Tuple[pd.DataFrame, str]:
-    if df[col].dtype == object:
+    if is_text(df[col]):
         df = df.copy()
         df[col] = df[col].str.strip().str.lower()
         val = val.strip().lower()

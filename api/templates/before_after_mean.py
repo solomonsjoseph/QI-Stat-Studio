@@ -1,6 +1,8 @@
 import base64, io
 from typing import Dict, Any, Tuple
 import pandas as pd
+
+from api.pandas_text import is_text
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -10,7 +12,7 @@ from api.stats_intervals import HL_SUBSAMPLE_PER_GROUP, hodges_lehmann_ci, mean_
 
 def _norm_group(df: pd.DataFrame, col: str, val: str) -> Tuple[pd.DataFrame, str]:
     """Normalize string group column to lowercase stripped (handles mixed-case period values)."""
-    if df[col].dtype == object:
+    if is_text(df[col]):
         df = df.copy()
         df[col] = df[col].str.strip().str.lower()
         val = val.strip().lower()

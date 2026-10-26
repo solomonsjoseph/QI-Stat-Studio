@@ -1,6 +1,27 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* Tailwind 4 draws borders in currentColor unless told otherwise. Keep the gray-200 default used before. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: #e5e7eb;
+  }
+}
+
+/* Tailwind 4 strips the native look from the file picker button. Give it back a visible edge. */
+input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #fff;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+}
 
 @layer base {
   body {
@@ -15,7 +36,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid theme(colors.brand.DEFAULT);
+    outline: 2px solid theme(colors.brand);
     outline-offset: 2px;
   }
 
@@ -62,7 +83,7 @@
   }
 
   .input {
-    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-soft focus:outline-none focus:ring-2 focus:ring-brand-ring focus:border-brand;
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-soft focus:outline-hidden focus:ring-2 focus:ring-brand-ring focus:border-brand;
   }
 
   .label {

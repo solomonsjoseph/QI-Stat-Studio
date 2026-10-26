@@ -1,11 +1,11 @@
-FROM node:20-slim AS web-build
+FROM node:24-slim AS web-build
 WORKDIR /app/web
 COPY web/package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.11-slim
+FROM python:3.12-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

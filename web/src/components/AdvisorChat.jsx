@@ -155,7 +155,7 @@ export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, re
 
       <div role="log" aria-live="polite" aria-label="Conversation with the QI Stat Advisor" className="mb-3 flex flex-col gap-2">
         {turns.map((t, n) => (
-          <div key={n} className={t.role === 'user' ? 'rounded bg-surface-sunken p-3 text-sm' : 'alert-info whitespace-pre-wrap text-sm'}>
+          <div key={n} className={t.role === 'user' ? 'rounded-sm bg-surface-sunken p-3 text-sm' : 'alert-info whitespace-pre-wrap text-sm'}>
             <p className="mb-1 text-xs font-semibold">{t.role === 'user' ? 'You' : 'QI Stat Advisor'}{t.warning_id ? ` (about: ${label(t.warning_id)})` : ''}</p>
             <p className="whitespace-pre-wrap">{t.text}</p>
           </div>
@@ -170,7 +170,7 @@ export default function AdvisorChat({ groupId, flagIds = [], flagLabels = {}, re
       )}
 
       {pending && !sending && (
-        <div className="mb-3 rounded border border-line p-3" aria-labelledby={`readback-${groupId}`} role="group">
+        <div className="mb-3 rounded-sm border border-line p-3" aria-labelledby={`readback-${groupId}`} role="group">
           <h3 id={`readback-${groupId}`} className="mb-2 font-medium text-ink">{MODE_LABELS[pending.mode] || 'Proposed changes'}: read-back</h3>
           {pending.proposals.map(p => (
             <div key={p.warning_id} className="mb-3 space-y-1">

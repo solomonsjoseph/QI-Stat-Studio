@@ -131,8 +131,8 @@ docker run -p 8000:8000 \
 The image sets `ENVIRONMENT=production`: the container refuses to start with the
 default `SECRET_KEY`, and the local-only `/dev/quit` route returns 404.
 
-The image is a two-stage build: `node:20-slim` builds `web/dist`, then
-`python:3.11-slim` installs `requirements.txt` plus the spaCy model and
+The image is a two-stage build: `node:24-slim` builds `web/dist`, then
+`python:3.12-slim` installs `requirements.txt` plus the spaCy model and
 copies the built frontend in alongside the backend. The container's entry
 point is `alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port
 8000`, so migrations run automatically on every container start and a fresh

@@ -5,7 +5,17 @@ cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 # Python env: use the active venv/conda env, else create and use ./.venv.
 if [[ -z "${VIRTUAL_ENV:-}${CONDA_PREFIX:-}" ]]; then
-  [[ -d .venv ]] || { echo "setup: creating .venv"; "${PYTHON:-python3}" -m venv .venv; }
+  if [[ ! -d .venv ]]; then
+    # The dependencies need Python 3.12 or newer. Take the newest one installed unless PYTHON says otherwise.
+    py="${PYTHON:-}"
+    for c in python3.14 python3.13 python3.12 python3; do
+      [[ -n "$py" ]] && break
+      command -v "$c" >/dev/null && "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' && py="$c"
+    done
+    [[ -n "$py" ]] || { echo "setup: Python 3.12 or newer is required but was not found. Install it, then run make again." >&2; exit 1; }
+    echo "setup: creating .venv with $py"
+    "$py" -m venv .venv
+  fi
   # shellcheck disable=SC1091
   source .venv/bin/activate
 fi

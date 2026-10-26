@@ -5,9 +5,8 @@ your first user account.
 
 ## Prerequisites
 
-- Python 3.10+ (3.11 is what Docker uses in production; prefer it locally
-  too).
-- Node.js 20.19+ (or 22.12+, per Vite 8's `engines` requirement).
+- Python 3.12+ (what Docker uses in production).
+- Node.js 24.15+ (running the app needs 20.19 or 22.12; the frontend tests need 22.22.2 or 24.15).
 - A Fernet key for upload encryption, generated below. There's no default;
   the app refuses to start without one.
 

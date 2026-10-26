@@ -1,5 +1,7 @@
 import hashlib
 import json
+
+import pandas as pd
 from pathlib import Path
 
 from api.database import SessionLocal
@@ -141,7 +143,7 @@ def test_leading_zero_columns_are_not_coerced_to_numbers(auth_client):
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["col_summary"]["zip"]["dtype"] == "object"
+    assert body["col_summary"]["zip"]["dtype"] in ("object", "str")  # pandas 3 names its text dtype "str"
     assert [row["zip"] for row in body["preview_rows"]] == ["02139", "10001", "00501"]
     # A column intentionally preserved as text to keep its leading zero must
     # not also be flagged as though it were mistakenly stored as text.
@@ -159,7 +161,7 @@ def test_restore_leading_zero_columns_only_rereads_int_inferred_columns():
 
     assert restored == {"zip"}
     assert list(df["zip"]) == ["02139", "10001", "00501"]
-    assert df["note"].dtype == object
+    assert pd.api.types.is_string_dtype(df["note"]) or df["note"].dtype == object
     assert list(df["note"]) == ["fine", "ok", "good"]
 
 
