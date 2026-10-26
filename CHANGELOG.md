@@ -9,6 +9,14 @@ before `1.0.0`.
 
 Changes the clinical owner asks for after beta 1 go here.
 
+### Changed
+
+- `preshed` moves to 3.0.15, which fixes the spaCy tokenizer error that 3.0.14 caused. Every direct dependency is again at its newest release.
+
+### Fixed
+
+- `make real` and `make stub` now reinstall the Python and frontend packages when `requirements.txt` or `web/package-lock.json` changed since the last install. Before, an existing beta 1 environment was kept as it was.
+
 ## [1.0.0-beta.2] - 2026-10-25
 
 Same features as beta 1. This release moves every dependency to its latest version and makes a fresh install work first time.

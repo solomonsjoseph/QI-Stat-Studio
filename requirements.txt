@@ -9,9 +9,7 @@ scipy==1.18.1
 pingouin==0.7.0
 matplotlib==3.11.2
 spacy==3.8.16
-# preshed 3.0.14 (the newest) makes spaCy fail to load its tokenizer (OverflowError), which turns off the PHI name
-# detector. Stay on 3.0.13 until spaCy or preshed fixes it, then take the newest.
-preshed==3.0.13
+preshed==3.0.15
 cryptography==50.0.2
 python-docx==1.2.0
 pypdf==6.21.2

@@ -20,9 +20,13 @@ if [[ -z "${VIRTUAL_ENV:-}${CONDA_PREFIX:-}" ]]; then
   source .venv/bin/activate
 fi
 
-if ! python -c "import fastapi, uvicorn, alembic, spacy, litellm" 2>/dev/null; then
+# Reinstall when requirements.txt changed since the last install, so an older environment is brought up to date.
+sum_of() { python -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"; }
+py_stamp="$(python -c 'import sys; print(sys.prefix)')/.qiss-requirements"
+if [[ "$(cat "$py_stamp" 2>/dev/null)" != "$(sum_of requirements.txt)" ]] || ! python -c "import fastapi, uvicorn, alembic, spacy, litellm" 2>/dev/null; then
   echo "setup: installing Python dependencies"
   python -m pip install -r requirements.txt
+  sum_of requirements.txt > "$py_stamp"
 fi
 # PHI scrubber needs this model (api/middleware/phi_scrubber.py).
 if ! python -c "import spacy.util, sys; sys.exit(0 if spacy.util.is_package('en_core_web_sm') else 1)" 2>/dev/null; then
@@ -30,9 +34,11 @@ if ! python -c "import spacy.util, sys; sys.exit(0 if spacy.util.is_package('en_
   python -m spacy download en_core_web_sm
 fi
 
-if [[ ! -d web/node_modules ]]; then
-  echo "setup: npm install"
-  (cd web && npm install)
+js_stamp=web/node_modules/.qiss-lock
+if [[ "$(cat "$js_stamp" 2>/dev/null)" != "$(sum_of web/package-lock.json)" ]]; then
+  echo "setup: npm ci"
+  (cd web && npm ci)
+  sum_of web/package-lock.json > "$js_stamp"
 fi
 
 # .env is git-ignored. Create it from the template, then fill FERNET_KEY only if empty.
