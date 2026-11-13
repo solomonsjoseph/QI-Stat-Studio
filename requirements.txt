@@ -12,7 +12,7 @@ spacy==3.8.16
 preshed==3.0.15
 cryptography==50.0.2
 python-docx==1.2.0
-pypdf==6.21.2
+pypdf==7.0.0
 reportlab==5.1.0
 openpyxl==3.1.5
 xlrd==2.0.2
