@@ -1,0 +1,42 @@
+# Weekly external link check. Not a required check: a third-party outage must
+# never block a merge. Broken links open (or update) one issue.
+name: links
+
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  external-links:
+    name: external-links
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check external links
+        id: lychee
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --no-progress --config .lychee.toml "./**/*.md"
+          output: lychee/out.md
+          fail: false
+      - name: Open or update the broken-links issue
+        if: steps.lychee.outputs.exit_code != 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          title="docs: broken external links"
+          number="$(gh issue list --repo "$REPO" --state open --search "in:title $title" --json number --jq '.[0].number')"
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$REPO" --body-file lychee/out.md
+          else
+            gh issue create --repo "$REPO" --title "$title" --label type/docs --body-file lychee/out.md
+          fi

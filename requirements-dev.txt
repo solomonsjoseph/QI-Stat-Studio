@@ -1,3 +1,4 @@
 pytest
 pypdfium2
-ruff
+# Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml.
+ruff==0.17.4

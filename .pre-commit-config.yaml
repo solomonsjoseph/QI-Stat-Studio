@@ -1,0 +1,113 @@
+# Local hooks. CI runs the same file with `pre-commit run --all-files`.
+# Install once per clone:
+#   pre-commit install --hook-type pre-commit --hook-type commit-msg
+# Hook revs are frozen to commit SHAs. Dependabot (pre-commit ecosystem)
+# proposes updates; or run: pre-commit autoupdate --freeze
+default_install_hook_types: [pre-commit, commit-msg]
+# Vendored third-party Vale styles are not ours to lint.
+exclude: ^\.vale/styles/Google/
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main]
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: 33b50eb042bee26eac0ee96ad84aa9c1b4dccdd8  # frozen: v4.5.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: 745eface02aef23e168a8afb6b5737818efbea95  # frozen: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--external-sources, --source-path=SCRIPTDIR]
+  - repo: https://github.com/adrienverge/yamllint
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530  # frozen: v1.38.0
+    hooks:
+      - id: yamllint
+        args: [-d, "{extends: relaxed, rules: {line-length: disable}}"]
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: cbcdc463be5464e25e3e955a511599a67b9b987f  # frozen: v0.50.0
+    hooks:
+      - id: markdownlint
+        exclude: ^CHANGELOG\.md$
+  - repo: local
+    hooks:
+      - id: ascii-only
+        name: source files are plain ASCII
+        language: pygrep
+        entry: "[^\\x00-\\x7F]"
+        types: [text]
+        exclude: ^CHANGELOG\.md$
+  # Documentation: prose style, links, page rules (see STANDARD.md section 15)
+  - repo: https://github.com/errata-ai/vale
+    rev: e2d4374b1c66c8a1dd6d912bebc135040d8833fa  # frozen: v3.26.0
+    hooks:
+      - id: vale
+        # Show warnings even when the hook passes (pre-commit hides passing output).
+        verbose: true
+        files: \.(md|mdx)$
+        exclude: ^(CHANGELOG\.md|\.github/)
+  - repo: https://github.com/lycheeverse/lychee
+    rev: 2bba271688c1abb1503097a064e6c3bc1d1b6a9b  # frozen: lychee-v0.24.2
+    hooks:
+      - id: lychee
+        # Internal links and anchors only; external links run weekly (links.yml).
+        args: [--no-progress, --offline, --config, .lychee.toml]
+        files: \.(md|mdx)$
+        exclude: ^CHANGELOG\.md$
+  - repo: local
+    hooks:
+      - id: check-docs
+        name: docs pages follow the structure and front matter rules
+        language: python
+        entry: python3 scripts/check_docs.py
+        files: ^docs/.*\.(md|mdx)$
+        # The Sphinx docs predate the standard; converting them to the
+        # Diataxis layout is tracked in its own issue.
+        exclude: ^docs/(reference/api/|source/|release-notes/|api-contract-handoff\.md$)
+      - id: no-scratch-files
+        name: plans, notes, research and drafts stay in .scratch/
+        language: fail
+        entry: "temporary planning files belong in the gitignored .scratch/ folder:"
+        # The keyword may be any part of the file name split on - _ . (so
+        # IMPLEMENTATION_PLAN.md, design-notes.md and HANDOFF.md are caught,
+        # explanation.md is not). Published docs pages and ADRs are exempt;
+        # docs/dev/ is not, because contributor docs are where notes drift in.
+        files: (?i)(^|/)([^/]*[-_.])?(plans?|notes|research|sessions?|drafts?|scratch|todos?|brainstorm(ing)?|handoffs?|worklogs?)([-_.][^/]*)?\.(md|mdx|txt)$
+        exclude: (?i)^(docs/(?!dev/).*|docs/dev/adr/.*|(.*/)?release[-_]notes[^/]*)$
+      - id: no-local-only-folders
+        name: .scratch/ and .remember/ are never committed
+        language: fail
+        entry: "this folder is local only:"
+        files: ^(\.scratch|\.remember)/
+# LANGUAGE HOOKS (added by overlay)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: c0f278f1254ccc8fb09676bcdb8d847e7db493e5  # frozen: v0.17.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/kynan/nbstripout
+    rev: 34071b78c181af3bf5af955c1426466e096fc3db  # frozen: 0.9.1
+    hooks:
+      - id: nbstripout
