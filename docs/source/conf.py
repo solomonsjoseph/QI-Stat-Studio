@@ -14,7 +14,7 @@ import datetime
 project = "QI Stat Studio"
 author = "QI Stat Studio contributors"
 copyright = f"{datetime.date.today().year}, {author}"
-release = "1.0.0-beta.2"
+release = "1.0.0-beta.2"  # x-release-please-version
 
 extensions = [
     "myst_parser",
@@ -28,12 +28,12 @@ source_suffix = {
 }
 
 myst_enable_extensions = [
-    "colon_fence",     # ::: directive fences, cleaner than ```{directive}
-    "deflist",         # definition lists for glossary-style reference pages
-    "fieldlist",       # :Key: Value metadata lists
-    "substitution",     # {{ variable }} content reuse
-    "tasklist",        # - [ ] checkbox rendering (matches AGENTS.md conventions)
-    "attrs_inline",    # {.class} inline attributes on Markdown spans
+    "colon_fence",  # ::: directive fences, cleaner than ```{directive}
+    "deflist",  # definition lists for glossary-style reference pages
+    "fieldlist",  # :Key: Value metadata lists
+    "substitution",  # {{ variable }} content reuse
+    "tasklist",  # - [ ] checkbox rendering (matches AGENTS.md conventions)
+    "attrs_inline",  # {.class} inline attributes on Markdown spans
 ]
 myst_heading_anchors = 3  # auto-generate #anchors up to h3 for cross-page linking
 
@@ -41,7 +41,7 @@ templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 # Diataxis structure duplicated per audience; both trees are real files,
-# not copies, so "developer" and "user" never fall out of sync silently. 
+# not copies, so "developer" and "user" never fall out of sync silently.
 # any duplication is a deliberate cross-link, checked by `make linkcheck`.
 suppress_warnings = []
 
@@ -59,4 +59,5 @@ html_theme_options = {
 
 # Fail the build on broken cross-references. A broken :doc:/:ref: link is a
 # documentation bug, not a warning to ignore.
-nitpicky = False  # MyST + mixed prose docs generate false positives; rely on linkcheck instead
+# MyST and mixed prose docs generate false positives; rely on linkcheck instead.
+nitpicky = False

@@ -81,6 +81,11 @@ make -C docs html
 
 Then open `docs/build/html/index.html`.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security problems as described in
+[SECURITY.md](SECURITY.md).
+
 ## License
 
 For research and educational use within the Rutgers IM Clinic QI program.

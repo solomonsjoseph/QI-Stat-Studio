@@ -1,0 +1,50 @@
+# Opens and updates the release PR; merging it tags vX.Y.Z, updates
+# CHANGELOG.md and creates the GitHub Release.
+# Uses a GitHub App token so the release PR triggers the required checks.
+# Setup per repo: variable RELEASE_APP_CLIENT_ID, secret RELEASE_APP_PRIVATE_KEY,
+# and the release App installed on the repo. Until all three exist the job
+# reports "not configured" and succeeds.
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check release App setup
+        id: setup
+        env:
+          CLIENT_ID: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          HAS_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [ -n "$CLIENT_ID" ] && [ "$HAS_KEY" = true ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::release App not configured for this repo; skipping release-please"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create GitHub App token
+        id: app-token
+        if: steps.setup.outputs.ready == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

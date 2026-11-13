@@ -1,0 +1,7 @@
+# Link checker. The required "ci" check runs lychee with --offline (internal
+# links and anchors only). External links are checked weekly by links.yml.
+include_fragments = "full"
+exclude_path = ["(^|/)CHANGELOG\\.md$", "(^|/)node_modules/", "(^|/)\\.scratch/"]
+exclude = ["^https://github\\.com/[^/]+/[^/]+/(compare|commit)/"]
+max_retries = 2
+accept = ["200..=299", "429"]
