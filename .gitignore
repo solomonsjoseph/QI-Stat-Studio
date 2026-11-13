@@ -84,8 +84,6 @@ Untitled
 WATCHDOG.yml
 
 # Added by the repo standard
-.vscode/*
-!.vscode/extensions.json
 coverage/
 .scratch/
 .remember/
