@@ -10,7 +10,10 @@ Coding agents working in this repository follow the
   address the findings before merging.
 - Keep `ci` and `pr-title` green. Never weaken a check to make it pass.
 - Source files are English and plain ASCII only. No secrets or real personal data.
-- Do not edit `CHANGELOG.md`; release-please owns it.
+- `CHANGELOG.md` is written by hand. release-please bumps the versions, tags and
+  writes the GitHub release, but skips the changelog; add the new version's
+  `## [X.Y.Z]` entry on the release PR branch before merging it
+  (tests/test_version.py checks it).
 
 ## Project notes
 

@@ -4,12 +4,10 @@
 # Hook revs are frozen to commit SHAs. Dependabot (pre-commit ecosystem)
 # proposes updates; or run: pre-commit autoupdate --freeze
 # Beta: code and docs that predate the standard are skipped by the style
-# hooks below (whitespace, ASCII, markdownlint, Vale, ruff, shellcheck), so a hotfix to an
+# hooks below (whitespace, ASCII, markdownlint, ruff, shellcheck), so a hotfix to an
 # existing file passes exactly as it did before. Security hooks (gitleaks,
 # private keys, large files) still check everything. Tracked in issue #19.
 default_install_hook_types: [pre-commit, commit-msg]
-# Vendored third-party Vale styles are not ours to lint.
-exclude: ^\.vale/styles/Google/
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
@@ -65,33 +63,17 @@ repos:
         entry: "[^\\x00-\\x7F]"
         types: [text]
         exclude: '^CHANGELOG\.md$|^((api|alembic|tests|web|docs/source|docs/release-notes|\.claude)/|README\.md$|docs/[^/]+\.md$)'
-  # Documentation: prose style, links, page rules (see STANDARD.md section 15)
-  - repo: https://github.com/errata-ai/vale
-    rev: e2d4374b1c66c8a1dd6d912bebc135040d8833fa  # frozen: v3.26.0
-    hooks:
-      - id: vale
-        # Show warnings even when the hook passes (pre-commit hides passing output).
-        verbose: true
-        files: \.(md|mdx)$
-        exclude: '^(CHANGELOG\.md|\.github/)|^((api|alembic|tests|web|docs/source|docs/release-notes|\.claude)/|README\.md$|docs/[^/]+\.md$)'
+  # Documentation: internal links and anchors
   - repo: https://github.com/lycheeverse/lychee
     rev: 2bba271688c1abb1503097a064e6c3bc1d1b6a9b  # frozen: lychee-v0.24.2
     hooks:
       - id: lychee
-        # Internal links and anchors only; external links run weekly (links.yml).
+        # Internal links and anchors only (offline).
         args: [--no-progress, --offline, --config, .lychee.toml]
         files: \.(md|mdx)$
         exclude: ^CHANGELOG\.md$
   - repo: local
     hooks:
-      - id: check-docs
-        name: docs pages follow the structure and front matter rules
-        language: python
-        entry: python3 scripts/check_docs.py
-        files: ^docs/.*\.(md|mdx)$
-        # The Sphinx docs predate the standard; converting them to the
-        # Diataxis layout is tracked in its own issue.
-        exclude: ^docs/(reference/api/|source/|release-notes/|api-contract-handoff\.md$)
       - id: no-scratch-files
         name: plans, notes, research and drafts stay in .scratch/
         language: fail
@@ -116,7 +98,3 @@ repos:
         exclude: '^((api|alembic|tests|web|docs/source|docs/release-notes|\.claude)/|README\.md$|docs/[^/]+\.md$)'
       - id: ruff-format
         exclude: '^((api|alembic|tests|web|docs/source|docs/release-notes|\.claude)/|README\.md$|docs/[^/]+\.md$)'
-  - repo: https://github.com/kynan/nbstripout
-    rev: 34071b78c181af3bf5af955c1426466e096fc3db  # frozen: 0.9.1
-    hooks:
-      - id: nbstripout

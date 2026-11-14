@@ -80,7 +80,8 @@
           "path": "web/package-lock.json",
           "jsonpath": "$.packages[''].version"
         }
-      ]
+      ],
+      "skip-changelog": true
     }
   },
   "bootstrap-sha": "eb7a6a5124525a17be29b8d2d9102257ee48e0f2",
