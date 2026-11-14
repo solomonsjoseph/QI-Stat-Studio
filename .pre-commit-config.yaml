@@ -4,7 +4,7 @@
 # Hook revs are frozen to commit SHAs. Dependabot (pre-commit ecosystem)
 # proposes updates; or run: pre-commit autoupdate --freeze
 # Beta: code and docs that predate the standard are skipped by the style
-# hooks below (whitespace, ASCII, markdownlint, Vale, ruff), so a hotfix to an
+# hooks below (whitespace, ASCII, markdownlint, Vale, ruff, shellcheck), so a hotfix to an
 # existing file passes exactly as it did before. Security hooks (gitleaks,
 # private keys, large files) still check everything. Tracked in issue #19.
 default_install_hook_types: [pre-commit, commit-msg]
@@ -46,6 +46,7 @@ repos:
     hooks:
       - id: shellcheck
         args: [--external-sources, --source-path=SCRIPTDIR]
+        exclude: '^scripts/(dev|setup)\.sh$'
   - repo: https://github.com/adrienverge/yamllint
     rev: cba56bcde1fdd01c1deb3f945e69764c291a6530  # frozen: v1.38.0
     hooks:
