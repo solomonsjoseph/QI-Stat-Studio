@@ -1,5 +1,5 @@
-# Opens and updates the release PR; merging it tags vX.Y.Z, updates
-# CHANGELOG.md and creates the GitHub Release.
+# Opens and updates the release PR; merging it tags vX.Y.Z and creates the
+# GitHub Release. CHANGELOG.md is hand-written (skip-changelog is set).
 # Uses a GitHub App token so the release PR triggers the required checks.
 # Setup per repo: variable RELEASE_APP_CLIENT_ID, secret RELEASE_APP_PRIVATE_KEY,
 # and the release App installed on the repo. Until all three exist the job

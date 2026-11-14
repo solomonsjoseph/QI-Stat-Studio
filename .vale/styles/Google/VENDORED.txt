@@ -1,5 +1,0 @@
-Vendored from https://github.com/errata-ai/Google release v0.7.1 (MIT).
-Update by replacing this folder with a newer release; do not edit rules here.
-Local change for the ASCII-only source rule: non-ASCII characters in comments
-were replaced with "--", and the em and en dash in EmDash.yml are written as
-the regex escapes \x{2014} and \x{2013}.
