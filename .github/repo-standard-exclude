@@ -1,0 +1,22 @@
+# Standard files, hooks and .gitignore lines this repo does not use.
+# repo-standard's apply-overlay.sh never adds them back; audit.sh reports N/A.
+.vale.ini                  # Vale: only reached files the standard itself added
+.vale/
+hook:vale
+.github/workflows/scorecard.yml   # informational only; CodeQL covers security
+.github/workflows/links.yml       # weekly external link check; offline lychee hook kept
+CODE_OF_CONDUCT.md         # no license and no outside contributors
+.github/CODEOWNERS         # single maintainer
+.github/ISSUE_TEMPLATE/bug_report.yml   # testers use beta-bug-report.md
+docs/index.md              # docs are Sphinx, in docs/source/
+docs/dev/                  # developer docs live in docs/source/developer-guide/
+scripts/check_docs.py
+hook:check-docs
+hook:nbstripout            # no notebooks
+pyproject.toml             # pip project: requirements.txt and requirements-dev.txt
+LICENSE                    # no license for now (owner decision, 2026-11-12)
+gitignore:docs/reference/api/
+gitignore:site/
+gitignore:.astro/
+gitignore:.vscode/*        # removed during the pilot
+gitignore:!.vscode/extensions.json
